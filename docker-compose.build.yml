@@ -1,0 +1,27 @@
+# docker-compose.build.yml
+# Used for building and pushing images to Docker Hub
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      platform: linux/arm64
+      args:
+        DOCKER_BUILDKIT: 1
+    image: ${DOCKERHUB_USERNAME}/web-app-template-frontend:latest
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      platform: linux/arm64
+      args:
+        DOCKER_BUILDKIT: 1
+    image: ${DOCKERHUB_USERNAME}/web-app-template-backend:latest
+    depends_on:
+      - frontend
+    volumes:
+      - web-app-template-data:/data
+
+volumes:
+  web-app-template-data:

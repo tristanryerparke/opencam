@@ -1,0 +1,44 @@
+# Version control
+.git
+.gitignore
+.github
+
+# Python cache and build artifacts
+__pycache__
+*.py[oc]
+*.egg-info
+build/
+dist/
+wheels/
+
+# Virtual environment
+.venv
+
+# Development databases and logs
+data_log.db
+data_log.jsonl
+database.json
+
+# IDE and editor settings
+.vscode
+.zed
+.claude
+.DS_Store
+
+# Frontend (built separately)
+frontend/
+
+# Docker files (not needed in image)
+Dockerfile
+docker-compose*.yml
+.dockerignore
+
+# Development and migration scripts
+migrate_geofence.py
+remove_home_entries.py
+
+# Documentation
+README.md
+
+# Data files
+geofence_data.json

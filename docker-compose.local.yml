@@ -1,0 +1,33 @@
+# docker-compose.dev.yml
+# Used for local development - builds and runs images without pushing to Docker Hub
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      platform: linux/arm64
+      args:
+        DOCKER_BUILDKIT: 1
+    ports:
+      - "9091:80"    # HTTP
+      - "9092:443"   # HTTPS
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      platform: linux/arm64
+      args:
+        DOCKER_BUILDKIT: 1
+    ports:
+      - "9090:9090"
+    depends_on:
+      - frontend
+    restart: unless-stopped
+    volumes:
+      - web-app-template-data:/data
+
+volumes:
+  web-app-template-data:
+

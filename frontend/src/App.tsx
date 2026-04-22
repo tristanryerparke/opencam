@@ -98,6 +98,22 @@ function sanitizeNumericInput(
   return `${integerPart}.${decimalPart.slice(0, maxDecimalPlaces)}`;
 }
 
+function formatNumericValue(
+  value: number,
+  options?: NumericSanitizerOptions,
+) {
+  if (!Number.isFinite(value)) {
+    return "";
+  }
+
+  const formatted = sanitizeNumericInput(
+    value.toFixed(options?.maxDecimalPlaces ?? 3),
+    options,
+  );
+
+  return Number(formatted) === 0 ? "0" : formatted;
+}
+
 function getPolylineLength(points: ReadonlyArray<PolylinePoint>) {
   let total = 0;
 
@@ -217,7 +233,10 @@ function App() {
     setFaceSelectionMode(false);
     setFormValues((current) => ({
       ...current,
-      zMin: selection.planeZ != null ? String(selection.planeZ) : "",
+      zMin:
+        selection.planeZ != null
+          ? formatNumericValue(selection.planeZ, { allowNegative: true })
+          : "",
       zMax: "",
     }));
   }, []);

@@ -285,20 +285,14 @@ function getSelectionBoundaryEdges(
     .map<BoundaryEdge>(({ start, end }) => ({ start, end }));
 }
 
-function createBoundarySegments(
-  geometry: THREE.BufferGeometry,
-  selectionData: MeshSelectionData,
-  triangleIndices: ReadonlyArray<number>,
-) {
-  const positionAttribute = geometry.getAttribute("position");
-  const boundaryEdges = getSelectionBoundaryEdges(selectionData, triangleIndices);
+function createBoundarySegments(boundaryLoop: ReadonlyArray<PolylinePoint>) {
   const positions: number[] = [];
 
-  for (const edge of boundaryEdges) {
-    const start = getVertex(positionAttribute, edge.start);
-    const end = getVertex(positionAttribute, edge.end);
+  for (let index = 1; index < boundaryLoop.length; index += 1) {
+    const [startX, startY, startZ] = boundaryLoop[index - 1];
+    const [endX, endY, endZ] = boundaryLoop[index];
 
-    positions.push(start.x, start.y, start.z, end.x, end.y, end.z);
+    positions.push(startX, startY, startZ, endX, endY, endZ);
   }
 
   return positions;
@@ -611,11 +605,11 @@ export function PolylineViewer({
       return;
     }
 
-    const boundaryPositions = createBoundarySegments(
-      mesh.geometry,
-      selectionData,
-      selection.triangleIndices,
-    );
+    if (!selection.boundaryLoop) {
+      return;
+    }
+
+    const boundaryPositions = createBoundarySegments(selection.boundaryLoop);
 
     if (boundaryPositions.length > 0) {
       const outlineGeometry = new LineSegmentsGeometry();

@@ -1,8 +1,10 @@
-import logging
 from datetime import datetime
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+from models import Path
+from profiling import ClosedProfilingEngine
 
 app = FastAPI(title="Time Tracker API", version="0.2.0")
 
@@ -14,6 +16,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 @app.get("/test")
 async def root():
     return {"message": "hello from web-app-template"}
@@ -22,3 +25,8 @@ async def root():
 @app.get("/ping")
 async def ping():
     return {"status": "ok", "timestamp": datetime.now().isoformat()}
+
+
+@app.post("/profile/closed", response_model=Path)
+async def profile_closed(engine: ClosedProfilingEngine):
+    return engine.process().model_dump(mode="json")

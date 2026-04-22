@@ -3,7 +3,7 @@ from datetime import datetime
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from models import Path
+from models import ToolpathOperation
 from pocketing import ClosedPocketingEngine
 from profiling import ClosedProfilingEngine
 
@@ -28,17 +28,17 @@ async def ping():
     return {"status": "ok", "timestamp": datetime.now().isoformat()}
 
 
-@app.post("/profile/closed", response_model=list[Path])
+@app.post("/profile/closed", response_model=ToolpathOperation)
 async def profile_closed(engine: ClosedProfilingEngine):
     try:
-        return engine.process()
+        return ToolpathOperation(tool=engine.tool, paths=engine.process())
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@app.post("/pocket/closed", response_model=list[Path])
+@app.post("/pocket/closed", response_model=ToolpathOperation)
 async def pocket_closed(engine: ClosedPocketingEngine):
     try:
-        return engine.process()
+        return ToolpathOperation(tool=engine.tool, paths=engine.process())
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

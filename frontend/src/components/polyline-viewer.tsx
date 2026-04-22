@@ -9,6 +9,8 @@ import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
 import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
 import { mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
+import { SCSRenderer } from "@/simulation/scs/scs-renderer";
+import { type SimulationSamplePoint, type ToolData } from "@/simulation/toolpath";
 import { cn } from "@/lib/utils";
 
 export type PolylinePoint = readonly [number, number, number];
@@ -39,6 +41,10 @@ type PolylineViewerProps = {
   className?: string;
   faceSelectionMode?: boolean;
   selectedMeshFace?: MeshFaceSelection | null;
+  simulationTool?: ToolData | null;
+  simulationSamples?: ReadonlyArray<SimulationSamplePoint>;
+  simulationStep?: number;
+  showOriginalMesh?: boolean;
   onMeshFaceSelect?: (selection: MeshFaceSelection) => void;
 };
 
@@ -64,6 +70,9 @@ const POLYLINE_LINEWIDTH = 2;
 const NORMAL_ALIGNMENT_EPSILON = 0.9999;
 const DISPLAY_EDGE_THRESHOLD_ANGLE_DEGREES = 0.001;
 const PLANE_EPSILON = 0.001;
+const STOCK_COLOR = 0xcbd5e1;
+const CUT_SURFACE_COLOR = 0xfb923c;
+const TOOL_PREVIEW_COLOR = 0xf59e0b;
 const DEFAULT_SCENE_BOUNDS = new THREE.Box3(
   new THREE.Vector3(-90, -90, 0),
   new THREE.Vector3(110, 90, 90),
@@ -144,7 +153,7 @@ function fitCameraToBox(
   camera.updateProjectionMatrix();
 
   controls.target.copy(center);
-  controls.minDistance = Math.max(maxDimension * 0.0025, 0.05);
+  controls.minDistance = Math.max(maxDimension * 0.0005, 0.01);
   controls.maxDistance = maxDimension * 12;
   controls.update();
 }
@@ -175,6 +184,29 @@ function clearGroup(group: THREE.Group) {
     group.remove(child);
     disposeObject(child);
   }
+}
+
+function createSimulationStockMesh(bounds: THREE.Box3) {
+  const size = bounds.getSize(new THREE.Vector3());
+  const center = bounds.getCenter(new THREE.Vector3());
+  const geometry = new THREE.BoxGeometry(
+    Math.max(size.x, 0.001),
+    Math.max(size.y, 0.001),
+    Math.max(size.z, 0.001),
+  );
+  const material = new THREE.MeshBasicMaterial({
+    color: STOCK_COLOR,
+  });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.position.copy(center);
+  mesh.updateMatrixWorld(true);
+  return mesh;
+}
+
+function createBaseSimulationCylinderGeometry() {
+  const geometry = new THREE.CylinderGeometry(0.5, 0.5, 1, 24, 1, false);
+  geometry.rotateX(Math.PI / 2);
+  return geometry;
 }
 
 function createMeshSelectionData(geometry: THREE.BufferGeometry): MeshSelectionData {
@@ -526,6 +558,10 @@ export function PolylineViewer({
   className,
   faceSelectionMode = false,
   selectedMeshFace = null,
+  simulationTool = null,
+  simulationSamples = [],
+  simulationStep = 0,
+  showOriginalMesh = true,
   onMeshFaceSelect,
 }: PolylineViewerProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -541,9 +577,20 @@ export function PolylineViewer({
   const selectionHighlightGroupRef = useRef<THREE.Group | null>(null);
   const selectionOutlineMaterialRef = useRef<LineMaterial | null>(null);
   const polylineMaterialsRef = useRef<LineMaterial[]>([]);
+  const scsRendererRef = useRef<SCSRenderer | null>(null);
+  const simulationDummyMeshRef = useRef<THREE.Mesh | null>(null);
+  const simulationToolPreviewMeshRef = useRef<THREE.Mesh | null>(null);
+  const simulationStockMeshRef = useRef<THREE.Mesh | null>(null);
+  const simulationCutterGeometryRef = useRef<THREE.CylinderGeometry | null>(null);
+  const simulationCutterMaterialRef = useRef<THREE.MeshBasicMaterial | null>(null);
+  const simulationCuttersRef = useRef<THREE.Mesh[]>([]);
+  const simulationPreparedStepRef = useRef(0);
   const faceSelectionModeRef = useRef(faceSelectionMode);
   const onMeshFaceSelectRef = useRef(onMeshFaceSelect);
   const selectedMeshFaceRef = useRef(selectedMeshFace);
+  const simulationToolRef = useRef<ToolData | null>(simulationTool);
+  const simulationSamplesRef = useRef<ReadonlyArray<SimulationSamplePoint>>(simulationSamples);
+  const simulationStepRef = useRef(simulationStep);
   const hasUserInteractedRef = useRef(false);
 
   useEffect(() => {
@@ -566,6 +613,122 @@ export function PolylineViewer({
   useEffect(() => {
     selectedMeshFaceRef.current = selectedMeshFace;
   }, [selectedMeshFace]);
+
+  const clearSimulationResources = useCallback(() => {
+    if (simulationStockMeshRef.current) {
+      simulationStockMeshRef.current.geometry.dispose();
+      const stockMaterial = Array.isArray(simulationStockMeshRef.current.material)
+        ? simulationStockMeshRef.current.material
+        : [simulationStockMeshRef.current.material];
+      stockMaterial.forEach((material) => material.dispose());
+      simulationStockMeshRef.current = null;
+    }
+
+    if (simulationToolPreviewMeshRef.current) {
+      simulationToolPreviewMeshRef.current.visible = false;
+    }
+
+    simulationCuttersRef.current = [];
+    simulationPreparedStepRef.current = 0;
+  }, []);
+
+  const updateToolPreview = useCallback(() => {
+    const previewMesh = simulationToolPreviewMeshRef.current;
+    const tool = simulationToolRef.current;
+    const samples = simulationSamplesRef.current;
+    const step = simulationStepRef.current;
+
+    if (!previewMesh || !tool || step <= 0 || samples.length === 0) {
+      if (previewMesh) {
+        previewMesh.visible = false;
+      }
+      return;
+    }
+
+    const sample = samples[Math.min(step, samples.length) - 1];
+    previewMesh.scale.set(tool.diameter, tool.diameter, tool.cuttingHeight);
+    previewMesh.position.set(sample.x, sample.y, sample.z + tool.cuttingHeight / 2);
+    previewMesh.visible = true;
+    previewMesh.updateMatrixWorld(true);
+  }, []);
+
+  const prepareSimulationCutters = useCallback((targetStep: number) => {
+    const tool = simulationToolRef.current;
+    const samples = simulationSamplesRef.current;
+    const baseGeometry = simulationCutterGeometryRef.current;
+    const cutterMaterial = simulationCutterMaterialRef.current;
+
+    if (!tool || !baseGeometry || !cutterMaterial) {
+      return;
+    }
+
+    const clampedTargetStep = Math.max(0, Math.min(targetStep, samples.length));
+    for (
+      let index = simulationPreparedStepRef.current;
+      index < clampedTargetStep;
+      index += 1
+    ) {
+      const sample = samples[index];
+      const cutter = new THREE.Mesh(baseGeometry, cutterMaterial);
+      cutter.scale.set(tool.diameter, tool.diameter, tool.cuttingHeight);
+      cutter.position.set(sample.x, sample.y, sample.z + tool.cuttingHeight / 2);
+      cutter.updateMatrixWorld(true);
+      simulationCuttersRef.current.push(cutter);
+    }
+
+    simulationPreparedStepRef.current = Math.max(
+      simulationPreparedStepRef.current,
+      clampedTargetStep,
+    );
+  }, []);
+
+  const rebuildSimulationResources = useCallback(() => {
+    clearSimulationResources();
+
+    const tool = simulationToolRef.current;
+    const samples = simulationSamplesRef.current;
+    const bounds = meshBoundsRef.current;
+
+    if (!tool || samples.length === 0 || !bounds) {
+      updateToolPreview();
+      return;
+    }
+
+    if (!simulationCutterGeometryRef.current) {
+      simulationCutterGeometryRef.current = createBaseSimulationCylinderGeometry();
+    }
+
+    if (!simulationCutterMaterialRef.current) {
+      simulationCutterMaterialRef.current = new THREE.MeshBasicMaterial({
+        color: CUT_SURFACE_COLOR,
+      });
+    }
+
+    simulationStockMeshRef.current = createSimulationStockMesh(bounds);
+    prepareSimulationCutters(simulationStepRef.current);
+    updateToolPreview();
+  }, [clearSimulationResources, prepareSimulationCutters, updateToolPreview]);
+
+  useEffect(() => {
+    simulationToolRef.current = simulationTool;
+    simulationSamplesRef.current = simulationSamples;
+    rebuildSimulationResources();
+  }, [rebuildSimulationResources, simulationSamples, simulationTool]);
+
+  useEffect(() => {
+    simulationStepRef.current = simulationStep;
+    prepareSimulationCutters(simulationStep);
+    updateToolPreview();
+  }, [prepareSimulationCutters, simulationStep, updateToolPreview]);
+
+  useEffect(() => {
+    const meshGroup = meshGroupRef.current;
+    if (!meshGroup) {
+      return;
+    }
+
+    meshGroup.visible = faceSelectionMode || showOriginalMesh || !simulationTool;
+  }, [faceSelectionMode, showOriginalMesh, simulationTool]);
 
   const renderSelectionHighlight = useCallback((selection: MeshFaceSelection | null) => {
     const mesh = meshRef.current;
@@ -611,7 +774,7 @@ export function PolylineViewer({
         linewidth: POLYLINE_LINEWIDTH,
         transparent: true,
         opacity: 1,
-        depthTest: true,
+        depthTest: false,
         depthWrite: false,
       });
       outlineMaterial.resolution.set(
@@ -620,6 +783,7 @@ export function PolylineViewer({
       );
 
       const outline = new LineSegments2(outlineGeometry, outlineMaterial);
+      outline.renderOrder = 10;
       selectionHighlightGroup.add(outline);
       selectionOutlineMaterialRef.current = outlineMaterial;
     }
@@ -641,6 +805,7 @@ export function PolylineViewer({
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.autoClear = false;
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.domElement.style.width = "100%";
     renderer.domElement.style.height = "100%";
@@ -696,6 +861,32 @@ export function PolylineViewer({
     const meshGroup = new THREE.Group();
     scene.add(meshGroup);
     meshGroupRef.current = meshGroup;
+
+    const simulationToolPreviewGeometry = createBaseSimulationCylinderGeometry();
+    const simulationToolPreviewMesh = new THREE.Mesh(
+      simulationToolPreviewGeometry,
+      new THREE.MeshStandardMaterial({
+        color: TOOL_PREVIEW_COLOR,
+        transparent: true,
+        opacity: 0.35,
+        roughness: 0.45,
+        metalness: 0.05,
+      }),
+    );
+    simulationToolPreviewMesh.visible = false;
+    scene.add(simulationToolPreviewMesh);
+    simulationToolPreviewMeshRef.current = simulationToolPreviewMesh;
+
+    const simulationDummyMesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(1, 1),
+      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0 }),
+    );
+    simulationDummyMesh.position.set(1_000_000, 1_000_000, 1_000_000);
+    simulationDummyMesh.visible = false;
+    scene.add(simulationDummyMesh);
+    simulationDummyMeshRef.current = simulationDummyMesh;
+
+    scsRendererRef.current = new SCSRenderer(renderer);
 
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
@@ -761,7 +952,29 @@ export function PolylineViewer({
 
     const render = () => {
       controls.update();
+      renderer.clear();
       renderer.render(scene, camera);
+
+      const scsRenderer = scsRendererRef.current;
+      const simulationStock = simulationStockMeshRef.current;
+      const simulationDummyMesh = simulationDummyMeshRef.current;
+
+      if (scsRenderer && simulationStock && simulationDummyMesh) {
+        const activeCutters = simulationCuttersRef.current.slice(
+          0,
+          Math.min(simulationStepRef.current, simulationCuttersRef.current.length),
+        );
+
+        renderer.clearDepth();
+        scsRenderer.renderSubtract(
+          scene,
+          camera,
+          simulationStock,
+          activeCutters,
+          simulationDummyMesh,
+        );
+      }
+
       animationFrame = window.requestAnimationFrame(render);
     };
 
@@ -772,6 +985,10 @@ export function PolylineViewer({
       resizeObserver.disconnect();
       renderer.domElement.removeEventListener("pointerdown", handlePointerDown);
       controls.dispose();
+      clearSimulationResources();
+      simulationCutterGeometryRef.current?.dispose();
+      simulationCutterMaterialRef.current?.dispose();
+      scsRendererRef.current?.dispose();
       disposeObject(scene);
       renderer.dispose();
 
@@ -790,8 +1007,16 @@ export function PolylineViewer({
       selectionHighlightGroupRef.current = null;
       selectionOutlineMaterialRef.current = null;
       polylineMaterialsRef.current = [];
+      scsRendererRef.current = null;
+      simulationDummyMeshRef.current = null;
+      simulationToolPreviewMeshRef.current = null;
+      simulationStockMeshRef.current = null;
+      simulationCutterGeometryRef.current = null;
+      simulationCutterMaterialRef.current = null;
+      simulationCuttersRef.current = [];
+      simulationPreparedStepRef.current = 0;
     };
-  }, [renderSelectionHighlight]);
+  }, [clearSimulationResources, renderSelectionHighlight]);
 
   useEffect(() => {
     const meshGroup = meshGroupRef.current;
@@ -803,6 +1028,7 @@ export function PolylineViewer({
     }
 
     clearGroup(meshGroup);
+    clearSimulationResources();
     meshRef.current = null;
     meshSelectionDataRef.current = null;
     meshBoundsRef.current = null;
@@ -849,6 +1075,8 @@ export function PolylineViewer({
         });
         const mesh = new THREE.Mesh(weldedGeometry, meshMaterial);
         meshGroup.add(mesh);
+        meshGroup.visible =
+          faceSelectionModeRef.current || showOriginalMesh || !simulationToolRef.current;
         meshRef.current = mesh;
 
         const meshEdges = new THREE.LineSegments(
@@ -875,6 +1103,7 @@ export function PolylineViewer({
         }
 
         renderSelectionHighlight(selectedMeshFaceRef.current);
+        rebuildSimulationResources();
       } catch (error) {
         if (!cancelled) {
           console.error("Failed to load STL mesh", error);
@@ -887,13 +1116,14 @@ export function PolylineViewer({
     return () => {
       cancelled = true;
       clearGroup(meshGroup);
+      clearSimulationResources();
       meshRef.current = null;
       meshSelectionDataRef.current = null;
       meshBoundsRef.current = null;
       selectionHighlightGroupRef.current = null;
       selectionOutlineMaterialRef.current = null;
     };
-  }, [meshUrl, renderSelectionHighlight]);
+  }, [clearSimulationResources, meshUrl, rebuildSimulationResources, renderSelectionHighlight, showOriginalMesh]);
 
   useEffect(() => {
     const polylineGroup = polylineGroupRef.current;
@@ -958,32 +1188,11 @@ export function PolylineViewer({
     >
       <div ref={containerRef} className="h-full w-full" />
 
-      <div className="pointer-events-none absolute bottom-4 left-4 rounded-xl border bg-background/85 p-3 shadow-sm backdrop-blur">
-        {!meshUrl ? (
+      {!meshUrl ? (
+        <div className="pointer-events-none absolute bottom-4 left-4 rounded-xl border bg-background/85 p-3 shadow-sm backdrop-blur">
           <p className="text-xs text-muted-foreground">Upload an STL to begin.</p>
-        ) : null}
-
-        {polylines.length > 0 ? (
-          <div className="space-y-2">
-            <div className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
-              Visible paths
-            </div>
-            {polylines.map((polyline, index) => {
-              const color = polyline.color ?? POLYLINE_COLORS[index % POLYLINE_COLORS.length];
-
-              return (
-                <div key={polyline.id} className="flex items-center gap-2 text-sm">
-                  <span className="size-2.5 rounded-full" style={{ backgroundColor: color }} />
-                  <span className="font-medium">{polyline.name}</span>
-                  <span className="text-muted-foreground">{polyline.points.length} pts</span>
-                </div>
-              );
-            })}
-          </div>
-        ) : meshUrl ? (
-          <p className="text-xs text-muted-foreground">No generated toolpath yet.</p>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
     </div>
   );
 }

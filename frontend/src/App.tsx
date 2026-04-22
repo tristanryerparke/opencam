@@ -16,20 +16,18 @@ import {
   type PolylineDefinition,
   type PolylinePoint,
 } from "@/components/polyline-viewer";
+import { SimulationTimeline } from "@/components/simulation-timeline";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { getBackendUrl } from "@/hooks/useBackendConnection";
+import {
+  sampleToolpathLocations,
+  type SimulationSamplePoint,
+  type ToolData,
+  type ToolpathOperation,
+} from "@/simulation/toolpath";
 
-type GeneratedPathResponse = {
-  id: string;
-  name: string | null;
-  kind: "cut" | "clearance";
-  locations: Array<{
-    x: number;
-    y: number;
-    z: number;
-    comment?: string | null;
-  }>;
-};
+type GeneratedPathResponse = ToolpathOperation["paths"][number];
+type GeneratedOperationResponse = ToolpathOperation;
 
 type MeshCacheState = "idle" | "saving" | "ready" | "error";
 
@@ -41,6 +39,8 @@ type CachedMeshPayload = {
 };
 
 const CACHED_MESH_STORAGE_KEY = "opencam.cached-stl";
+const SIMULATION_SAMPLE_SPACING = 0.25;
+const SIMULATION_FRAME_INTERVAL_MS = 16;
 
 function isCachedMeshPayload(value: unknown): value is CachedMeshPayload {
   if (!value || typeof value !== "object") {
@@ -223,9 +223,13 @@ function App() {
   const [faceSelectionMode, setFaceSelectionMode] = useState(false);
   const [selectedOperation, setSelectedOperation] = useState<OperationType>("profile");
   const [selectedMeshFace, setSelectedMeshFace] = useState<MeshFaceSelection | null>(null);
-  const [generatedPaths, setGeneratedPaths] = useState<GeneratedPathResponse[]>([]);
+  const [generatedOperation, setGeneratedOperation] =
+    useState<GeneratedOperationResponse | null>(null);
   const [requestState, setRequestState] = useState<RequestState>("idle");
   const [requestMessage, setRequestMessage] = useState<string>("");
+  const [simulationStep, setSimulationStep] = useState(0);
+  const [simulationIsPlaying, setSimulationIsPlaying] = useState(false);
+  const [showOriginalMesh, setShowOriginalMesh] = useState(true);
   const [formValues, setFormValues] = useState<FormValues>({
     toolDiameter: "6.35",
     cuttingHeight: "12",
@@ -381,6 +385,9 @@ function App() {
     };
   }, [hasInitializedMeshCache, meshFile]);
 
+  const generatedPaths: GeneratedPathResponse[] = generatedOperation?.paths ?? [];
+  const generatedTool: ToolData | null = generatedOperation?.tool ?? null;
+
   const operationPolylines = useMemo<PolylineDefinition[]>(() => {
     return generatedPaths.map((path) => ({
       id: path.id,
@@ -400,6 +407,19 @@ function App() {
   const generatedPathPointCount = useMemo(() => {
     return generatedPaths.reduce((total, path) => total + path.locations.length, 0);
   }, [generatedPaths]);
+
+  const simulationSamples = useMemo(
+    () => sampleToolpathLocations(generatedPaths, SIMULATION_SAMPLE_SPACING),
+    [generatedPaths],
+  );
+
+  const currentSimulationSample = useMemo<SimulationSamplePoint | null>(() => {
+    if (simulationStep <= 0 || simulationSamples.length === 0) {
+      return null;
+    }
+
+    return simulationSamples[Math.min(simulationStep, simulationSamples.length) - 1] ?? null;
+  }, [simulationSamples, simulationStep]);
 
   const operationLabel = selectedOperation === "profile" ? "Closed profile" : "2.5D pocket";
   const generateButtonLabel =
@@ -423,6 +443,39 @@ function App() {
   const meshCacheStatusLabel =
     meshCacheState === "saving" ? "Caching STL in local storage..." : meshCacheMessage;
 
+  useEffect(() => {
+    setSimulationIsPlaying(false);
+    setSimulationStep(0);
+    setShowOriginalMesh(true);
+  }, [generatedOperation, meshUrl]);
+
+  useEffect(() => {
+    if (!simulationIsPlaying) {
+      return undefined;
+    }
+
+    if (simulationSamples.length === 0) {
+      setSimulationIsPlaying(false);
+      return undefined;
+    }
+
+    const intervalId = window.setInterval(() => {
+      setSimulationStep((current) => {
+        if (current >= simulationSamples.length) {
+          window.clearInterval(intervalId);
+          setSimulationIsPlaying(false);
+          return simulationSamples.length;
+        }
+
+        return current + 1;
+      });
+    }, SIMULATION_FRAME_INTERVAL_MS);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [simulationIsPlaying, simulationSamples.length]);
+
   function updateNumericField(
     field: NumericField,
     value: string,
@@ -436,7 +489,7 @@ function App() {
 
   const handleMeshFaceSelect = useCallback((selection: MeshFaceSelection) => {
     setSelectedMeshFace(selection);
-    setGeneratedPaths([]);
+    setGeneratedOperation(null);
     setRequestState("idle");
     setRequestMessage("");
     setFaceSelectionMode(false);
@@ -548,12 +601,12 @@ function App() {
         throw new Error(detail || "Backend request failed.");
       }
 
-      const paths = (await response.json()) as GeneratedPathResponse[];
-      setGeneratedPaths(paths);
+      const operation = (await response.json()) as GeneratedOperationResponse;
+      setGeneratedOperation(operation);
       setRequestState("success");
-      setRequestMessage(`${operationLabel} toolpaths generated.`);
+      setRequestMessage(`${operationLabel} toolpaths generated. Simulation samples ready.`);
     } catch (error) {
-      setGeneratedPaths([]);
+      setGeneratedOperation(null);
       setRequestState("error");
       setRequestMessage(
         error instanceof Error ? error.message : "Failed to generate toolpath.",
@@ -568,7 +621,7 @@ function App() {
     setMeshCacheMessage("");
     setMeshFile(file);
     setSelectedMeshFace(null);
-    setGeneratedPaths([]);
+    setGeneratedOperation(null);
     setRequestState("idle");
     setRequestMessage("");
     setFaceSelectionMode(false);
@@ -577,6 +630,28 @@ function App() {
       zMin: "",
       zMax: "",
     }));
+  }
+
+  function handleSimulationPlayPause() {
+    if (simulationSamples.length === 0) {
+      return;
+    }
+
+    if (simulationIsPlaying) {
+      setSimulationIsPlaying(false);
+      return;
+    }
+
+    if (simulationStep >= simulationSamples.length) {
+      setSimulationStep(0);
+    }
+
+    setSimulationIsPlaying(true);
+  }
+
+  function handleSimulationStepChange(step: number) {
+    setSimulationIsPlaying(false);
+    setSimulationStep(Math.max(0, Math.min(step, simulationSamples.length)));
   }
 
   return (
@@ -611,7 +686,7 @@ function App() {
             onToggleFaceSelection={() => setFaceSelectionMode((current) => !current)}
             onOperationChange={(operation) => {
               setSelectedOperation(operation);
-              setGeneratedPaths([]);
+              setGeneratedOperation(null);
               setRequestState("idle");
               setRequestMessage("");
             }}
@@ -625,15 +700,35 @@ function App() {
             onGenerateOperation={handleGenerateOperation}
           />
 
-          <main className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+          <main className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
             <PolylineViewer
               meshUrl={meshUrl}
               polylines={operationPolylines}
               faceSelectionMode={faceSelectionMode}
               selectedMeshFace={selectedMeshFace}
               onMeshFaceSelect={handleMeshFaceSelect}
+              simulationTool={generatedTool}
+              simulationSamples={simulationSamples}
+              simulationStep={simulationStep}
+              showOriginalMesh={showOriginalMesh}
               className="h-full min-h-0 flex-1 rounded-none border-0 shadow-none"
             />
+
+            {generatedTool && simulationSamples.length > 0 ? (
+              <SimulationTimeline
+                currentStep={simulationStep}
+                totalSteps={simulationSamples.length}
+                isPlaying={simulationIsPlaying}
+                sampleSpacing={SIMULATION_SAMPLE_SPACING}
+                showOriginalMesh={showOriginalMesh}
+                currentSample={currentSimulationSample}
+                onPlayPause={handleSimulationPlayPause}
+                onStepChange={handleSimulationStepChange}
+                onToggleShowOriginalMesh={() =>
+                  setShowOriginalMesh((current) => !current)
+                }
+              />
+            ) : null}
           </main>
         </div>
       </div>

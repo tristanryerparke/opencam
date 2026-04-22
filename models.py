@@ -50,6 +50,11 @@ class Path(CamelBaseModel):
         return LineString([(loc.x, loc.y, loc.z) for loc in self.locations])
 
 
+class ToolpathOperation(CamelBaseModel):
+    tool: Tool
+    paths: list[Path]
+
+
 if __name__ == "__main__":
     start = CutterLocationData(x=0, y=0, z=0, comment="start")
     end = CutterLocationData(x=10, y=5, z=-1)

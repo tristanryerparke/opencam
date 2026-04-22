@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { getBackendUrl } from "@/hooks/useBackendConnection";
+import { cn } from "@/lib/utils";
 
-export function ClickButton() {
+export function ClickButton({ className }: { className?: string }) {
   const [status, setStatus] = useState<"idle" | "connecting" | "success" | "failed">("idle");
 
   async function handleClick() {
@@ -26,11 +27,20 @@ export function ClickButton() {
   }[status];
 
   const buttonClass = {
-    idle: "w-60",
-    connecting: "w-60",
-    success: "w-60 !border-green-600 !text-green-600",
-    failed: "w-60 !border-red-600 !text-red-600",
+    idle: "w-full",
+    connecting: "w-full",
+    success: "w-full !border-green-600 !text-green-600",
+    failed: "w-full !border-red-600 !text-red-600",
   }[status];
 
-  return <Button variant="outline" className={buttonClass} onClick={handleClick} disabled={status === "connecting"}>{buttonText}</Button>;
+  return (
+    <Button
+      variant="outline"
+      className={cn(buttonClass, className)}
+      onClick={handleClick}
+      disabled={status === "connecting"}
+    >
+      {buttonText}
+    </Button>
+  );
 }

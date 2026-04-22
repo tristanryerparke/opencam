@@ -25,7 +25,7 @@ const applyTheme = (theme: Theme) => {
   }
 };
 
-export const useTheme = create<ThemeState>()(
+const useTheme = create<ThemeState>()(
   persist(
     (set) => ({
       theme: "system",
@@ -55,11 +55,11 @@ export function ModeToggle() {
 
   return (
     <Button
-      size="icon"
+      size="icon-sm"
       onClick={() => setTheme(nextMode)}
       aria-label="Toggle theme"
     >
-      <Icon className="h-[1.2rem] w-[1.2rem]" />
+      <Icon className="size-3.5" />
       <span className="sr-only">Toggle theme</span>
     </Button>
   );

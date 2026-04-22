@@ -1,9 +1,10 @@
 from datetime import datetime
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from models import Path
+from pocketing import ClosedPocketingEngine
 from profiling import ClosedProfilingEngine
 
 app = FastAPI(title="Time Tracker API", version="0.2.0")
@@ -27,6 +28,17 @@ async def ping():
     return {"status": "ok", "timestamp": datetime.now().isoformat()}
 
 
-@app.post("/profile/closed", response_model=Path)
+@app.post("/profile/closed", response_model=list[Path])
 async def profile_closed(engine: ClosedProfilingEngine):
-    return engine.process().model_dump(mode="json")
+    try:
+        return engine.process()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/pocket/closed", response_model=list[Path])
+async def pocket_closed(engine: ClosedPocketingEngine):
+    try:
+        return engine.process()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

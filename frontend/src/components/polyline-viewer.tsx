@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
+import { Line2 } from "three/examples/jsm/lines/Line2.js";
+import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
 import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
@@ -58,6 +60,7 @@ type BoundaryEdge = {
 };
 
 const POLYLINE_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"] as const;
+const POLYLINE_LINEWIDTH = 2;
 const NORMAL_ALIGNMENT_EPSILON = 0.9999;
 const DISPLAY_EDGE_THRESHOLD_ANGLE_DEGREES = 0.001;
 const PLANE_EPSILON = 0.001;
@@ -65,7 +68,6 @@ const DEFAULT_SCENE_BOUNDS = new THREE.Box3(
   new THREE.Vector3(-90, -90, 0),
   new THREE.Vector3(110, 90, 90),
 );
-const ENDPOINT_MARKER_PIXEL_RADIUS = 6;
 
 function edgeKey(a: number, b: number) {
   return a < b ? `${a}_${b}` : `${b}_${a}`;
@@ -145,17 +147,6 @@ function fitCameraToBox(
   controls.minDistance = Math.max(maxDimension * 0.0025, 0.05);
   controls.maxDistance = maxDimension * 12;
   controls.update();
-}
-
-function getWorldSpaceRadiusForPixels(
-  marker: THREE.Object3D,
-  camera: THREE.PerspectiveCamera,
-  renderer: THREE.WebGLRenderer,
-  pixelRadius: number,
-) {
-  const distance = camera.position.distanceTo(marker.getWorldPosition(new THREE.Vector3()));
-  const visibleHeight = 2 * distance * Math.tan((camera.fov * Math.PI) / 360);
-  return (pixelRadius * visibleHeight) / Math.max(renderer.domElement.clientHeight, 1);
 }
 
 function disposeObject(object: THREE.Object3D) {
@@ -549,7 +540,7 @@ export function PolylineViewer({
   const meshBoundsRef = useRef<THREE.Box3 | null>(null);
   const selectionHighlightGroupRef = useRef<THREE.Group | null>(null);
   const selectionOutlineMaterialRef = useRef<LineMaterial | null>(null);
-  const endpointMarkersRef = useRef<THREE.Mesh[]>([]);
+  const polylineMaterialsRef = useRef<LineMaterial[]>([]);
   const faceSelectionModeRef = useRef(faceSelectionMode);
   const onMeshFaceSelectRef = useRef(onMeshFaceSelect);
   const selectedMeshFaceRef = useRef(selectedMeshFace);
@@ -617,10 +608,11 @@ export function PolylineViewer({
 
       const outlineMaterial = new LineMaterial({
         color: 0xf59e0b,
-        linewidth: 4,
+        linewidth: POLYLINE_LINEWIDTH,
         transparent: true,
         opacity: 1,
-        depthTest: false,
+        depthTest: true,
+        depthWrite: false,
       });
       outlineMaterial.resolution.set(
         renderer.domElement.clientWidth,
@@ -755,6 +747,9 @@ export function PolylineViewer({
       camera.updateProjectionMatrix();
       renderer.setSize(width, height, false);
       selectionOutlineMaterialRef.current?.resolution.set(width, height);
+      for (const material of polylineMaterialsRef.current) {
+        material.resolution.set(width, height);
+      }
     };
 
     resize();
@@ -766,17 +761,6 @@ export function PolylineViewer({
 
     const render = () => {
       controls.update();
-
-      for (const marker of endpointMarkersRef.current) {
-        const radius = getWorldSpaceRadiusForPixels(
-          marker,
-          camera,
-          renderer,
-          ENDPOINT_MARKER_PIXEL_RADIUS,
-        );
-        marker.scale.setScalar(radius);
-      }
-
       renderer.render(scene, camera);
       animationFrame = window.requestAnimationFrame(render);
     };
@@ -805,7 +789,7 @@ export function PolylineViewer({
       meshBoundsRef.current = null;
       selectionHighlightGroupRef.current = null;
       selectionOutlineMaterialRef.current = null;
-      endpointMarkersRef.current = [];
+      polylineMaterialsRef.current = [];
     };
   }, [renderSelectionHighlight]);
 
@@ -913,13 +897,14 @@ export function PolylineViewer({
 
   useEffect(() => {
     const polylineGroup = polylineGroupRef.current;
+    const renderer = rendererRef.current;
 
-    if (!polylineGroup) {
+    if (!polylineGroup || !renderer) {
       return;
     }
 
     clearGroup(polylineGroup);
-    endpointMarkersRef.current = [];
+    polylineMaterialsRef.current = [];
 
     const bounds = getSceneBounds(polylines, meshBoundsRef.current);
     const camera = cameraRef.current;
@@ -929,43 +914,35 @@ export function PolylineViewer({
       fitCameraToBox(bounds, camera, controls);
     }
 
-    const size = bounds.getSize(new THREE.Vector3());
-    const maxDimension = Math.max(size.x, size.y, size.z, 1);
-    const markerGeometry = new THREE.SphereGeometry(1, 18, 18);
-
     polylines.forEach((polyline, index) => {
       const color = polyline.color ?? POLYLINE_COLORS[index % POLYLINE_COLORS.length];
-      const points = polyline.points.map(([x, y, z]) => new THREE.Vector3(x, y, z));
 
-      if (points.length < 2) {
+      if (polyline.points.length < 2) {
         return;
       }
 
-      const lineGeometry = new THREE.BufferGeometry().setFromPoints(points);
-      const lineMaterial = new THREE.LineBasicMaterial({ color });
-      const line = new THREE.Line(lineGeometry, lineMaterial);
+      const positions = polyline.points.flatMap(([x, y, z]) => [x, y, z]);
+      const lineGeometry = new LineGeometry();
+      lineGeometry.setPositions(positions);
+
+      const lineMaterial = new LineMaterial({
+        color,
+        linewidth: POLYLINE_LINEWIDTH,
+        transparent: true,
+        opacity: 1,
+        depthTest: false,
+        depthWrite: false,
+      });
+      lineMaterial.resolution.set(
+        renderer.domElement.clientWidth,
+        renderer.domElement.clientHeight,
+      );
+
+      const line = new Line2(lineGeometry, lineMaterial);
+      line.renderOrder = 10;
       polylineGroup.add(line);
-
-      const startMarker = new THREE.Mesh(
-        markerGeometry.clone(),
-        new THREE.MeshBasicMaterial({ color }),
-      );
-      startMarker.position.copy(points[0]);
-      startMarker.scale.setScalar(Math.max(maxDimension * 0.006, 0.6));
-      polylineGroup.add(startMarker);
-      endpointMarkersRef.current.push(startMarker);
-
-      const endMarker = new THREE.Mesh(
-        markerGeometry.clone(),
-        new THREE.MeshBasicMaterial({ color: "#ffffff" }),
-      );
-      endMarker.position.copy(points[points.length - 1]);
-      endMarker.scale.setScalar(Math.max(maxDimension * 0.006, 0.6));
-      polylineGroup.add(endMarker);
-      endpointMarkersRef.current.push(endMarker);
+      polylineMaterialsRef.current.push(lineMaterial);
     });
-
-    markerGeometry.dispose();
   }, [polylines]);
 
   useEffect(() => {

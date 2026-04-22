@@ -1,3 +1,5 @@
+from typing import Literal
+
 from devtools import debug as d
 import numpy as np
 import uuid
@@ -38,6 +40,7 @@ class CutterLocationData(CamelBaseModel):
 class Path(CamelBaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     name: str | None = None
+    kind: Literal["cut", "clearance"] = "cut"
     locations: list[CutterLocationData]
 
     def as_numpy(self):

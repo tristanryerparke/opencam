@@ -1,7 +1,5 @@
 from typing import Literal
 
-import math
-import numpy as np
 from op import BaseOperation
 from shapely.geometry import Polygon
 
@@ -15,13 +13,12 @@ class ClosedProfilingEngine(BaseOperation):
     z_step_height: float
     stock_to_leave: float = 0
 
-    def process(self):
+    def process(self) -> list[Path]:
         ring = self.ring.to_shapely()
-        top_z = max(self.z_bounds)
-        bottom_z = min(self.z_bounds)
-        depth_of_cut = top_z - bottom_z
-        intervals = max(1, math.ceil(depth_of_cut / self.z_step_height))
-        layer_heights = list(np.linspace(top_z, bottom_z, intervals + 1))
+        layer_heights = self.compute_layer_heights(
+            self.z_bounds,
+            self.z_step_height,
+        )
         offset_distance = self.tool.diameter / 2 + self.stock_to_leave
         if self.side == "inside":
             offset_distance = -offset_distance
@@ -33,4 +30,7 @@ class ClosedProfilingEngine(BaseOperation):
             for x, y in offset_ring
         ]
 
-        return Path(locations=locations)
+        return self.build_paths_with_clearance(
+            locations,
+            cut_path_name="Closed profile",
+        )

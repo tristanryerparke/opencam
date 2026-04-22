@@ -1,30 +1,28 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
 
+import {
+  AppSidebar,
+  type FormValues,
+  type NumericField,
+  type NumericSanitizerOptions,
+  type OperationType,
+  type RequestState,
+} from "@/components/app-sidebar";
+import { ModeToggle } from "@/components/mode-toggle";
 import {
   PolylineViewer,
   type MeshFaceSelection,
   type PolylineDefinition,
   type PolylinePoint,
 } from "@/components/polyline-viewer";
-import { ModeToggle } from "@/components/mode-toggle";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import {
-  Sidebar,
-  SidebarContent,
-  SidebarFooter,
-  SidebarGroup,
-  SidebarGroupContent,
-  SidebarGroupLabel,
-  SidebarProvider,
-  SidebarTrigger,
-} from "@/components/ui/sidebar";
+import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { getBackendUrl } from "@/hooks/useBackendConnection";
 
 type GeneratedPathResponse = {
   id: string;
   name: string | null;
+  kind: "cut" | "clearance";
   locations: Array<{
     x: number;
     y: number;
@@ -33,29 +31,97 @@ type GeneratedPathResponse = {
   }>;
 };
 
-type RequestState = "idle" | "submitting" | "success" | "error";
-type ProfilingSide = "outside" | "inside";
+type MeshCacheState = "idle" | "saving" | "ready" | "error";
 
-type FormValues = {
-  toolDiameter: string;
-  cuttingHeight: string;
-  maxDepthOfCut: string;
-  zStepHeight: string;
-  feedrate: string;
-  rpm: string;
-  zMin: string;
-  zMax: string;
-  stockToLeave: string;
-  side: ProfilingSide;
+type CachedMeshPayload = {
+  name: string;
+  type: string;
+  lastModified: number;
+  dataUrl: string;
 };
 
-type NumericField = Exclude<keyof FormValues, "side">;
+const CACHED_MESH_STORAGE_KEY = "opencam.cached-stl";
 
-type NumericSanitizerOptions = {
-  allowNegative?: boolean;
-  allowDecimal?: boolean;
-  maxDecimalPlaces?: number;
-};
+function isCachedMeshPayload(value: unknown): value is CachedMeshPayload {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const payload = value as Record<string, unknown>;
+
+  return (
+    typeof payload.name === "string" &&
+    typeof payload.type === "string" &&
+    typeof payload.lastModified === "number" &&
+    typeof payload.dataUrl === "string"
+  );
+}
+
+function fileToDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        resolve(reader.result);
+        return;
+      }
+
+      reject(new Error("Failed to read STL file."));
+    };
+
+    reader.onerror = () => {
+      reject(reader.error ?? new Error("Failed to read STL file."));
+    };
+
+    reader.readAsDataURL(file);
+  });
+}
+
+function dataUrlToFile(
+  dataUrl: string,
+  name: string,
+  type: string,
+  lastModified: number,
+) {
+  const commaIndex = dataUrl.indexOf(",");
+  if (commaIndex < 0) {
+    throw new Error("Invalid cached STL data.");
+  }
+
+  const header = dataUrl.slice(0, commaIndex);
+  const encoded = dataUrl.slice(commaIndex + 1);
+  const mimeMatch = header.match(/^data:(.*?);base64$/);
+  const mimeType = type || mimeMatch?.[1] || "model/stl";
+  const binary = atob(encoded);
+  const bytes = new Uint8Array(binary.length);
+
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+
+  return new File([bytes], name, {
+    type: mimeType,
+    lastModified,
+  });
+}
+
+async function getMeshVertexMaxZ(file: File) {
+  const loader = new STLLoader();
+  const buffer = await file.arrayBuffer();
+  const geometry = loader.parse(buffer);
+
+  geometry.computeBoundingBox();
+
+  const maxZ = geometry.boundingBox?.max.z ?? Number.NaN;
+  geometry.dispose();
+
+  if (!Number.isFinite(maxZ)) {
+    throw new Error("Unable to determine the mesh Z maximum.");
+  }
+
+  return maxZ;
+}
 
 function sanitizeNumericInput(
   value: string,
@@ -149,9 +215,15 @@ function parseNonNegativeNumber(value: string, label: string) {
 function App() {
   const [meshFile, setMeshFile] = useState<File | null>(null);
   const [meshUrl, setMeshUrl] = useState<string | null>(null);
+  const [meshCacheState, setMeshCacheState] = useState<MeshCacheState>("idle");
+  const [meshCacheMessage, setMeshCacheMessage] = useState<string>("");
+  const [hasInitializedMeshCache, setHasInitializedMeshCache] = useState(false);
+  const skipNextMeshCacheWrite = useRef(false);
+  const preserveMeshCacheMessageRef = useRef(false);
   const [faceSelectionMode, setFaceSelectionMode] = useState(false);
+  const [selectedOperation, setSelectedOperation] = useState<OperationType>("profile");
   const [selectedMeshFace, setSelectedMeshFace] = useState<MeshFaceSelection | null>(null);
-  const [generatedPath, setGeneratedPath] = useState<GeneratedPathResponse | null>(null);
+  const [generatedPaths, setGeneratedPaths] = useState<GeneratedPathResponse[]>([]);
   const [requestState, setRequestState] = useState<RequestState>("idle");
   const [requestMessage, setRequestMessage] = useState<string>("");
   const [formValues, setFormValues] = useState<FormValues>({
@@ -163,9 +235,44 @@ function App() {
     rpm: "12000",
     zMin: "",
     zMax: "",
+    clearancePlaneHeight: "25.4",
+    stepover: "25",
     stockToLeave: "0",
     side: "outside",
   });
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      setHasInitializedMeshCache(true);
+      return;
+    }
+
+    try {
+      const cachedMesh = window.localStorage.getItem(CACHED_MESH_STORAGE_KEY);
+      if (!cachedMesh) {
+        return;
+      }
+
+      const parsed = JSON.parse(cachedMesh) as unknown;
+      if (!isCachedMeshPayload(parsed)) {
+        throw new Error("Invalid cached STL payload.");
+      }
+
+      skipNextMeshCacheWrite.current = true;
+      setMeshFile(
+        dataUrlToFile(parsed.dataUrl, parsed.name, parsed.type, parsed.lastModified),
+      );
+      setMeshCacheState("ready");
+      setMeshCacheMessage("Restored from local storage.");
+    } catch {
+      preserveMeshCacheMessageRef.current = true;
+      window.localStorage.removeItem(CACHED_MESH_STORAGE_KEY);
+      setMeshCacheState("error");
+      setMeshCacheMessage("Unable to restore the cached STL.");
+    } finally {
+      setHasInitializedMeshCache(true);
+    }
+  }, []);
 
   useEffect(() => {
     if (!meshFile) {
@@ -181,28 +288,126 @@ function App() {
     };
   }, [meshFile]);
 
-  const operationPolylines = useMemo<PolylineDefinition[]>(() => {
-    if (!generatedPath) {
-      return [];
+  useEffect(() => {
+    if (!meshFile) {
+      return undefined;
     }
 
-    return [
-      {
-        id: generatedPath.id,
-        name: generatedPath.name ?? "Generated profile",
-        color: "#1d4ed8",
-        points: generatedPath.locations.map(({ x, y, z }) => [x, y, z] as const),
-      },
-    ];
-  }, [generatedPath]);
+    let cancelled = false;
+
+    void getMeshVertexMaxZ(meshFile)
+      .then((maxZ) => {
+        if (cancelled) {
+          return;
+        }
+
+        setFormValues((current) => ({
+          ...current,
+          zMax: formatNumericValue(maxZ, { allowNegative: true }),
+        }));
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          console.error("Failed to determine mesh Z max", error);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [meshFile]);
+
+  useEffect(() => {
+    if (!hasInitializedMeshCache || typeof window === "undefined") {
+      return undefined;
+    }
+
+    if (skipNextMeshCacheWrite.current) {
+      skipNextMeshCacheWrite.current = false;
+      return undefined;
+    }
+
+    if (!meshFile) {
+      window.localStorage.removeItem(CACHED_MESH_STORAGE_KEY);
+      if (!preserveMeshCacheMessageRef.current) {
+        setMeshCacheState("idle");
+        setMeshCacheMessage("");
+      }
+      return undefined;
+    }
+
+    let cancelled = false;
+    preserveMeshCacheMessageRef.current = false;
+    window.localStorage.removeItem(CACHED_MESH_STORAGE_KEY);
+    setMeshCacheState("saving");
+    setMeshCacheMessage("");
+
+    void fileToDataUrl(meshFile)
+      .then((dataUrl) => {
+        if (cancelled) {
+          return;
+        }
+
+        const payload: CachedMeshPayload = {
+          name: meshFile.name,
+          type: meshFile.type || "model/stl",
+          lastModified: meshFile.lastModified,
+          dataUrl,
+        };
+
+        window.localStorage.setItem(
+          CACHED_MESH_STORAGE_KEY,
+          JSON.stringify(payload),
+        );
+        setMeshCacheState("ready");
+        setMeshCacheMessage("Cached in local storage.");
+      })
+      .catch((error: unknown) => {
+        if (cancelled) {
+          return;
+        }
+
+        window.localStorage.removeItem(CACHED_MESH_STORAGE_KEY);
+        setMeshCacheState("error");
+        setMeshCacheMessage(
+          error instanceof DOMException && error.name === "QuotaExceededError"
+            ? "This STL is too large to cache in local storage."
+            : "Unable to cache this STL in local storage.",
+        );
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [hasInitializedMeshCache, meshFile]);
+
+  const operationPolylines = useMemo<PolylineDefinition[]>(() => {
+    return generatedPaths.map((path) => ({
+      id: path.id,
+      name: path.name ?? (path.kind === "clearance" ? "Clearance move" : "Generated profile"),
+      color: path.kind === "clearance" ? "#dc2626" : "#1d4ed8",
+      points: path.locations.map(({ x, y, z }) => [x, y, z] as const),
+    }));
+  }, [generatedPaths]);
 
   const generatedPathLength = useMemo(() => {
-    if (operationPolylines.length === 0) {
-      return 0;
-    }
-
-    return getPolylineLength(operationPolylines[0].points);
+    return operationPolylines.reduce(
+      (total, polyline) => total + getPolylineLength(polyline.points),
+      0,
+    );
   }, [operationPolylines]);
+
+  const generatedPathPointCount = useMemo(() => {
+    return generatedPaths.reduce((total, path) => total + path.locations.length, 0);
+  }, [generatedPaths]);
+
+  const operationLabel = selectedOperation === "profile" ? "Closed profile" : "2.5D pocket";
+  const generateButtonLabel =
+    requestState === "submitting"
+      ? "Generating..."
+      : selectedOperation === "profile"
+        ? "Generate profile"
+        : "Generate pocket";
 
   const canGenerate = Boolean(
     meshUrl &&
@@ -213,6 +418,10 @@ function App() {
       formValues.zMin.trim() !== "" &&
       formValues.zMax.trim() !== "",
   );
+
+  const meshStatusLabel = meshFile ? meshFile.name : "No mesh loaded.";
+  const meshCacheStatusLabel =
+    meshCacheState === "saving" ? "Caching STL in local storage..." : meshCacheMessage;
 
   function updateNumericField(
     field: NumericField,
@@ -227,7 +436,7 @@ function App() {
 
   const handleMeshFaceSelect = useCallback((selection: MeshFaceSelection) => {
     setSelectedMeshFace(selection);
-    setGeneratedPath(null);
+    setGeneratedPaths([]);
     setRequestState("idle");
     setRequestMessage("");
     setFaceSelectionMode(false);
@@ -237,20 +446,19 @@ function App() {
         selection.planeZ != null
           ? formatNumericValue(selection.planeZ, { allowNegative: true })
           : "",
-      zMax: "",
     }));
   }, []);
 
-  async function handleGenerateProfile() {
+  async function handleGenerateOperation() {
     if (!selectedMeshFace) {
       setRequestState("error");
-      setRequestMessage("Select a face before generating a profile.");
+      setRequestMessage("Select a face before generating a toolpath.");
       return;
     }
 
     if (!selectedMeshFace.isParallelToXY || !selectedMeshFace.boundaryLoop || selectedMeshFace.validationError) {
       setRequestState("error");
-      setRequestMessage(selectedMeshFace.validationError ?? "Selected face cannot be profiled.");
+      setRequestMessage(selectedMeshFace.validationError ?? "Selected face cannot be machined.");
       return;
     }
 
@@ -269,6 +477,7 @@ function App() {
       const rpm = parsePositiveNumber(formValues.rpm, "RPM");
       const zMin = Number(formValues.zMin);
       const zMax = Number(formValues.zMax);
+      const clearancePlaneHeight = Number(formValues.clearancePlaneHeight);
       const stockToLeave = parseNonNegativeNumber(formValues.stockToLeave, "Stock to leave");
 
       if (!Number.isFinite(zMin)) {
@@ -279,43 +488,72 @@ function App() {
         throw new Error("Z max is required.");
       }
 
-      setRequestState("submitting");
-      setRequestMessage("Generating toolpath...");
+      if (!Number.isFinite(clearancePlaneHeight)) {
+        throw new Error("Clearance plane height is required.");
+      }
 
-      const response = await fetch(`${getBackendUrl()}/profile/closed`, {
+      if (clearancePlaneHeight <= Math.max(zMin, zMax)) {
+        throw new Error("Clearance plane height must be above the operation Z range.");
+      }
+
+      const requestBody: Record<string, unknown> = {
+        ring: {
+          vertices: selectedMeshFace.boundaryLoop.map(([x, y]) => ({ x, y })),
+        },
+        tool: {
+          diameter: toolDiameter,
+          cuttingHeight,
+          maxDepthOfCut,
+        },
+        feedrate,
+        rpm: Math.round(rpm),
+        zBounds: [zMin, zMax],
+        zStepHeight,
+        clearancePlaneHeight,
+        stockToLeave,
+      };
+
+      const endpoint =
+        selectedOperation === "profile" ? "/profile/closed" : "/pocket/closed";
+
+      if (selectedOperation === "profile") {
+        requestBody.side = formValues.side;
+      } else {
+        const stepover = parsePositiveNumber(formValues.stepover, "Stepover");
+        if (stepover > 100) {
+          throw new Error("Stepover must be 100 or less.");
+        }
+        requestBody.stepover = stepover;
+      }
+
+      setRequestState("submitting");
+      setRequestMessage(`Generating ${operationLabel.toLowerCase()} toolpath...`);
+
+      const response = await fetch(`${getBackendUrl()}${endpoint}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          ring: {
-            vertices: selectedMeshFace.boundaryLoop.map(([x, y]) => ({ x, y })),
-          },
-          side: formValues.side,
-          tool: {
-            diameter: toolDiameter,
-            cuttingHeight,
-            maxDepthOfCut,
-          },
-          feedrate,
-          rpm: Math.round(rpm),
-          zBounds: [zMin, zMax],
-          zStepHeight,
-          stockToLeave,
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       if (!response.ok) {
+        const contentType = response.headers.get("content-type") ?? "";
+        if (contentType.includes("application/json")) {
+          const payload = (await response.json()) as { detail?: string };
+          throw new Error(payload.detail ?? "Backend request failed.");
+        }
+
         const detail = await response.text();
         throw new Error(detail || "Backend request failed.");
       }
 
-      const path = (await response.json()) as GeneratedPathResponse;
-      setGeneratedPath(path);
+      const paths = (await response.json()) as GeneratedPathResponse[];
+      setGeneratedPaths(paths);
       setRequestState("success");
-      setRequestMessage("Toolpath generated.");
+      setRequestMessage(`${operationLabel} toolpaths generated.`);
     } catch (error) {
-      setGeneratedPath(null);
+      setGeneratedPaths([]);
       setRequestState("error");
       setRequestMessage(
         error instanceof Error ? error.message : "Failed to generate toolpath.",
@@ -324,12 +562,21 @@ function App() {
   }
 
   function handleMeshUpload(file: File | null) {
+    skipNextMeshCacheWrite.current = false;
+    preserveMeshCacheMessageRef.current = false;
+    setMeshCacheState(file ? "saving" : "idle");
+    setMeshCacheMessage("");
     setMeshFile(file);
     setSelectedMeshFace(null);
-    setGeneratedPath(null);
+    setGeneratedPaths([]);
     setRequestState("idle");
     setRequestMessage("");
     setFaceSelectionMode(false);
+    setFormValues((current) => ({
+      ...current,
+      zMin: "",
+      zMax: "",
+    }));
   }
 
   return (
@@ -345,242 +592,38 @@ function App() {
         </header>
 
         <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
-          <Sidebar>
-            <SidebarContent>
-              <SidebarGroup>
-                <SidebarGroupLabel>Mesh</SidebarGroupLabel>
-                <SidebarGroupContent>
-                  <div className="space-y-2 rounded-xl border border-sidebar-border bg-sidebar-accent/45 p-3">
-                    <div className="space-y-1">
-                      <Label htmlFor="mesh-upload">Upload STL</Label>
-                      <Input
-                        id="mesh-upload"
-                        type="file"
-                        accept=".stl,model/stl"
-                        onChange={(event) => handleMeshUpload(event.target.files?.[0] ?? null)}
-                      />
-                    </div>
-
-                    <p className="text-xs leading-5 text-sidebar-foreground/65">
-                      {meshFile ? meshFile.name : "No mesh loaded."}
-                    </p>
-                  </div>
-                </SidebarGroupContent>
-              </SidebarGroup>
-
-              <SidebarGroup>
-                <SidebarGroupLabel>Face selection</SidebarGroupLabel>
-                <SidebarGroupContent>
-                  <Button
-                    type="button"
-                    variant={faceSelectionMode ? "default" : "outline"}
-                    className="w-full justify-start"
-                    onClick={() => setFaceSelectionMode((current) => !current)}
-                    disabled={!meshUrl}
-                  >
-                    {faceSelectionMode ? "Click a mesh face in the viewport" : "Select XY-coplanar face"}
-                  </Button>
-
-                  <div className="rounded-xl border border-sidebar-border bg-sidebar-accent/45 p-3 text-sm">
-                    {selectedMeshFace ? (
-                      <div className="space-y-2">
-                        <div>
-                          <div className="font-medium">{selectedMeshFace.label}</div>
-                          <div className="mt-1 text-xs leading-5 text-sidebar-foreground/65">
-                            {selectedMeshFace.area.toFixed(0)} mm² · {selectedMeshFace.triangleCount} triangles
-                          </div>
-                        </div>
-
-                        {selectedMeshFace.planeZ != null ? (
-                          <div className="text-xs leading-5 text-sidebar-foreground/65">
-                            Plane Z: {selectedMeshFace.planeZ.toFixed(3)} mm
-                          </div>
-                        ) : null}
-
-                        {selectedMeshFace.boundaryLoop ? (
-                          <div className="text-xs leading-5 text-sidebar-foreground/65">
-                            Boundary loop: {selectedMeshFace.boundaryLoop.length - 1} edges
-                          </div>
-                        ) : null}
-
-                        <p className="text-xs leading-5 text-sidebar-foreground/65">
-                          {selectedMeshFace.validationError ?? "Ready to profile this face."}
-                        </p>
-                      </div>
-                    ) : (
-                      <p className="text-xs leading-5 text-sidebar-foreground/65">
-                        {meshUrl
-                          ? "No face selected. Pick a face that is coplanar to XY."
-                          : "Upload an STL to enable face selection."}
-                      </p>
-                    )}
-                  </div>
-                </SidebarGroupContent>
-              </SidebarGroup>
-
-              <SidebarGroup>
-                <SidebarGroupLabel>Profiling</SidebarGroupLabel>
-                <SidebarGroupContent>
-                  <div className="grid grid-cols-2 gap-2 rounded-xl border border-sidebar-border bg-sidebar-accent/45 p-3">
-                    <div className="space-y-1">
-                      <Label htmlFor="tool-diameter">Tool diameter</Label>
-                      <Input
-                        id="tool-diameter"
-                        type="text"
-                        inputMode="decimal"
-                        value={formValues.toolDiameter}
-                        onChange={(event) => updateNumericField("toolDiameter", event.target.value)}
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <Label htmlFor="cutting-height">Cutting height</Label>
-                      <Input
-                        id="cutting-height"
-                        type="text"
-                        inputMode="decimal"
-                        value={formValues.cuttingHeight}
-                        onChange={(event) => updateNumericField("cuttingHeight", event.target.value)}
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <Label htmlFor="max-depth">Max depth of cut</Label>
-                      <Input
-                        id="max-depth"
-                        type="text"
-                        inputMode="decimal"
-                        value={formValues.maxDepthOfCut}
-                        onChange={(event) => updateNumericField("maxDepthOfCut", event.target.value)}
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <Label htmlFor="z-step-height">Z step height</Label>
-                      <Input
-                        id="z-step-height"
-                        type="text"
-                        inputMode="decimal"
-                        value={formValues.zStepHeight}
-                        onChange={(event) => updateNumericField("zStepHeight", event.target.value)}
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <Label htmlFor="z-min">Z min</Label>
-                      <Input
-                        id="z-min"
-                        type="text"
-                        inputMode="decimal"
-                        value={formValues.zMin}
-                        onChange={(event) =>
-                          updateNumericField("zMin", event.target.value, { allowNegative: true })
-                        }
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <Label htmlFor="z-max">Z max</Label>
-                      <Input
-                        id="z-max"
-                        type="text"
-                        inputMode="decimal"
-                        value={formValues.zMax}
-                        onChange={(event) =>
-                          updateNumericField("zMax", event.target.value, { allowNegative: true })
-                        }
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <Label htmlFor="feedrate">Feedrate</Label>
-                      <Input
-                        id="feedrate"
-                        type="text"
-                        inputMode="numeric"
-                        value={formValues.feedrate}
-                        onChange={(event) =>
-                          updateNumericField("feedrate", event.target.value, { allowDecimal: false })
-                        }
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <Label htmlFor="rpm">RPM</Label>
-                      <Input
-                        id="rpm"
-                        type="text"
-                        inputMode="numeric"
-                        value={formValues.rpm}
-                        onChange={(event) =>
-                          updateNumericField("rpm", event.target.value, { allowDecimal: false })
-                        }
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <Label htmlFor="stock-to-leave">Stock to leave</Label>
-                      <Input
-                        id="stock-to-leave"
-                        type="text"
-                        inputMode="decimal"
-                        value={formValues.stockToLeave}
-                        onChange={(event) => updateNumericField("stockToLeave", event.target.value)}
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <Label htmlFor="profile-side">Profile side</Label>
-                      <select
-                        id="profile-side"
-                        value={formValues.side}
-                        onChange={(event) =>
-                          setFormValues((current) => ({
-                            ...current,
-                            side: event.target.value as ProfilingSide,
-                          }))
-                        }
-                        className="border-input focus-visible:border-ring focus-visible:ring-ring/50 dark:bg-input/30 h-9 w-full rounded-md border bg-transparent px-3 py-1 text-sm shadow-xs outline-none focus-visible:ring-[3px]"
-                      >
-                        <option value="outside">Outside</option>
-                        <option value="inside">Inside</option>
-                      </select>
-                    </div>
-                  </div>
-                </SidebarGroupContent>
-              </SidebarGroup>
-            </SidebarContent>
-
-            <SidebarFooter>
-              <div className="space-y-3 rounded-xl border border-sidebar-border bg-sidebar-accent/45 p-3">
-                <Button
-                  type="button"
-                  className="w-full"
-                  disabled={!canGenerate || requestState === "submitting"}
-                  onClick={handleGenerateProfile}
-                >
-                  {requestState === "submitting" ? "Generating..." : "Generate profile"}
-                </Button>
-
-                {requestMessage ? (
-                  <p className="text-xs leading-5 text-sidebar-foreground/65">{requestMessage}</p>
-                ) : (
-                  <p className="text-xs leading-5 text-sidebar-foreground/65">
-                    Upload an STL, select one XY-coplanar face, then generate a single profiling path.
-                  </p>
-                )}
-
-                {generatedPath ? (
-                  <div className="rounded-lg border border-sidebar-border bg-background/60 p-3 text-sm">
-                    <div className="font-medium">Generated operation</div>
-                    <div className="mt-1 text-xs leading-5 text-sidebar-foreground/65">
-                      {generatedPath.locations.length} points · {generatedPathLength.toFixed(1)} mm
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-            </SidebarFooter>
-          </Sidebar>
+          <AppSidebar
+            meshLoaded={Boolean(meshUrl)}
+            meshStatusLabel={meshStatusLabel}
+            meshCacheStatusLabel={meshCacheStatusLabel}
+            faceSelectionMode={faceSelectionMode}
+            selectedOperation={selectedOperation}
+            selectedMeshFace={selectedMeshFace}
+            formValues={formValues}
+            canGenerate={canGenerate}
+            requestState={requestState}
+            requestMessage={requestMessage}
+            generateButtonLabel={generateButtonLabel}
+            generatedPathCount={generatedPaths.length}
+            generatedPathPointCount={generatedPathPointCount}
+            generatedPathLength={generatedPathLength}
+            onMeshUpload={handleMeshUpload}
+            onToggleFaceSelection={() => setFaceSelectionMode((current) => !current)}
+            onOperationChange={(operation) => {
+              setSelectedOperation(operation);
+              setGeneratedPaths([]);
+              setRequestState("idle");
+              setRequestMessage("");
+            }}
+            onUpdateNumericField={updateNumericField}
+            onSideChange={(side) =>
+              setFormValues((current) => ({
+                ...current,
+                side,
+              }))
+            }
+            onGenerateOperation={handleGenerateOperation}
+          />
 
           <main className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
             <PolylineViewer

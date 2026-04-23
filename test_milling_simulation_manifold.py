@@ -9,11 +9,13 @@ import struct
 import subprocess
 import sys
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-from pymeshlab.pmeshlab import Mesh as PyMeshLabMesh, MeshSet as PyMeshLabMeshSet
 from manifold3d import Error, Manifold, Mesh64
+
+from mesh_reduction import QEMProfile, format_qem_profile, simplify_mesh_data
 
 
 ROOT = Path(__file__).resolve().parent
@@ -29,6 +31,53 @@ TOOL_SEGMENTS = 16
 DEFAULT_INTERPOLATION_DISTANCE = 0.5
 DEFAULT_SIMPLIFY_EVERY = 0
 DEFAULT_SIMPLIFY_TOLERANCE = 0.05
+DEFAULT_PLANAR_ANGLE_DEGREES = 0.01
+DEFAULT_PLANAR_QEM_MAX_ITERATIONS = 500
+DEFAULT_MIN_REGION_FACES = 3
+
+
+@dataclass
+class ReductionProfile:
+    calls: int = 0
+    successful_calls: int = 0
+    faces_removed: int = 0
+    extract_seconds: float = 0.0
+    qem_seconds: float = 0.0
+    rebuild_seconds: float = 0.0
+    total_seconds: float = 0.0
+    last_extract_seconds: float = 0.0
+    last_qem_seconds: float = 0.0
+    last_rebuild_seconds: float = 0.0
+    last_total_seconds: float = 0.0
+    last_faces_removed: int = 0
+    last_input_faces: int = 0
+    last_output_faces: int = 0
+
+    def record(
+        self,
+        *,
+        extract_seconds: float,
+        qem_seconds: float,
+        rebuild_seconds: float,
+        total_seconds: float,
+        input_faces: int,
+        output_faces: int,
+    ) -> None:
+        self.calls += 1
+        self.extract_seconds += extract_seconds
+        self.qem_seconds += qem_seconds
+        self.rebuild_seconds += rebuild_seconds
+        self.total_seconds += total_seconds
+        self.last_extract_seconds = extract_seconds
+        self.last_qem_seconds = qem_seconds
+        self.last_rebuild_seconds = rebuild_seconds
+        self.last_total_seconds = total_seconds
+        self.last_input_faces = input_faces
+        self.last_output_faces = output_faces
+        self.last_faces_removed = max(0, input_faces - output_faces)
+        if output_faces < input_faces:
+            self.successful_calls += 1
+            self.faces_removed += input_faces - output_faces
 
 
 def parse_args() -> argparse.Namespace:
@@ -61,8 +110,9 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=DEFAULT_SIMPLIFY_EVERY,
         help=(
-            "Run PyMeshLab simplification every N simulated tool steps and once more at the end "
-            f"to keep the triangle count down. Use 0 to disable and pass a positive value to enable (default: {DEFAULT_SIMPLIFY_EVERY})"
+            "Run planar QEM simplification every N simulated tool steps and once more "
+            "at the end to keep the triangle count down. Use 0 to disable and pass "
+            f"a positive value to enable (default: {DEFAULT_SIMPLIFY_EVERY})"
         ),
     )
     parser.add_argument(
@@ -70,8 +120,9 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=DEFAULT_SIMPLIFY_TOLERANCE,
         help=(
-            "PyMeshLab simplification strength. Larger values usually remove more triangles "
-            f"and change the geometry more (default: {DEFAULT_SIMPLIFY_TOLERANCE})"
+            "Legacy positive value used to enable periodic planar QEM simplification. "
+            f"The actual angle tolerance is fixed at {DEFAULT_PLANAR_ANGLE_DEGREES}° to "
+            "match planar_simplify_qem.py."
         ),
     )
     return parser.parse_args()
@@ -309,71 +360,102 @@ def subtract_manifold(
     return ensure_no_manifold_error(stock - tool, context=context)
 
 
-def mesh_to_pymeshlab_meshset(
-    vertices: np.ndarray,
-    faces: np.ndarray,
-    *,
-    label: str,
-) -> PyMeshLabMeshSet:
-    meshset = PyMeshLabMeshSet()
-    meshset.add_mesh(
-        PyMeshLabMesh(
-            vertex_matrix=np.ascontiguousarray(np.asarray(vertices, dtype=np.float64)[:, :3], dtype=np.float64),
-            face_matrix=np.ascontiguousarray(ensure_triangle_faces(faces), dtype=np.int32),
-        ),
-        label,
-    )
-    return meshset
-
-
-def meshset_to_manifold(meshset: PyMeshLabMeshSet, *, context: str) -> Manifold:
-    current_mesh = meshset.current_mesh()
-    vertices = np.asarray(current_mesh.vertex_matrix(), dtype=np.float64)
-    faces = ensure_triangle_faces(current_mesh.face_matrix())
-    return mesh_to_manifold(vertices, faces, context=context)
-
-
 def simplify_manifold(
     manifold: Manifold,
     tolerance: float,
     *,
     context: str,
+    profile: ReductionProfile | None = None,
+    qem_profile: QEMProfile | None = None,
 ) -> Manifold:
+    """Simplify a manifold using the shared planar QEM reducer.
+
+    The ``tolerance`` knob is now only used as an enable/disable toggle; the
+    actual planar angle tolerance matches ``planar_simplify_qem.py``.
+    """
     if tolerance < 0.0:
         raise ValueError(f"Simplification tolerance must be non-negative, got {tolerance}.")
     if tolerance <= 0.0:
         return manifold
 
+    total_start = time.perf_counter()
+    extract_start = time.perf_counter()
     mesh = ensure_no_manifold_error(manifold, context=context).to_mesh64()
+    extract_seconds = time.perf_counter() - extract_start
     vertices = np.asarray(mesh.vert_properties, dtype=np.float64)
     faces = ensure_triangle_faces(np.asarray(mesh.tri_verts, dtype=np.int32))
     if vertices.ndim != 2 or vertices.shape[1] < 3:
         raise ValueError(f"Expected Mesh64.vert_properties to have at least 3 columns, got {vertices.shape}.")
 
-    target_percentage = max(0.1, min(0.95, 1.0 - tolerance * 10.0))
-    meshset = mesh_to_pymeshlab_meshset(vertices[:, :3], faces, label="pymeshlab-reduction")
-    planar_threshold = max(1.0, tolerance * 100.0)
-    meshset.meshing_edge_flip_by_planar_optimization(iterations=1, pthreshold=planar_threshold)
-    meshset.meshing_decimation_quadric_edge_collapse(
-        targetperc=target_percentage,
-        planarquadric=True,
-        preserveboundary=True,
-        preservetopology=True,
-        preservenormal=True,
-        autoclean=True,
+    qem_start = time.perf_counter()
+    simplified_mesh = simplify_mesh_data(
+        vertices[:, :3],
+        faces,
+        max_iterations=DEFAULT_PLANAR_QEM_MAX_ITERATIONS,
+        planar_angle_degrees=DEFAULT_PLANAR_ANGLE_DEGREES,
+        min_region_faces=DEFAULT_MIN_REGION_FACES,
+        verbose=False,
+        profile=qem_profile,
     )
-    meshset.meshing_remove_duplicate_faces()
-    meshset.meshing_remove_null_faces()
-    meshset.meshing_remove_folded_faces()
-    meshset.meshing_repair_non_manifold_edges()
-    meshset.meshing_repair_non_manifold_vertices()
-    meshset.meshing_remove_unreferenced_vertices()
-    meshset.meshing_re_orient_faces_coherently()
+    qem_seconds = time.perf_counter() - qem_start
+    simplified_vertices = np.asarray(simplified_mesh.vertices, dtype=np.float64)
+    simplified_faces = ensure_triangle_faces(np.asarray(simplified_mesh.faces, dtype=np.int32))
 
-    simplified_manifold = meshset_to_manifold(meshset, context=context)
+    if len(simplified_faces) >= len(faces):
+        total_seconds = time.perf_counter() - total_start
+        if profile is not None:
+            profile.record(
+                extract_seconds=extract_seconds,
+                qem_seconds=qem_seconds,
+                rebuild_seconds=0.0,
+                total_seconds=total_seconds,
+                input_faces=len(faces),
+                output_faces=len(faces),
+            )
+        return manifold
+
+    rebuild_start = time.perf_counter()
+    try:
+        simplified_manifold = mesh_to_manifold(
+            simplified_vertices,
+            simplified_faces,
+            context=context,
+        )
+    except Exception as exc:
+        rebuild_seconds = time.perf_counter() - rebuild_start
+        print(f"    planar reduction at {context} failed to convert back to Manifold: {exc}")
+        total_seconds = time.perf_counter() - total_start
+        if profile is not None:
+            profile.record(
+                extract_seconds=extract_seconds,
+                qem_seconds=qem_seconds,
+                rebuild_seconds=rebuild_seconds,
+                total_seconds=total_seconds,
+                input_faces=len(faces),
+                output_faces=len(faces),
+            )
+        return manifold
+
+    rebuild_seconds = time.perf_counter() - rebuild_start
+    returned_faces = len(faces)
     if simplified_manifold.num_tri() <= manifold.num_tri():
-        return simplified_manifold
-    return manifold
+        returned_faces = simplified_manifold.num_tri()
+        result = simplified_manifold
+    else:
+        result = manifold
+
+    total_seconds = time.perf_counter() - total_start
+    if profile is not None:
+        profile.record(
+            extract_seconds=extract_seconds,
+            qem_seconds=qem_seconds,
+            rebuild_seconds=rebuild_seconds,
+            total_seconds=total_seconds,
+            input_faces=len(faces),
+            output_faces=returned_faces,
+        )
+
+    return result
 
 
 def write_off(path: Path, manifold: Manifold) -> None:
@@ -490,22 +572,28 @@ def main() -> int:
 
     print(f"Loaded {len(original_positions)} tool positions from {TOOLPATH_JSON_PATH.name}")
     print(
-        f"Interpolated to {len(interpolated_positions)} tool positions with max spacing {args.interpolation_distance} mm"
+        f"Interpolated to {len(interpolated_positions)} tool positions "
+        f"with max spacing {args.interpolation_distance} mm"
     )
     if args.max_steps is not None:
         print(f"Using first {len(positions)} interpolated tool positions due to --max-steps")
     print(f"Stock STL: {STOCK_STL_PATH}")
     print(f"Stock bounds: min={stock_min.tolist()} max={stock_max.tolist()}")
     print(f"Tool: diameter={TOOL_DIAMETER} height={TOOL_HEIGHT} segments={TOOL_SEGMENTS}")
+    planar_angle_degrees = DEFAULT_PLANAR_ANGLE_DEGREES
     if args.simplify_every > 0:
         print(
-            f"Periodic PyMeshLab simplification: every {args.simplify_every} steps "
-            f"at strength {args.simplify_tolerance}"
+            f"Periodic planar QEM simplification: every {args.simplify_every} steps "
+            f"at angle tolerance {planar_angle_degrees:.2f}° "
+            f"(min {DEFAULT_MIN_REGION_FACES} faces/region, "
+            f"max {DEFAULT_PLANAR_QEM_MAX_ITERATIONS} iterations)"
         )
     else:
-        print("Periodic PyMeshLab simplification: disabled (pass --simplify-every N to enable)")
+        print("Periodic planar QEM simplification: disabled (pass --simplify-every N to enable)")
 
     subtraction_seconds = 0.0
+    reduction_wall_seconds = 0.0
+    reduction_profile = ReductionProfile()
     current = stock_manifold
 
     for step, position in enumerate(positions, start=1):
@@ -521,25 +609,37 @@ def main() -> int:
         if args.simplify_every > 0 and step % args.simplify_every == 0:
             before_vertices = current.num_vert()
             before_triangles = current.num_tri()
+            reduction_start = time.perf_counter()
+            call_qem_profile = QEMProfile()
             simplified = simplify_manifold(
                 current,
                 args.simplify_tolerance,
-                context=f"PyMeshLab simplification at step {step}",
+                context=f"planar QEM simplification at step {step}",
+                profile=reduction_profile,
+                qem_profile=call_qem_profile,
             )
+            reduction_wall_seconds += time.perf_counter() - reduction_start
             after_vertices = simplified.num_vert()
             after_triangles = simplified.num_tri()
 
             if after_triangles <= before_triangles:
                 current = simplified
+                reduction_status = "reduced"
             else:
                 after_vertices = before_vertices
                 after_triangles = before_triangles
+                reduction_status = "kept original"
 
             print(
-                "    reduced"
-                f" at step {step}: {before_vertices} -> {after_vertices} vertices,"
-                f" {before_triangles} -> {after_triangles} faces"
+                f"    planar QEM {reduction_status} at step {step}: "
+                f"{before_vertices} -> {after_vertices} vertices, "
+                f"{before_triangles} -> {after_triangles} faces "
+                f"({reduction_profile.last_total_seconds:.3f}s total; "
+                f"extract {reduction_profile.last_extract_seconds:.3f}s, "
+                f"qem {reduction_profile.last_qem_seconds:.3f}s, "
+                f"rebuild {reduction_profile.last_rebuild_seconds:.3f}s)"
             )
+            print(format_qem_profile(call_qem_profile, indent="      "))
 
         if step == 1 or step % 10 == 0 or step == len(positions):
             print(
@@ -549,30 +649,54 @@ def main() -> int:
     if args.simplify_every > 0:
         final_before_vertices = current.num_vert()
         final_before_triangles = current.num_tri()
+        reduction_start = time.perf_counter()
+        call_qem_profile = QEMProfile()
         final_simplified = simplify_manifold(
             current,
             args.simplify_tolerance,
-            context="final PyMeshLab simplification before writing output",
+            context="final planar QEM simplification before writing output",
+            profile=reduction_profile,
+            qem_profile=call_qem_profile,
         )
+        reduction_wall_seconds += time.perf_counter() - reduction_start
         final_after_vertices = final_simplified.num_vert()
         final_after_triangles = final_simplified.num_tri()
 
         if final_after_triangles <= final_before_triangles:
             current = final_simplified
+            reduction_status = "reduced"
         else:
             final_after_vertices = final_before_vertices
             final_after_triangles = final_before_triangles
+            reduction_status = "kept original"
 
         print(
-            "    reduced at end:"
-            f" {final_before_vertices} -> {final_after_vertices} vertices,"
-            f" {final_before_triangles} -> {final_after_triangles} faces"
+            f"    planar QEM {reduction_status} at end: "
+            f"{final_before_vertices} -> {final_after_vertices} vertices, "
+            f"{final_before_triangles} -> {final_after_triangles} faces "
+            f"({reduction_profile.last_total_seconds:.3f}s total; "
+            f"extract {reduction_profile.last_extract_seconds:.3f}s, "
+            f"qem {reduction_profile.last_qem_seconds:.3f}s, "
+            f"rebuild {reduction_profile.last_rebuild_seconds:.3f}s)"
         )
+        print(format_qem_profile(call_qem_profile, indent="      "))
 
     stl_output_path = DEFAULT_OUTPUT_DIR / f"{args.output.stem}.stl"
     write_off(args.output, current)
     write_stl(stl_output_path, current)
     print(f"Subtraction took {subtraction_seconds:.3f} seconds")
+    if reduction_profile.calls > 0:
+        average_reduction_seconds = reduction_profile.total_seconds / reduction_profile.calls
+        print("\nPlanar reduction profile:")
+        print(f"  Calls:                {reduction_profile.calls}")
+        print(f"  Successful calls:     {reduction_profile.successful_calls}")
+        print(f"  Faces removed:        {reduction_profile.faces_removed}")
+        print(f"  Internal timer total:  {reduction_profile.total_seconds:.3f} seconds")
+        print(f"  Wall time around API:  {reduction_wall_seconds:.3f} seconds")
+        print(f"  Extract Mesh64 time:   {reduction_profile.extract_seconds:.3f} seconds")
+        print(f"  QEM simplify time:     {reduction_profile.qem_seconds:.3f} seconds")
+        print(f"  Rebuild Manifold time: {reduction_profile.rebuild_seconds:.3f} seconds")
+        print(f"  Average per call:      {average_reduction_seconds:.3f} seconds")
     print(f"Wrote {args.output}")
     print(f"Wrote {stl_output_path}")
 

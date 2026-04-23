@@ -9,7 +9,7 @@ from the stock in one boolean operation, eliminating the need for dense
 position interpolation.
 
 Requirements:
-    pip install numpy manifold3d scipy
+    pip install numpy manifold3d scipy trimesh numba
 """
 from __future__ import annotations
 
@@ -25,6 +25,8 @@ from pathlib import Path
 
 import numpy as np
 
+from mesh_reduction import simplify_mesh_data
+
 try:
     from manifold3d import Error, Manifold, Mesh64
 except ImportError as exc:  # pragma: no cover
@@ -35,13 +37,14 @@ except ImportError as exc:  # pragma: no cover
 ROOT = Path(__file__).resolve().parent
 
 STOCK_STL_PATH = ROOT / "assets" / "2.5D_Part.stl"
-TOOLPATH_JSON_PATH = ROOT / "paths-dovetail-pocket.json"
+TOOLPATH_JSON_PATH = ROOT / "paths-rounded-pocket.json"
 DEFAULT_OUTPUT_PATH = Path("/tmp/milling-simulation-swept.off")
 DEFAULT_OUTPUT_DIR = ROOT / "output"
 
 TOOL_DIAMETER = 12.7
 TOOL_HEIGHT = 30.0
-TOOL_SEGMENTS = 16
+TOOL_SEGMENTS = 32
+DEFAULT_PLANAR_QEM_MAX_ITERATIONS = 500
 
 
 # ---------------------------------------------------------------------------
@@ -242,6 +245,26 @@ def to_xyz(v: np.ndarray) -> tuple[float, float, float]:
     return float(a[0]), float(a[1]), float(a[2])
 
 
+def rotation_matrix_about_z_to_face_xy_direction(direction: np.ndarray) -> np.ndarray:
+    """Return a Z-axis rotation that maps the local +X axis onto `direction` in the XY plane."""
+    vector = np.asarray(direction, dtype=np.float64).reshape(3)
+    xy = vector[:2]
+    norm = float(np.linalg.norm(xy))
+    if norm < 1e-12:
+        return np.eye(3, dtype=np.float64)
+
+    cos_theta = float(xy[0] / norm)
+    sin_theta = float(xy[1] / norm)
+    return np.array(
+        [
+            [cos_theta, -sin_theta, 0.0],
+            [sin_theta, cos_theta, 0.0],
+            [0.0, 0.0, 1.0],
+        ],
+        dtype=np.float64,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Swept-volume computation (manifold3d convex hull)
 # ---------------------------------------------------------------------------
@@ -249,54 +272,140 @@ def to_xyz(v: np.ndarray) -> tuple[float, float, float]:
 
 def swept_volume_manifold(
     tool_verts: np.ndarray,
-    translation: np.ndarray,
+    translation: np.ndarray | None = None,
     *,
+    end_verts: np.ndarray | None = None,
     context: str,
 ) -> Manifold:
     """
-    Exact swept volume of a convex tool mesh under a pure translation.
+    Exact swept volume of a convex tool mesh.
 
-    For a convex shape, the swept volume under translation is simply the
-    convex hull of all vertices at both the start and end positions:
-        conv(tool_verts ∪ (tool_verts + t))
-    Uses manifold3d's Manifold.hull_points() for a guaranteed-manifold result.
+    Pass either a translation vector (original behavior) or explicit
+    end_verts. The caller is responsible for rotating/positioning the cutter
+    before invoking this helper.
     """
-    t = np.asarray(translation, dtype=np.float64)
-    if np.linalg.norm(t) < 1e-12:
-        raise ValueError("Zero-length translation should be skipped by caller.")
+    tool_array = np.asarray(tool_verts, dtype=np.float64)
+    if tool_array.ndim != 2 or tool_array.shape[1] < 3:
+        raise ValueError(
+            f"Expected a vertex matrix with at least 3 columns, got {tool_array.shape}."
+        )
+    start_xyz = tool_array[:, :3]
 
-    all_pts = np.vstack([tool_verts, tool_verts + t[None, :]])
+    if end_verts is not None:
+        end_array = np.asarray(end_verts, dtype=np.float64)
+        if end_array.ndim != 2 or end_array.shape[1] < 3:
+            raise ValueError(
+                f"Expected an end-vertex matrix with at least 3 columns, got {end_array.shape}."
+            )
+        end_xyz = end_array[:, :3]
+        if end_xyz.shape != start_xyz.shape:
+            raise ValueError(
+                f"Start and end vertex arrays must have matching shapes, got {start_xyz.shape} and {end_xyz.shape}."
+            )
+    else:
+        if translation is None:
+            raise ValueError("Either translation or end_verts must be provided.")
+
+        second_array = np.asarray(translation, dtype=np.float64)
+        if second_array.ndim == 1 and second_array.shape == (3,):
+            if np.linalg.norm(second_array) < 1e-12:
+                raise ValueError("Zero-length translation should be skipped by caller.")
+            end_xyz = start_xyz + second_array[None, :]
+        else:
+            if second_array.ndim != 2 or second_array.shape[1] < 3:
+                raise ValueError(
+                    f"Expected a translation vector or end-vertex matrix, got {second_array.shape}."
+                )
+            end_xyz = second_array[:, :3]
+            if end_xyz.shape != start_xyz.shape:
+                raise ValueError(
+                    f"Start and end vertex arrays must have matching shapes, got {start_xyz.shape} and {end_xyz.shape}."
+                )
+
+    all_pts = np.vstack([start_xyz, end_xyz])
     hull_manifold = Manifold.hull_points(np.ascontiguousarray(all_pts, dtype=np.float64))
     return ensure_no_manifold_error(hull_manifold, context=context)
+
+
+# ---------------------------------------------------------------------------
+# Mesh reduction helpers
+# ---------------------------------------------------------------------------
+
+
+def simplify_planar_mesh(
+    vertices: np.ndarray,
+    faces: np.ndarray,
+    *,
+    context: str,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Reduce a mesh using the reusable planar QEM simplifier."""
+    vertex_array = np.asarray(vertices, dtype=np.float64)
+    if vertex_array.ndim != 2 or vertex_array.shape[1] < 3:
+        raise ValueError(f"Expected a vertex matrix with at least 3 columns, got {vertex_array.shape}.")
+
+    face_array = ensure_triangle_faces(faces)
+    if len(face_array) == 0:
+        return vertex_array[:, :3], face_array
+
+    simplified = simplify_mesh_data(
+        vertex_array[:, :3],
+        face_array,
+        max_iterations=DEFAULT_PLANAR_QEM_MAX_ITERATIONS,
+        verbose=False,
+    )
+    simplified_vertices = np.asarray(simplified.vertices, dtype=np.float64)
+    simplified_faces = ensure_triangle_faces(np.asarray(simplified.faces, dtype=np.int32))
+
+    if len(simplified_faces) > len(face_array):
+        print(
+            f"  Planar reduction at {context} increased face count; keeping original mesh "
+            f"({len(vertex_array)} verts, {len(face_array)} faces).",
+        )
+        return vertex_array[:, :3], face_array
+
+    print(
+        f"  Planar reduction at {context}: "
+        f"{len(vertex_array)} -> {len(simplified_vertices)} vertices, "
+        f"{len(face_array)} -> {len(simplified_faces)} faces",
+    )
+    return simplified_vertices, simplified_faces
 
 
 # ---------------------------------------------------------------------------
 # Output writers
 # ---------------------------------------------------------------------------
 
-def write_off(path: Path, manifold: Manifold) -> None:
-    vertices, faces = manifold_to_mesh(manifold, context=f"writing {path}")
+def write_off_arrays(path: Path, vertices: np.ndarray, faces: np.ndarray) -> None:
+    vertex_array = np.asarray(vertices, dtype=np.float64)
+    if vertex_array.ndim != 2 or vertex_array.shape[1] < 3:
+        raise ValueError(f"Expected a vertex matrix with at least 3 columns, got {vertex_array.shape}.")
+
+    face_array = ensure_triangle_faces(faces)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as handle:
         handle.write("OFF\n")
-        handle.write(f"{len(vertices)} {len(faces)} 0\n")
-        for x, y, z in vertices:
+        handle.write(f"{len(vertex_array)} {len(face_array)} 0\n")
+        for x, y, z in vertex_array[:, :3]:
             handle.write(f"{x:.10f} {y:.10f} {z:.10f}\n")
-        for a, b, c in faces:
+        for a, b, c in face_array:
             handle.write(f"3 {int(a)} {int(b)} {int(c)}\n")
 
 
-def write_stl(path: Path, manifold: Manifold) -> None:
-    vertices, faces = manifold_to_mesh(manifold, context=f"writing {path}")
+def write_stl_arrays(path: Path, vertices: np.ndarray, faces: np.ndarray) -> None:
+    vertex_array = np.asarray(vertices, dtype=np.float64)
+    if vertex_array.ndim != 2 or vertex_array.shape[1] < 3:
+        raise ValueError(f"Expected a vertex matrix with at least 3 columns, got {vertex_array.shape}.")
+
+    face_array = ensure_triangle_faces(faces)
     path.parent.mkdir(parents=True, exist_ok=True)
     header = b"Generated by test_milling_simulation_swept.py"
     with path.open("wb") as handle:
         handle.write(header.ljust(80, b"\0")[:80])
-        handle.write(struct.pack("<I", len(faces)))
-        for a, b, c in faces:
-            p0 = vertices[int(a)]
-            p1 = vertices[int(b)]
-            p2 = vertices[int(c)]
+        handle.write(struct.pack("<I", len(face_array)))
+        for a, b, c in face_array:
+            p0 = vertex_array[int(a), :3]
+            p1 = vertex_array[int(b), :3]
+            p2 = vertex_array[int(c), :3]
             normal = np.cross(p1 - p0, p2 - p0)
             nlen = float(np.linalg.norm(normal))
             normal = normal / nlen if nlen > 0.0 else np.zeros(3)
@@ -308,6 +417,16 @@ def write_stl(path: Path, manifold: Manifold) -> None:
                 float(p2[0]), float(p2[1]), float(p2[2]),
                 0,
             ))
+
+
+def write_off(path: Path, manifold: Manifold) -> None:
+    vertices, faces = manifold_to_mesh(manifold, context=f"writing {path}")
+    write_off_arrays(path, vertices, faces)
+
+
+def write_stl(path: Path, manifold: Manifold) -> None:
+    vertices, faces = manifold_to_mesh(manifold, context=f"writing {path}")
+    write_stl_arrays(path, vertices, faces)
 
 
 def launch_meshlab(path: Path) -> None:
@@ -358,12 +477,16 @@ def main() -> int:
         if np.linalg.norm(translation) < 1e-9:
             continue
 
-        # Build swept volume of tool from pos_a to pos_b
-        # The tool mesh is centred at origin; translate it to pos_a first,
-        # then compute the swept volume for the translation from pos_a to pos_b.
-        translated_tool_verts = tool_verts + pos_a[None, :]
+        # Rotate the cutter around its Z axis so its original +X axis points
+        # along the sweep direction in the XY plane, then place both the start
+        # and end copies before creating the swept hull.
+        sweep_rotation = rotation_matrix_about_z_to_face_xy_direction(translation)
+        rotated_tool_verts = tool_verts @ sweep_rotation.T
+        start_sweep_verts = rotated_tool_verts + pos_a[None, :]
+        end_sweep_verts = rotated_tool_verts + pos_b[None, :]
         swept_manifold = swept_volume_manifold(
-            translated_tool_verts, translation,
+            start_sweep_verts,
+            end_verts=end_sweep_verts,
             context=f"swept volume for segment {step}",
         )
 
@@ -391,9 +514,16 @@ def main() -> int:
               f"({removed} stray face(s), kept {largest.num_tri()}-face main body)")
         current = largest
 
+    final_vertices, final_faces = manifold_to_mesh(current, context="extracting final swept stock mesh")
+    final_vertices, final_faces = simplify_planar_mesh(
+        final_vertices,
+        final_faces,
+        context="final swept stock mesh",
+    )
+
     stl_output_path = DEFAULT_OUTPUT_DIR / f"{args.output.stem}.stl"
-    write_off(args.output, current)
-    write_stl(stl_output_path, current)
+    write_off_arrays(args.output, final_vertices, final_faces)
+    write_stl_arrays(stl_output_path, final_vertices, final_faces)
     print(f"\nSubtraction took {subtraction_seconds:.3f} seconds")
     print(f"Wrote {args.output}")
     print(f"Wrote {stl_output_path}")

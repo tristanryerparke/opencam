@@ -37,6 +37,7 @@ export type MeshFaceSelection = {
 
 type PolylineViewerProps = {
   meshUrl?: string | null;
+  meshColor?: number;
   polylines: ReadonlyArray<PolylineDefinition>;
   className?: string;
   faceSelectionMode?: boolean;
@@ -554,6 +555,7 @@ function createMeshFaceSelection(
 
 export function PolylineViewer({
   meshUrl = null,
+  meshColor = 0x94a3b8,
   polylines,
   className,
   faceSelectionMode = false,
@@ -1068,10 +1070,13 @@ export function PolylineViewer({
         weldedGeometry.computeBoundingSphere();
 
         const meshMaterial = new THREE.MeshStandardMaterial({
-          color: 0x94a3b8,
+          color: meshColor,
           roughness: 0.55,
           metalness: 0.08,
           flatShading: true,
+          polygonOffset: true,
+          polygonOffsetFactor: 1,
+          polygonOffsetUnits: 1,
         });
         const mesh = new THREE.Mesh(weldedGeometry, meshMaterial);
         meshGroup.add(mesh);
@@ -1123,7 +1128,7 @@ export function PolylineViewer({
       selectionHighlightGroupRef.current = null;
       selectionOutlineMaterialRef.current = null;
     };
-  }, [clearSimulationResources, meshUrl, rebuildSimulationResources, renderSelectionHighlight, showOriginalMesh]);
+  }, [clearSimulationResources, meshColor, meshUrl, rebuildSimulationResources, renderSelectionHighlight, showOriginalMesh]);
 
   useEffect(() => {
     const polylineGroup = polylineGroupRef.current;
@@ -1160,7 +1165,7 @@ export function PolylineViewer({
         linewidth: POLYLINE_LINEWIDTH,
         transparent: true,
         opacity: 1,
-        depthTest: false,
+        depthTest: true,
         depthWrite: false,
       });
       lineMaterial.resolution.set(

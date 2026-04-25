@@ -55,6 +55,15 @@ class ToolpathOperation(CamelBaseModel):
     paths: list[Path]
 
 
+class SweptSimulationRequest(CamelBaseModel):
+    mesh_data_url: str
+    operation: ToolpathOperation
+
+
+class SweptSimulationResponse(CamelBaseModel):
+    mesh_data_url: str
+
+
 if __name__ == "__main__":
     start = CutterLocationData(x=0, y=0, z=0, comment="start")
     end = CutterLocationData(x=10, y=5, z=-1)

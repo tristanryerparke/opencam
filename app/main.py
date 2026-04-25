@@ -6,9 +6,10 @@ from threading import Lock
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
-from models import ToolpathOperation
+from models import SweptSimulationRequest, SweptSimulationResponse, ToolpathOperation
 from pocketing import ClosedPocketingEngine
 from profiling import ClosedProfilingEngine
+from swept_volume_simulation import simulate_swept_milling
 
 app = FastAPI(title="Time Tracker API", version="0.2.0")
 
@@ -82,3 +83,18 @@ async def pocket_closed(engine: ClosedPocketingEngine):
         return _build_toolpath_operation(engine, "/pocket/closed")
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/simulate/swept", response_model=SweptSimulationResponse)
+def simulate_swept(request: SweptSimulationRequest):
+    try:
+        return SweptSimulationResponse(
+            mesh_data_url=simulate_swept_milling(
+                request.mesh_data_url,
+                request.operation,
+            )
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc

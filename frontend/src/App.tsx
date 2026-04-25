@@ -16,18 +16,16 @@ import {
   type PolylineDefinition,
   type PolylinePoint,
 } from "@/components/polyline-viewer";
-import { SimulationTimeline } from "@/components/simulation-timeline";
+import { Button } from "@/components/ui/button";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { getBackendUrl } from "@/hooks/useBackendConnection";
-import {
-  sampleToolpathLocations,
-  type SimulationSamplePoint,
-  type ToolData,
-  type ToolpathOperation,
-} from "@/simulation/toolpath";
+import { type ToolpathOperation } from "@/simulation/toolpath";
 
 type GeneratedPathResponse = ToolpathOperation["paths"][number];
 type GeneratedOperationResponse = ToolpathOperation;
+type SweptSimulationResponse = {
+  meshDataUrl: string;
+};
 
 type MeshCacheState = "idle" | "saving" | "ready" | "error";
 
@@ -39,8 +37,8 @@ type CachedMeshPayload = {
 };
 
 const CACHED_MESH_STORAGE_KEY = "opencam.cached-stl";
-const SIMULATION_SAMPLE_SPACING = 0.25;
-const SIMULATION_FRAME_INTERVAL_MS = 16;
+const ORIGINAL_MESH_COLOR = 0x94a3b8;
+const MILLED_STOCK_MESH_COLOR = 0xfb923c;
 
 function isCachedMeshPayload(value: unknown): value is CachedMeshPayload {
   if (!value || typeof value !== "object") {
@@ -225,10 +223,9 @@ function App() {
   const [selectedMeshFace, setSelectedMeshFace] = useState<MeshFaceSelection | null>(null);
   const [generatedOperation, setGeneratedOperation] =
     useState<GeneratedOperationResponse | null>(null);
+  const [milledMeshUrl, setMilledMeshUrl] = useState<string | null>(null);
   const [requestState, setRequestState] = useState<RequestState>("idle");
   const [requestMessage, setRequestMessage] = useState<string>("");
-  const [simulationStep, setSimulationStep] = useState(0);
-  const [simulationIsPlaying, setSimulationIsPlaying] = useState(false);
   const [showOriginalMesh, setShowOriginalMesh] = useState(true);
   const [formValues, setFormValues] = useState<FormValues>({
     toolDiameter: "6.35",
@@ -386,7 +383,7 @@ function App() {
   }, [hasInitializedMeshCache, meshFile]);
 
   const generatedPaths: GeneratedPathResponse[] = generatedOperation?.paths ?? [];
-  const generatedTool: ToolData | null = generatedOperation?.tool ?? null;
+  const activeMeshUrl = showOriginalMesh || !milledMeshUrl ? meshUrl : milledMeshUrl;
 
   const operationPolylines = useMemo<PolylineDefinition[]>(() => {
     return generatedPaths.map((path) => ({
@@ -407,19 +404,6 @@ function App() {
   const generatedPathPointCount = useMemo(() => {
     return generatedPaths.reduce((total, path) => total + path.locations.length, 0);
   }, [generatedPaths]);
-
-  const simulationSamples = useMemo(
-    () => sampleToolpathLocations(generatedPaths, SIMULATION_SAMPLE_SPACING),
-    [generatedPaths],
-  );
-
-  const currentSimulationSample = useMemo<SimulationSamplePoint | null>(() => {
-    if (simulationStep <= 0 || simulationSamples.length === 0) {
-      return null;
-    }
-
-    return simulationSamples[Math.min(simulationStep, simulationSamples.length) - 1] ?? null;
-  }, [simulationSamples, simulationStep]);
 
   const operationLabel = selectedOperation === "profile" ? "Closed profile" : "2.5D pocket";
   const generateButtonLabel =
@@ -443,39 +427,6 @@ function App() {
   const meshCacheStatusLabel =
     meshCacheState === "saving" ? "Caching STL in local storage..." : meshCacheMessage;
 
-  useEffect(() => {
-    setSimulationIsPlaying(false);
-    setSimulationStep(0);
-    setShowOriginalMesh(true);
-  }, [generatedOperation, meshUrl]);
-
-  useEffect(() => {
-    if (!simulationIsPlaying) {
-      return undefined;
-    }
-
-    if (simulationSamples.length === 0) {
-      setSimulationIsPlaying(false);
-      return undefined;
-    }
-
-    const intervalId = window.setInterval(() => {
-      setSimulationStep((current) => {
-        if (current >= simulationSamples.length) {
-          window.clearInterval(intervalId);
-          setSimulationIsPlaying(false);
-          return simulationSamples.length;
-        }
-
-        return current + 1;
-      });
-    }, SIMULATION_FRAME_INTERVAL_MS);
-
-    return () => {
-      window.clearInterval(intervalId);
-    };
-  }, [simulationIsPlaying, simulationSamples.length]);
-
   function updateNumericField(
     field: NumericField,
     value: string,
@@ -490,8 +441,10 @@ function App() {
   const handleMeshFaceSelect = useCallback((selection: MeshFaceSelection) => {
     setSelectedMeshFace(selection);
     setGeneratedOperation(null);
+    setMilledMeshUrl(null);
     setRequestState("idle");
     setRequestMessage("");
+    setShowOriginalMesh(true);
     setFaceSelectionMode(false);
     setFormValues((current) => ({
       ...current,
@@ -509,7 +462,17 @@ function App() {
       return;
     }
 
-    if (!selectedMeshFace.isParallelToXY || !selectedMeshFace.boundaryLoop || selectedMeshFace.validationError) {
+    if (!meshFile) {
+      setRequestState("error");
+      setRequestMessage("Upload an STL before generating a toolpath.");
+      return;
+    }
+
+    if (
+      !selectedMeshFace.isParallelToXY ||
+      !selectedMeshFace.boundaryLoop ||
+      selectedMeshFace.validationError
+    ) {
       setRequestState("error");
       setRequestMessage(selectedMeshFace.validationError ?? "Selected face cannot be machined.");
       return;
@@ -579,6 +542,9 @@ function App() {
         requestBody.stepover = stepover;
       }
 
+      setGeneratedOperation(null);
+      setMilledMeshUrl(null);
+      setShowOriginalMesh(true);
       setRequestState("submitting");
       setRequestMessage(`Generating ${operationLabel.toLowerCase()} toolpath...`);
 
@@ -602,11 +568,42 @@ function App() {
       }
 
       const operation = (await response.json()) as GeneratedOperationResponse;
+      const meshDataUrl = await fileToDataUrl(meshFile);
+
       setGeneratedOperation(operation);
+      setRequestMessage("Running swept milling simulation...");
+
+      const simulationResponse = await fetch(`${getBackendUrl()}/simulate/swept`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          meshDataUrl,
+          operation,
+        }),
+      });
+
+      if (!simulationResponse.ok) {
+        const contentType = simulationResponse.headers.get("content-type") ?? "";
+        if (contentType.includes("application/json")) {
+          const payload = (await simulationResponse.json()) as { detail?: string };
+          throw new Error(payload.detail ?? "Swept simulation failed.");
+        }
+
+        const detail = await simulationResponse.text();
+        throw new Error(detail || "Swept simulation failed.");
+      }
+
+      const simulation = (await simulationResponse.json()) as SweptSimulationResponse;
+      setMilledMeshUrl(simulation.meshDataUrl);
+      setShowOriginalMesh(false);
       setRequestState("success");
-      setRequestMessage(`${operationLabel} toolpaths generated. Simulation samples ready.`);
+      setRequestMessage(`${operationLabel} toolpaths generated and swept simulation completed.`);
     } catch (error) {
       setGeneratedOperation(null);
+      setMilledMeshUrl(null);
+      setShowOriginalMesh(true);
       setRequestState("error");
       setRequestMessage(
         error instanceof Error ? error.message : "Failed to generate toolpath.",
@@ -622,36 +619,16 @@ function App() {
     setMeshFile(file);
     setSelectedMeshFace(null);
     setGeneratedOperation(null);
+    setMilledMeshUrl(null);
     setRequestState("idle");
     setRequestMessage("");
+    setShowOriginalMesh(true);
     setFaceSelectionMode(false);
     setFormValues((current) => ({
       ...current,
       zMin: "",
       zMax: "",
     }));
-  }
-
-  function handleSimulationPlayPause() {
-    if (simulationSamples.length === 0) {
-      return;
-    }
-
-    if (simulationIsPlaying) {
-      setSimulationIsPlaying(false);
-      return;
-    }
-
-    if (simulationStep >= simulationSamples.length) {
-      setSimulationStep(0);
-    }
-
-    setSimulationIsPlaying(true);
-  }
-
-  function handleSimulationStepChange(step: number) {
-    setSimulationIsPlaying(false);
-    setSimulationStep(Math.max(0, Math.min(step, simulationSamples.length)));
   }
 
   return (
@@ -687,8 +664,10 @@ function App() {
             onOperationChange={(operation) => {
               setSelectedOperation(operation);
               setGeneratedOperation(null);
+              setMilledMeshUrl(null);
               setRequestState("idle");
               setRequestMessage("");
+              setShowOriginalMesh(true);
             }}
             onUpdateNumericField={updateNumericField}
             onSideChange={(side) =>
@@ -702,32 +681,26 @@ function App() {
 
           <main className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
             <PolylineViewer
-              meshUrl={meshUrl}
+              meshUrl={activeMeshUrl}
+              meshColor={showOriginalMesh || !milledMeshUrl ? ORIGINAL_MESH_COLOR : MILLED_STOCK_MESH_COLOR}
               polylines={operationPolylines}
               faceSelectionMode={faceSelectionMode}
               selectedMeshFace={selectedMeshFace}
               onMeshFaceSelect={handleMeshFaceSelect}
-              simulationTool={generatedTool}
-              simulationSamples={simulationSamples}
-              simulationStep={simulationStep}
-              showOriginalMesh={showOriginalMesh}
               className="h-full min-h-0 flex-1 rounded-none border-0 shadow-none"
             />
 
-            {generatedTool && simulationSamples.length > 0 ? (
-              <SimulationTimeline
-                currentStep={simulationStep}
-                totalSteps={simulationSamples.length}
-                isPlaying={simulationIsPlaying}
-                sampleSpacing={SIMULATION_SAMPLE_SPACING}
-                showOriginalMesh={showOriginalMesh}
-                currentSample={currentSimulationSample}
-                onPlayPause={handleSimulationPlayPause}
-                onStepChange={handleSimulationStepChange}
-                onToggleShowOriginalMesh={() =>
-                  setShowOriginalMesh((current) => !current)
-                }
-              />
+            {milledMeshUrl ? (
+              <div className="pointer-events-none absolute bottom-4 right-4 z-20">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="pointer-events-auto"
+                  onClick={() => setShowOriginalMesh((current) => !current)}
+                >
+                  {showOriginalMesh ? "Show milled stock" : "Show uploaded mesh"}
+                </Button>
+              </div>
             ) : null}
           </main>
         </div>

@@ -323,7 +323,7 @@ export function AppSidebar({
           <p className="text-xs leading-5 text-sidebar-foreground/65">{requestMessage}</p>
         ) : (
           <p className="text-xs leading-5 text-sidebar-foreground/65">
-            Upload an STL, select one XY-coplanar face, choose an operation, then generate a toolpath.
+            Upload an STL, select one XY-coplanar face, choose an operation, then generate the toolpath and swept stock simulation.
           </p>
         )}
 

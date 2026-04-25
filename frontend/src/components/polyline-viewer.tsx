@@ -38,6 +38,7 @@ export type MeshFaceSelection = {
 type PolylineViewerProps = {
   meshUrl?: string | null;
   meshColor?: number;
+  meshEdgeColor?: number;
   polylines: ReadonlyArray<PolylineDefinition>;
   className?: string;
   faceSelectionMode?: boolean;
@@ -68,6 +69,8 @@ type BoundaryEdge = {
 
 const POLYLINE_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"] as const;
 const POLYLINE_LINEWIDTH = 2;
+const MESH_EDGE_LINEWIDTH = 1.5;
+const POLYLINE_Z_OFFSET = 0.02;
 const NORMAL_ALIGNMENT_EPSILON = 0.9999;
 const DISPLAY_EDGE_THRESHOLD_ANGLE_DEGREES = 0.001;
 const PLANE_EPSILON = 0.001;
@@ -556,6 +559,7 @@ function createMeshFaceSelection(
 export function PolylineViewer({
   meshUrl = null,
   meshColor = 0x94a3b8,
+  meshEdgeColor = 0x334155,
   polylines,
   className,
   faceSelectionMode = false,
@@ -578,6 +582,7 @@ export function PolylineViewer({
   const meshBoundsRef = useRef<THREE.Box3 | null>(null);
   const selectionHighlightGroupRef = useRef<THREE.Group | null>(null);
   const selectionOutlineMaterialRef = useRef<LineMaterial | null>(null);
+  const meshEdgeMaterialRef = useRef<LineMaterial | null>(null);
   const polylineMaterialsRef = useRef<LineMaterial[]>([]);
   const scsRendererRef = useRef<SCSRenderer | null>(null);
   const simulationDummyMeshRef = useRef<THREE.Mesh | null>(null);
@@ -940,6 +945,7 @@ export function PolylineViewer({
       camera.updateProjectionMatrix();
       renderer.setSize(width, height, false);
       selectionOutlineMaterialRef.current?.resolution.set(width, height);
+      meshEdgeMaterialRef.current?.resolution.set(width, height);
       for (const material of polylineMaterialsRef.current) {
         material.resolution.set(width, height);
       }
@@ -1008,6 +1014,7 @@ export function PolylineViewer({
       meshBoundsRef.current = null;
       selectionHighlightGroupRef.current = null;
       selectionOutlineMaterialRef.current = null;
+      meshEdgeMaterialRef.current = null;
       polylineMaterialsRef.current = [];
       scsRendererRef.current = null;
       simulationDummyMeshRef.current = null;
@@ -1024,8 +1031,9 @@ export function PolylineViewer({
     const meshGroup = meshGroupRef.current;
     const camera = cameraRef.current;
     const controls = controlsRef.current;
+    const renderer = rendererRef.current;
 
-    if (!meshGroup || !camera || !controls) {
+    if (!meshGroup || !camera || !controls || !renderer) {
       return undefined;
     }
 
@@ -1036,6 +1044,7 @@ export function PolylineViewer({
     meshBoundsRef.current = null;
     selectionHighlightGroupRef.current = null;
     selectionOutlineMaterialRef.current = null;
+    meshEdgeMaterialRef.current = null;
 
     let cancelled = false;
 
@@ -1075,8 +1084,8 @@ export function PolylineViewer({
           metalness: 0.08,
           flatShading: true,
           polygonOffset: true,
-          polygonOffsetFactor: 1,
-          polygonOffsetUnits: 1,
+          polygonOffsetFactor: 3,
+          polygonOffsetUnits: 4,
         });
         const mesh = new THREE.Mesh(weldedGeometry, meshMaterial);
         meshGroup.add(mesh);
@@ -1084,14 +1093,29 @@ export function PolylineViewer({
           faceSelectionModeRef.current || showOriginalMesh || !simulationToolRef.current;
         meshRef.current = mesh;
 
-        const meshEdges = new THREE.LineSegments(
-          new THREE.EdgesGeometry(weldedGeometry, DISPLAY_EDGE_THRESHOLD_ANGLE_DEGREES),
-          new THREE.LineBasicMaterial({
-            color: 0x334155,
-            transparent: true,
-            opacity: 0.85,
-          }),
+        const meshEdgeGeometry = new THREE.EdgesGeometry(
+          weldedGeometry,
+          DISPLAY_EDGE_THRESHOLD_ANGLE_DEGREES,
         );
+        const meshEdgePositions = meshEdgeGeometry.getAttribute("position");
+        const meshEdgeSegmentsGeometry = new LineSegmentsGeometry();
+        meshEdgeSegmentsGeometry.setPositions(
+          Array.from(meshEdgePositions.array as Iterable<number>),
+        );
+        meshEdgeGeometry.dispose();
+
+        const meshEdgeMaterial = new LineMaterial({
+          color: meshEdgeColor,
+          linewidth: MESH_EDGE_LINEWIDTH,
+          transparent: true,
+          opacity: 0.85,
+        });
+        meshEdgeMaterial.resolution.set(
+          renderer.domElement.clientWidth,
+          renderer.domElement.clientHeight,
+        );
+        meshEdgeMaterialRef.current = meshEdgeMaterial;
+        const meshEdges = new LineSegments2(meshEdgeSegmentsGeometry, meshEdgeMaterial);
         mesh.add(meshEdges);
 
         const selectionHighlightGroup = new THREE.Group();
@@ -1127,8 +1151,9 @@ export function PolylineViewer({
       meshBoundsRef.current = null;
       selectionHighlightGroupRef.current = null;
       selectionOutlineMaterialRef.current = null;
+      meshEdgeMaterialRef.current = null;
     };
-  }, [clearSimulationResources, meshColor, meshUrl, rebuildSimulationResources, renderSelectionHighlight, showOriginalMesh]);
+  }, [clearSimulationResources, meshColor, meshEdgeColor, meshUrl, rebuildSimulationResources, renderSelectionHighlight, showOriginalMesh]);
 
   useEffect(() => {
     const polylineGroup = polylineGroupRef.current;
@@ -1156,7 +1181,7 @@ export function PolylineViewer({
         return;
       }
 
-      const positions = polyline.points.flatMap(([x, y, z]) => [x, y, z]);
+      const positions = polyline.points.flatMap(([x, y, z]) => [x, y, z + POLYLINE_Z_OFFSET]);
       const lineGeometry = new LineGeometry();
       lineGeometry.setPositions(positions);
 

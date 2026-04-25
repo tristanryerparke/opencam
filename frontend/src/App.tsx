@@ -38,7 +38,9 @@ type CachedMeshPayload = {
 
 const CACHED_MESH_STORAGE_KEY = "opencam.cached-stl";
 const ORIGINAL_MESH_COLOR = 0x94a3b8;
+const ORIGINAL_MESH_EDGE_COLOR = 0x334155;
 const MILLED_STOCK_MESH_COLOR = 0xfb923c;
+const MILLED_STOCK_MESH_EDGE_COLOR = 0x7e491e;
 
 function isCachedMeshPayload(value: unknown): value is CachedMeshPayload {
   if (!value || typeof value !== "object") {
@@ -683,6 +685,7 @@ function App() {
             <PolylineViewer
               meshUrl={activeMeshUrl}
               meshColor={showOriginalMesh || !milledMeshUrl ? ORIGINAL_MESH_COLOR : MILLED_STOCK_MESH_COLOR}
+              meshEdgeColor={showOriginalMesh || !milledMeshUrl ? ORIGINAL_MESH_EDGE_COLOR : MILLED_STOCK_MESH_EDGE_COLOR}
               polylines={operationPolylines}
               faceSelectionMode={faceSelectionMode}
               selectedMeshFace={selectedMeshFace}

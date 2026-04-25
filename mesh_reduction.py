@@ -192,6 +192,16 @@ def quadric_cost(Q_sum, pos):
 
 
 @njit(cache=True)
+def quadric_cost_xyz(Q_sum, x, y, z):
+    """Quadric error v^T Q v for scalar xyz coordinates."""
+    r0 = Q_sum[0,0]*x + Q_sum[0,1]*y + Q_sum[0,2]*z + Q_sum[0,3]
+    r1 = Q_sum[1,0]*x + Q_sum[1,1]*y + Q_sum[1,2]*z + Q_sum[1,3]
+    r2 = Q_sum[2,0]*x + Q_sum[2,1]*y + Q_sum[2,2]*z + Q_sum[2,3]
+    r3 = Q_sum[3,0]*x + Q_sum[3,1]*y + Q_sum[3,2]*z + Q_sum[3,3]
+    return x*r0 + y*r1 + z*r2 + r3
+
+
+@njit(cache=True)
 def compute_edge_cost(Q1, Q2, v1, v2):
     """Compute (cost, x, y, z) for collapsing v1-v2."""
     Q_sum = Q1 + Q2
@@ -225,63 +235,34 @@ def batch_compute_edge_costs(Q, edges, vertices):
 
 
 @njit(cache=True)
-def find_shared_faces(v0, v1, faces, face_alive, n_faces):
-    """Return array of face indices that contain both v0 and v1."""
-    result = np.empty(n_faces, dtype=np.int64)
-    count = 0
-    for fi in range(n_faces):
-        if not face_alive[fi]: continue
-        has_v0 = (faces[fi,0] == v0 or faces[fi,1] == v0 or faces[fi,2] == v0)
-        if not has_v0: continue
-        has_v1 = (faces[fi,0] == v1 or faces[fi,1] == v1 or faces[fi,2] == v1)
-        if has_v1:
-            result[count] = fi; count += 1
-    return result[:count]
-
-
-@njit(cache=True)
-def reassign_v1_to_v0(v0, v1, faces, face_alive, n_faces):
-    """
-    Reassign v1->v0 in v1's remaining non-shared faces.
-    Returns (affected_verts_array, affected_count).
-    Also returns which faces were actually modified.
-    """
-    affected = np.empty(n_faces, dtype=np.int64)  # vertex indices
-    aff_count = 0
-    for fi in range(n_faces):
-        if not face_alive[fi]: continue
-        has_v1 = (faces[fi,0] == v1 or faces[fi,1] == v1 or faces[fi,2] == v1)
-        if not has_v1: continue
-        has_v0 = (faces[fi,0] == v0 or faces[fi,1] == v0 or faces[fi,2] == v0)
-        if has_v0: continue  # shared — already handled
-        for j in range(3):
-            if faces[fi, j] == v1:
-                faces[fi, j] = v0
-            elif faces[fi, j] != v0:
-                affected[aff_count] = faces[fi, j]; aff_count += 1
-    return affected[:aff_count]
-
-
-@njit(cache=True)
 def check_collapse_jit(v0, v1, v_new, vertices, faces, face_alive):
     """Check if collapsing v0-v1 to v_new preserves mesh validity."""
     n_faces = faces.shape[0]
     for fi in range(n_faces):
-        if not face_alive[fi]: continue
-        has_v1 = (faces[fi,0] == v1 or faces[fi,1] == v1 or faces[fi,2] == v1)
-        if not has_v1: continue
-        has_v0 = (faces[fi,0] == v0 or faces[fi,1] == v0 or faces[fi,2] == v0)
-        if has_v0: continue
-        a = faces[fi,0]; b = faces[fi,1]; c = faces[fi,2]
+        if not face_alive[fi]:
+            continue
+        has_v1 = (faces[fi, 0] == v1 or faces[fi, 1] == v1 or faces[fi, 2] == v1)
+        if not has_v1:
+            continue
+        has_v0 = (faces[fi, 0] == v0 or faces[fi, 1] == v0 or faces[fi, 2] == v0)
+        if has_v0:
+            continue
+        a = faces[fi, 0]
+        b = faces[fi, 1]
+        c = faces[fi, 2]
         pa = v_new if a == v1 else vertices[a]
         pb = v_new if b == v1 else vertices[b]
         pc = v_new if c == v1 else vertices[c]
-        e1x = pb[0]-pa[0]; e1y = pb[1]-pa[1]; e1z = pb[2]-pa[2]
-        e2x = pc[0]-pa[0]; e2y = pc[1]-pa[1]; e2z = pc[2]-pa[2]
-        cx = e1y*e2z - e1z*e2y
-        cy = e1z*e2x - e1x*e2z
-        cz = e1x*e2y - e1y*e2x
-        if cx*cx + cy*cy + cz*cz < 1e-28:
+        e1x = pb[0] - pa[0]
+        e1y = pb[1] - pa[1]
+        e1z = pb[2] - pa[2]
+        e2x = pc[0] - pa[0]
+        e2y = pc[1] - pa[1]
+        e2z = pc[2] - pa[2]
+        cx = e1y * e2z - e1z * e2y
+        cy = e1z * e2x - e1x * e2z
+        cz = e1x * e2y - e1y * e2x
+        if cx * cx + cy * cy + cz * cz < 1e-28:
             return False
     return True
 
@@ -336,126 +317,52 @@ def is_boundary_edge(vi, faces, face_alive):
     return False
 
 
-@njit(cache=True)
-def would_disconnect(v0, v1, faces, face_alive):
-    """
-    Check if collapsing v0-v1 would disconnect the mesh.
-    After collapse, shared faces (containing both v0,v1) are removed,
-    and v1's other faces are rewired to v0.
-    We check: among v1's neighbors (excluding v0), would any pair lose
-    their connection through v1?
-    
-    Specifically: for each pair of v1's one-ring neighbors (a, b),
-    check if they share a face NOT containing v1. If not, and they
-    also don't connect through v0, collapsing disconnects them.
-    """
-    n_faces = faces.shape[0]
-    n_verts_max = faces.max() + 1
-    
-    # Gather v1's alive neighbor vertices (excluding v0)
-    v1_neighbors = np.empty(n_verts_max, dtype=np.int64)
-    v1_nb_count = 0
-    for fi in range(n_faces):
-        if not face_alive[fi]:
-            continue
-        has_v1 = (faces[fi, 0] == v1 or faces[fi, 1] == v1 or faces[fi, 2] == v1)
-        if not has_v1:
-            continue
-        for j in range(3):
-            vi = faces[fi, j]
-            if vi != v1 and vi != v0:
-                # Check not already in list
-                already = False
-                for k in range(v1_nb_count):
-                    if v1_neighbors[k] == vi:
-                        already = True
-                        break
-                if not already:
-                    v1_neighbors[v1_nb_count] = vi
-                    v1_nb_count += 1
-    
-    if v1_nb_count <= 1:
+def would_disconnect(v0, v1, faces, vertex_faces):
+    """Check collapse connectivity using local per-vertex incident-face adjacency."""
+    v1_neighbors = set()
+    for fi in vertex_faces[v1]:
+        a, b, c = (int(faces[fi, 0]), int(faces[fi, 1]), int(faces[fi, 2]))
+        if a != v1 and a != v0:
+            v1_neighbors.add(a)
+        if b != v1 and b != v0:
+            v1_neighbors.add(b)
+        if c != v1 and c != v0:
+            v1_neighbors.add(c)
+
+    if len(v1_neighbors) <= 1:
         return False
-    
-    # For each neighbor, collect which OTHER v1-neighbors it connects to
-    # through faces that DON'T contain v1 (or through v0 after collapse)
-    # If any v1-neighbor is only connected to others via v1, disconnect happens
-    
-    # Simple approach: for each v1-neighbor, check if it shares a face
-    # with v0 (post-collapse it will connect through v0)
-    connects_through_v0 = np.zeros(v1_nb_count, dtype=np.bool_)
-    for idx in range(v1_nb_count):
-        nb = v1_neighbors[idx]
-        found = False
-        for fi in range(n_faces):
-            if not face_alive[fi]:
-                continue
-            has_nb = (faces[fi, 0] == nb or faces[fi, 1] == nb or faces[fi, 2] == nb)
-            if not has_nb:
-                continue
-            has_v0 = (faces[fi, 0] == v0 or faces[fi, 1] == v0 or faces[fi, 2] == v0)
-            if has_v0:
-                found = True
-                break
-        connects_through_v0[idx] = found
-    
-    # If all neighbors connect through v0, no disconnect
+
+    v0_faces = vertex_faces[v0]
+    connects_through_v0 = {}
     all_through_v0 = True
-    for idx in range(v1_nb_count):
-        if not connects_through_v0[idx]:
+    for nb in v1_neighbors:
+        connected = False
+        for fi in vertex_faces[nb]:
+            if fi in v0_faces:
+                connected = True
+                break
+        connects_through_v0[nb] = connected
+        if not connected:
             all_through_v0 = False
-            break
+
     if all_through_v0:
         return False
-    
-    # Check if non-v0-connected neighbors connect to each other
-    # without going through v1
-    for i in range(v1_nb_count):
-        if connects_through_v0[i]:
+
+    for nb_i in v1_neighbors:
+        if connects_through_v0[nb_i]:
             continue
-        nb_i = v1_neighbors[i]
         connected = False
-        for fi in range(n_faces):
-            if not face_alive[fi]:
+        for fi in vertex_faces[nb_i]:
+            a, b, c = (int(faces[fi, 0]), int(faces[fi, 1]), int(faces[fi, 2]))
+            if a == v1 or b == v1 or c == v1:
                 continue
-            has_nb_i = (faces[fi, 0] == nb_i or faces[fi, 1] == nb_i or faces[fi, 2] == nb_i)
-            if not has_nb_i:
-                continue
-            has_v1_here = (faces[fi, 0] == v1 or faces[fi, 1] == v1 or faces[fi, 2] == v1)
-            if has_v1_here:
-                continue
-            for j_nb in range(v1_nb_count):
-                if j_nb == i:
-                    continue
-                nb_j = v1_neighbors[j_nb]
-                if (faces[fi, 0] == nb_j or faces[fi, 1] == nb_j or faces[fi, 2] == nb_j):
-                    connected = True
-                    break
-            if connected:
+            if (a != nb_i and a in v1_neighbors) or (b != nb_i and b in v1_neighbors) or (c != nb_i and c in v1_neighbors):
+                connected = True
                 break
         if not connected:
             return True
-    
+
     return False
-
-
-@njit(cache=True)
-def find_neighbor_verts(v0, vert_alive, faces, face_alive):
-    """Find alive neighbor vertices of v0 across alive faces."""
-    n_faces = faces.shape[0]
-    n_verts = vert_alive.shape[0]
-    seen = np.zeros(n_verts, dtype=np.bool_)
-    count = 0
-    neighbors = np.empty(n_verts, dtype=np.int64)
-    for fi in range(n_faces):
-        if not face_alive[fi]: continue
-        has_v0 = (faces[fi,0] == v0 or faces[fi,1] == v0 or faces[fi,2] == v0)
-        if not has_v0: continue
-        for j in range(3):
-            vi = faces[fi, j]
-            if vi != v0 and vert_alive[vi] and not seen[vi]:
-                seen[vi] = True; neighbors[count] = vi; count += 1
-    return neighbors[:count]
 
 
 def canonicalize_plane(normal, offset):
@@ -631,6 +538,83 @@ def project_point_to_plane(point, normal, offset):
     return point - (np.dot(normal, point) + offset) * normal
 
 
+@njit(cache=True)
+def compute_projected_edge_cost(Q1, Q2, v1, v2, normal, offset):
+    """Compute projected collapse cost and position for an edge."""
+    Q_sum = Q1 + Q2
+    cost, x, y, z = compute_edge_cost(Q1, Q2, v1, v2)
+    distance = normal[0] * x + normal[1] * y + normal[2] * z + offset
+    x -= distance * normal[0]
+    y -= distance * normal[1]
+    z -= distance * normal[2]
+    return quadric_cost_xyz(Q_sum, x, y, z), x, y, z
+
+
+@njit(cache=True)
+def batch_compute_projected_edge_costs(Q, v0, neighbors, vertices, normal, offset):
+    """Compute projected collapse costs for a batch of v0-neighbor edges."""
+    n = neighbors.shape[0]
+    costs = np.empty(n)
+    positions = np.empty((n, 3))
+    for i in range(n):
+        vn = neighbors[i]
+        cost, x, y, z = compute_projected_edge_cost(
+            Q[v0],
+            Q[vn],
+            vertices[v0],
+            vertices[vn],
+            normal,
+            offset,
+        )
+        costs[i] = cost
+        positions[i, 0] = x
+        positions[i, 1] = y
+        positions[i, 2] = z
+    return costs, positions
+
+
+def edge_key(u, v):
+    return (min(u, v), max(u, v))
+
+
+def add_topology_edge(u, v, edge_face_counts, vertex_neighbors):
+    if u == v:
+        return
+    key = edge_key(u, v)
+    count = edge_face_counts.get(key, 0) + 1
+    edge_face_counts[key] = count
+    if count == 1:
+        vertex_neighbors[key[0]].add(key[1])
+        vertex_neighbors[key[1]].add(key[0])
+
+
+def remove_topology_edge(u, v, edge_face_counts, vertex_neighbors):
+    if u == v:
+        return
+    key = edge_key(u, v)
+    count = edge_face_counts.get(key)
+    if count is None:
+        return
+    if count <= 1:
+        del edge_face_counts[key]
+        vertex_neighbors[key[0]].discard(key[1])
+        vertex_neighbors[key[1]].discard(key[0])
+    else:
+        edge_face_counts[key] = count - 1
+
+
+def register_candidate_edge(key, candidate_edges):
+    candidate_edges[key[0]].add(key)
+    candidate_edges[key[1]].add(key)
+
+
+def discard_candidate_edge(key, edge_data, candidate_edges):
+    if key in edge_data:
+        del edge_data[key]
+    candidate_edges[key[0]].discard(key)
+    candidate_edges[key[1]].discard(key)
+
+
 def can_collapse_in_region(v0, v1, vertex_regions, vertex_locked):
     """Allow collapses only between unlocked vertices in the same planar region."""
     if vertex_locked[v0] or vertex_locked[v1]:
@@ -724,6 +708,17 @@ def qem_simplify(
 
     face_alive = np.ones(n_faces, dtype=np.bool_)
     vert_alive = np.ones(n_verts, dtype=np.bool_)
+    vertex_faces = [set() for _ in range(n_verts)]
+    vertex_neighbors = [set() for _ in range(n_verts)]
+    edge_face_counts = {}
+    for fi in range(n_faces):
+        a, b, c = int(faces[fi, 0]), int(faces[fi, 1]), int(faces[fi, 2])
+        vertex_faces[a].add(fi)
+        vertex_faces[b].add(fi)
+        vertex_faces[c].add(fi)
+        add_topology_edge(a, b, edge_face_counts, vertex_neighbors)
+        add_topology_edge(b, c, edge_face_counts, vertex_neighbors)
+        add_topology_edge(a, c, edge_face_counts, vertex_neighbors)
 
     # Build initial edge set from collapsible interior edges only.
     if profile_enabled:
@@ -755,6 +750,7 @@ def qem_simplify(
         phase_start = now()
     heap = []
     edge_data = {}
+    candidate_edges = [set() for _ in range(n_verts)]
     edge_id = 0
     for i in range(len(edges_arr)):
         v0, v1 = int(edges_arr[i, 0]), int(edges_arr[i, 1])
@@ -765,8 +761,10 @@ def qem_simplify(
             region_offsets[region_id],
         )
         cost = float(quadric_cost(Q[v0] + Q[v1], pos))
+        key = (v0, v1)
         heappush(heap, (cost, edge_id, v0, v1))
-        edge_data[(v0, v1)] = (cost, pos)
+        edge_data[key] = (cost, pos)
+        register_candidate_edge(key, candidate_edges)
         edge_id += 1
     if profile_enabled:
         profile.heap_seed_seconds += now() - phase_start
@@ -809,7 +807,7 @@ def qem_simplify(
         if not can_collapse:
             if profile_enabled:
                 profile.rejected_region += 1
-            del edge_data[key]
+            discard_candidate_edge(key, edge_data, candidate_edges)
             continue
 
         region_id = int(vertex_regions[v0])
@@ -831,21 +829,21 @@ def qem_simplify(
         if not valid_collapse:
             if profile_enabled:
                 profile.rejected_check_collapse += 1
-            del edge_data[key]
+            discard_candidate_edge(key, edge_data, candidate_edges)
             continue
 
         if profile_enabled:
             phase_start = now()
-        disconnects = would_disconnect(v0, v1, faces, face_alive)
+        disconnects = would_disconnect(v0, v1, faces, vertex_faces)
         if profile_enabled:
             profile.disconnect_seconds += now() - phase_start
         if disconnects:
             if profile_enabled:
                 profile.rejected_disconnect += 1
-            del edge_data[key]
+            discard_candidate_edge(key, edge_data, candidate_edges)
             continue
 
-        del edge_data[key]
+        discard_candidate_edge(key, edge_data, candidate_edges)
 
         if profile_enabled:
             phase_start = now()
@@ -856,38 +854,77 @@ def qem_simplify(
 
         if profile_enabled:
             phase_start = now()
-        shared = find_shared_faces(v0, v1, faces, face_alive, n_faces)
+        shared = list(vertex_faces[v0] & vertex_faces[v1])
         if profile_enabled:
             profile.shared_faces_seconds += now() - phase_start
             profile.shared_faces_removed += len(shared)
         for fi in shared:
+            a, b, c = int(faces[fi, 0]), int(faces[fi, 1]), int(faces[fi, 2])
             face_alive[fi] = False
+            vertex_faces[a].discard(fi)
+            vertex_faces[b].discard(fi)
+            vertex_faces[c].discard(fi)
+            remove_topology_edge(a, b, edge_face_counts, vertex_neighbors)
+            remove_topology_edge(b, c, edge_face_counts, vertex_neighbors)
+            remove_topology_edge(a, c, edge_face_counts, vertex_neighbors)
         face_count -= len(shared)
+
+        modified_faces = list(vertex_faces[v1])
 
         if profile_enabled:
             phase_start = now()
-        affected = reassign_v1_to_v0(v0, v1, faces, face_alive, n_faces)
+        affected_count = 0
+        for fi in modified_faces:
+            a = int(faces[fi, 0])
+            b = int(faces[fi, 1])
+            c = int(faces[fi, 2])
+            remove_topology_edge(a, b, edge_face_counts, vertex_neighbors)
+            remove_topology_edge(b, c, edge_face_counts, vertex_neighbors)
+            remove_topology_edge(a, c, edge_face_counts, vertex_neighbors)
+
+            if a == v1:
+                a = v0
+            elif a != v0:
+                affected_count += 1
+            if b == v1:
+                b = v0
+            elif b != v0:
+                affected_count += 1
+            if c == v1:
+                c = v0
+            elif c != v0:
+                affected_count += 1
+
+            faces[fi, 0] = a
+            faces[fi, 1] = b
+            faces[fi, 2] = c
+            vertex_faces[v1].discard(fi)
+            vertex_faces[v0].add(fi)
+
+            add_topology_edge(a, b, edge_face_counts, vertex_neighbors)
+            add_topology_edge(b, c, edge_face_counts, vertex_neighbors)
+            add_topology_edge(a, c, edge_face_counts, vertex_neighbors)
         if profile_enabled:
             profile.reassign_seconds += now() - phase_start
-            profile.reassign_updates += len(affected)
+            profile.reassign_updates += affected_count
         vert_alive[v1] = False
         vertex_regions[v1] = -1
 
         # Remove stale edge entries involving v0
         if profile_enabled:
             phase_start = now()
-        stale = [k for k in edge_data if v0 in k]
+        stale = list(candidate_edges[v0])
         if profile_enabled:
             profile.stale_cleanup_seconds += now() - phase_start
             profile.stale_cleanup_scans += 1
             profile.stale_edges_removed += len(stale)
-        for k in stale:
-            del edge_data[k]
+        for stale_key in stale:
+            discard_candidate_edge(stale_key, edge_data, candidate_edges)
 
-        # Find neighbors (JIT)
+        # Find neighbors from local topology
         if profile_enabled:
             phase_start = now()
-        neighbors = find_neighbor_verts(v0, vert_alive, faces, face_alive)
+        neighbors = sorted(vn for vn in vertex_neighbors[v0] if vert_alive[vn])
         if profile_enabled:
             profile.neighbor_search_seconds += now() - phase_start
             profile.neighbor_vertices += len(neighbors)
@@ -895,21 +932,27 @@ def qem_simplify(
         # Recompute edge costs
         if profile_enabled:
             phase_start = now()
-        for vn in neighbors:
-            vn = int(vn)
-            if not can_collapse_in_region(v0, vn, vertex_regions, vertex_locked):
-                continue
-            ekey = (min(v0, vn), max(v0, vn))
-            c, x, y, z = compute_edge_cost(Q[v0], Q[vn], vertices[v0], vertices[vn])
-            pos = project_point_to_plane(
-                np.array([x, y, z], dtype=np.float64),
-                region_normals[region_id],
-                region_offsets[region_id],
+        valid_neighbors = [vn for vn in neighbors if can_collapse_in_region(v0, vn, vertex_regions, vertex_locked)]
+        region_normal = region_normals[region_id]
+        region_offset = region_offsets[region_id]
+        if valid_neighbors:
+            valid_neighbors_arr = np.asarray(valid_neighbors, dtype=np.int64)
+            new_costs, new_positions = batch_compute_projected_edge_costs(
+                Q,
+                v0,
+                valid_neighbors_arr,
+                vertices,
+                region_normal,
+                region_offset,
             )
-            new_cost = float(quadric_cost(Q[v0] + Q[vn], pos))
-            edge_data[ekey] = (new_cost, pos)
-            heappush(heap, (new_cost, edge_id, ekey[0], ekey[1]))
-            edge_id += 1
+            for i, vn in enumerate(valid_neighbors):
+                ekey = edge_key(v0, vn)
+                new_cost = float(new_costs[i])
+                pos = new_positions[i].copy()
+                edge_data[ekey] = (new_cost, pos)
+                register_candidate_edge(ekey, candidate_edges)
+                heappush(heap, (new_cost, edge_id, ekey[0], ekey[1]))
+                edge_id += 1
         if profile_enabled:
             profile.recompute_edge_seconds += now() - phase_start
             profile.recomputed_edges += len(neighbors)

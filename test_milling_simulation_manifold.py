@@ -16,6 +16,7 @@ import numpy as np
 from manifold3d import Error, Manifold, Mesh64
 
 from mesh_reduction import QEMProfile, format_qem_profile, simplify_mesh_data
+from planar_region_2d_reduction import simplify_mesh_data_2d
 
 
 ROOT = Path(__file__).resolve().parent
@@ -32,8 +33,9 @@ DEFAULT_INTERPOLATION_DISTANCE = 0.5
 DEFAULT_SIMPLIFY_EVERY = 0
 DEFAULT_SIMPLIFY_TOLERANCE = 0.05
 DEFAULT_PLANAR_ANGLE_DEGREES = 0.01
-DEFAULT_PLANAR_QEM_MAX_ITERATIONS = 500
+DEFAULT_PLANAR_QEM_MAX_ITERATIONS = 2000
 DEFAULT_MIN_REGION_FACES = 3
+DEFAULT_SIMPLIFY_METHOD = "qem"
 
 
 @dataclass
@@ -80,6 +82,14 @@ class ReductionProfile:
             self.faces_removed += input_faces - output_faces
 
 
+def simplify_method_label(method: str) -> str:
+    if method == "qem":
+        return "planar QEM"
+    if method == "planar-2d":
+        return "planar 2D retriangulation"
+    raise ValueError(f"Unknown simplify method: {method}")
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Run a Manifold milling simulation using the stock STL bounds and the selected pocket toolpath.",
@@ -110,7 +120,7 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=DEFAULT_SIMPLIFY_EVERY,
         help=(
-            "Run planar QEM simplification every N simulated tool steps and once more "
+            "Run periodic planar simplification every N simulated tool steps and once more "
             "at the end to keep the triangle count down. Use 0 to disable and pass "
             f"a positive value to enable (default: {DEFAULT_SIMPLIFY_EVERY})"
         ),
@@ -120,9 +130,18 @@ def parse_args() -> argparse.Namespace:
         type=float,
         default=DEFAULT_SIMPLIFY_TOLERANCE,
         help=(
-            "Legacy positive value used to enable periodic planar QEM simplification. "
+            "Legacy positive value used to enable periodic planar simplification. "
             f"The actual angle tolerance is fixed at {DEFAULT_PLANAR_ANGLE_DEGREES}° to "
             "match planar_simplify_qem.py."
+        ),
+    )
+    parser.add_argument(
+        "--simplify-method",
+        choices=("qem", "planar-2d"),
+        default=DEFAULT_SIMPLIFY_METHOD,
+        help=(
+            "Planar simplification backend to use when --simplify-every is enabled "
+            f"(default: {DEFAULT_SIMPLIFY_METHOD})."
         ),
     )
     return parser.parse_args()
@@ -365,10 +384,11 @@ def simplify_manifold(
     tolerance: float,
     *,
     context: str,
+    simplify_method: str = DEFAULT_SIMPLIFY_METHOD,
     profile: ReductionProfile | None = None,
     qem_profile: QEMProfile | None = None,
 ) -> Manifold:
-    """Simplify a manifold using the shared planar QEM reducer.
+    """Simplify a manifold using the selected planar reduction backend.
 
     The ``tolerance`` knob is now only used as an enable/disable toggle; the
     actual planar angle tolerance matches ``planar_simplify_qem.py``.
@@ -387,17 +407,28 @@ def simplify_manifold(
     if vertices.ndim != 2 or vertices.shape[1] < 3:
         raise ValueError(f"Expected Mesh64.vert_properties to have at least 3 columns, got {vertices.shape}.")
 
-    qem_start = time.perf_counter()
-    simplified_mesh = simplify_mesh_data(
-        vertices[:, :3],
-        faces,
-        max_iterations=DEFAULT_PLANAR_QEM_MAX_ITERATIONS,
-        planar_angle_degrees=DEFAULT_PLANAR_ANGLE_DEGREES,
-        min_region_faces=DEFAULT_MIN_REGION_FACES,
-        verbose=False,
-        profile=qem_profile,
-    )
-    qem_seconds = time.perf_counter() - qem_start
+    simplify_start = time.perf_counter()
+    if simplify_method == "qem":
+        simplified_mesh = simplify_mesh_data(
+            vertices[:, :3],
+            faces,
+            max_iterations=DEFAULT_PLANAR_QEM_MAX_ITERATIONS,
+            planar_angle_degrees=DEFAULT_PLANAR_ANGLE_DEGREES,
+            min_region_faces=DEFAULT_MIN_REGION_FACES,
+            verbose=False,
+            profile=qem_profile,
+        )
+    elif simplify_method == "planar-2d":
+        simplified_mesh = simplify_mesh_data_2d(
+            vertices[:, :3],
+            faces,
+            planar_angle_degrees=DEFAULT_PLANAR_ANGLE_DEGREES,
+            min_region_faces=DEFAULT_MIN_REGION_FACES,
+            verbose=False,
+        )
+    else:
+        raise ValueError(f"Unknown simplify method: {simplify_method}")
+    qem_seconds = time.perf_counter() - simplify_start
     simplified_vertices = np.asarray(simplified_mesh.vertices, dtype=np.float64)
     simplified_faces = ensure_triangle_faces(np.asarray(simplified_mesh.faces, dtype=np.int32))
 
@@ -581,15 +612,19 @@ def main() -> int:
     print(f"Stock bounds: min={stock_min.tolist()} max={stock_max.tolist()}")
     print(f"Tool: diameter={TOOL_DIAMETER} height={TOOL_HEIGHT} segments={TOOL_SEGMENTS}")
     planar_angle_degrees = DEFAULT_PLANAR_ANGLE_DEGREES
+    simplify_label = simplify_method_label(args.simplify_method)
     if args.simplify_every > 0:
-        print(
-            f"Periodic planar QEM simplification: every {args.simplify_every} steps "
+        message = (
+            f"Periodic {simplify_label} simplification: every {args.simplify_every} steps "
             f"at angle tolerance {planar_angle_degrees:.2f}° "
-            f"(min {DEFAULT_MIN_REGION_FACES} faces/region, "
-            f"max {DEFAULT_PLANAR_QEM_MAX_ITERATIONS} iterations)"
+            f"(min {DEFAULT_MIN_REGION_FACES} faces/region"
         )
+        if args.simplify_method == "qem":
+            message += f", max {DEFAULT_PLANAR_QEM_MAX_ITERATIONS} iterations"
+        message += ")"
+        print(message)
     else:
-        print("Periodic planar QEM simplification: disabled (pass --simplify-every N to enable)")
+        print(f"Periodic {simplify_label} simplification: disabled (pass --simplify-every N to enable)")
 
     subtraction_seconds = 0.0
     reduction_wall_seconds = 0.0
@@ -610,11 +645,12 @@ def main() -> int:
             before_vertices = current.num_vert()
             before_triangles = current.num_tri()
             reduction_start = time.perf_counter()
-            call_qem_profile = QEMProfile()
+            call_qem_profile = QEMProfile() if args.simplify_method == "qem" else None
             simplified = simplify_manifold(
                 current,
                 args.simplify_tolerance,
-                context=f"planar QEM simplification at step {step}",
+                context=f"{simplify_label} simplification at step {step}",
+                simplify_method=args.simplify_method,
                 profile=reduction_profile,
                 qem_profile=call_qem_profile,
             )
@@ -631,15 +667,16 @@ def main() -> int:
                 reduction_status = "kept original"
 
             print(
-                f"    planar QEM {reduction_status} at step {step}: "
+                f"    {simplify_label} {reduction_status} at step {step}: "
                 f"{before_vertices} -> {after_vertices} vertices, "
                 f"{before_triangles} -> {after_triangles} faces "
                 f"({reduction_profile.last_total_seconds:.3f}s total; "
                 f"extract {reduction_profile.last_extract_seconds:.3f}s, "
-                f"qem {reduction_profile.last_qem_seconds:.3f}s, "
+                f"simplify {reduction_profile.last_qem_seconds:.3f}s, "
                 f"rebuild {reduction_profile.last_rebuild_seconds:.3f}s)"
             )
-            print(format_qem_profile(call_qem_profile, indent="      "))
+            if call_qem_profile is not None:
+                print(format_qem_profile(call_qem_profile, indent="      "))
 
         if step == 1 or step % 10 == 0 or step == len(positions):
             print(
@@ -650,11 +687,12 @@ def main() -> int:
         final_before_vertices = current.num_vert()
         final_before_triangles = current.num_tri()
         reduction_start = time.perf_counter()
-        call_qem_profile = QEMProfile()
+        call_qem_profile = QEMProfile() if args.simplify_method == "qem" else None
         final_simplified = simplify_manifold(
             current,
             args.simplify_tolerance,
-            context="final planar QEM simplification before writing output",
+            context=f"final {simplify_label} simplification before writing output",
+            simplify_method=args.simplify_method,
             profile=reduction_profile,
             qem_profile=call_qem_profile,
         )
@@ -671,15 +709,16 @@ def main() -> int:
             reduction_status = "kept original"
 
         print(
-            f"    planar QEM {reduction_status} at end: "
+            f"    {simplify_label} {reduction_status} at end: "
             f"{final_before_vertices} -> {final_after_vertices} vertices, "
             f"{final_before_triangles} -> {final_after_triangles} faces "
             f"({reduction_profile.last_total_seconds:.3f}s total; "
             f"extract {reduction_profile.last_extract_seconds:.3f}s, "
-            f"qem {reduction_profile.last_qem_seconds:.3f}s, "
+            f"simplify {reduction_profile.last_qem_seconds:.3f}s, "
             f"rebuild {reduction_profile.last_rebuild_seconds:.3f}s)"
         )
-        print(format_qem_profile(call_qem_profile, indent="      "))
+        if call_qem_profile is not None:
+            print(format_qem_profile(call_qem_profile, indent="      "))
 
     stl_output_path = DEFAULT_OUTPUT_DIR / f"{args.output.stem}.stl"
     write_off(args.output, current)
@@ -694,7 +733,7 @@ def main() -> int:
         print(f"  Internal timer total:  {reduction_profile.total_seconds:.3f} seconds")
         print(f"  Wall time around API:  {reduction_wall_seconds:.3f} seconds")
         print(f"  Extract Mesh64 time:   {reduction_profile.extract_seconds:.3f} seconds")
-        print(f"  QEM simplify time:     {reduction_profile.qem_seconds:.3f} seconds")
+        print(f"  Simplify time:         {reduction_profile.qem_seconds:.3f} seconds")
         print(f"  Rebuild Manifold time: {reduction_profile.rebuild_seconds:.3f} seconds")
         print(f"  Average per call:      {average_reduction_seconds:.3f} seconds")
     print(f"Wrote {args.output}")

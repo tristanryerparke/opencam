@@ -505,15 +505,6 @@ def main() -> int:
                 f"-> {current.num_vert()} vertices, {current.num_tri()} faces",
             )
 
-    # Remove disconnected fragments (tiny slivers that separate during cutting)
-    components = current.decompose()
-    if len(components) > 1:
-        largest = max(components, key=lambda m: m.num_tri())
-        removed = sum(m.num_tri() for m in components if m is not largest)
-        print(f"\nRemoved {len(components) - 1} disconnected fragment(s) "
-              f"({removed} stray face(s), kept {largest.num_tri()}-face main body)")
-        current = largest
-
     final_vertices, final_faces = manifold_to_mesh(current, context="extracting final swept stock mesh")
     final_vertices, final_faces = simplify_planar_mesh(
         final_vertices,

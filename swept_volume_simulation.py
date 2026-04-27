@@ -291,10 +291,6 @@ def simulate_swept_milling(mesh_data_url: str, operation: ToolpathOperation) -> 
             context=f"subtraction at segment {step}",
         )
 
-    components = current.decompose()
-    if len(components) > 1:
-        current = max(components, key=lambda manifold: manifold.num_tri())
-
     final_vertices, final_faces = manifold_to_mesh(current, context="extracting final swept stock mesh")
     final_vertices, final_faces = simplify_planar_mesh(final_vertices, final_faces)
     milled_stl = write_binary_stl(final_vertices, final_faces)

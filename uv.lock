@@ -81,6 +81,28 @@ wheels = [
 ]
 
 [[package]]
+name = "dnspython"
+version = "2.8.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/8c/8b/57666417c0f90f08bcafa776861060426765fdb422eb10212086fb811d26/dnspython-2.8.0.tar.gz", hash = "sha256:181d3c6996452cb1189c4046c61599b84a5a86e099562ffde77d26984ff26d0f", size = 368251, upload-time = "2025-09-07T18:58:00.022Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ba/5a/18ad964b0086c6e62e2e7500f7edc89e3faa45033c71c1893d34eed2b2de/dnspython-2.8.0-py3-none-any.whl", hash = "sha256:01d9bbc4a2d76bf0db7c1f729812ded6d912bd318d3b1cf81d30c0f845dbf3af", size = 331094, upload-time = "2025-09-07T18:57:58.071Z" },
+]
+
+[[package]]
+name = "email-validator"
+version = "2.3.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "dnspython" },
+    { name = "idna" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/f5/22/900cb125c76b7aaa450ce02fd727f452243f2e91a61af068b40adba60ea9/email_validator-2.3.0.tar.gz", hash = "sha256:9fc05c37f2f6cf439ff414f8fc46d917929974a82244c20eb10231ba60c54426", size = 51238, upload-time = "2025-08-26T13:09:06.831Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/de/15/545e2b6cf2e3be84bc1ed85613edd75b8aea69807a71c26f4ca6a9258e82/email_validator-2.3.0-py3-none-any.whl", hash = "sha256:80f13f623413e6b197ae73bb10bf4eb0908faf509ad8362c5edeb0be7fd450b4", size = 35604, upload-time = "2025-08-26T13:09:05.858Z" },
+]
+
+[[package]]
 name = "executing"
 version = "2.2.1"
 source = { registry = "https://pypi.org/simple" }
@@ -120,6 +142,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/6f/6d/0703ccc57f3a7233505399edb88de3cbd678da106337b9fcde432b65ed60/idna-3.11.tar.gz", hash = "sha256:795dafcc9c04ed0c1fb032c2aa73654d8e8c5023a7df64a53f39190ada629902", size = 194582, upload-time = "2025-10-12T14:55:20.501Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/0e/61/66938bbb5fc52dbdf84594873d5b51fb1f7c7794e9c0f5bd885f30bc507b/idna-3.11-py3-none-any.whl", hash = "sha256:771a87f49d9defaf64091e6e6fe9c18d4833f140bd19464795bc32d966ca37ea", size = 71008, upload-time = "2025-10-12T14:55:18.883Z" },
+]
+
+[[package]]
+name = "iniconfig"
+version = "2.3.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/72/34/14ca021ce8e5dfedc35312d08ba8bf51fdd999c576889fc2c24cb97f4f10/iniconfig-2.3.0.tar.gz", hash = "sha256:c76315c77db068650d49c5b56314774a7804df16fee4402c1f19d6d15d8c4730", size = 20503, upload-time = "2025-10-18T21:55:43.219Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/cb/b1/3846dd7f199d53cb17f49cba7e651e9ce294d8497c8c150530ed11865bb8/iniconfig-2.3.0-py3-none-any.whl", hash = "sha256:f631c04d2c48c52b84d0d0549c99ff3859c98df65b3101406327ecc7d53fbf12", size = 7484, upload-time = "2025-10-18T21:55:41.639Z" },
 ]
 
 [[package]]
@@ -326,6 +357,24 @@ wheels = [
 ]
 
 [[package]]
+name = "packaging"
+version = "26.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/d7/f1/e7a6dd94a8d4a5626c03e4e99c87f241ba9e350cd9e6d75123f992427270/packaging-26.2.tar.gz", hash = "sha256:ff452ff5a3e828ce110190feff1178bb1f2ea2281fa2075aadb987c2fb221661", size = 228134, upload-time = "2026-04-24T20:15:23.917Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/df/b2/87e62e8c3e2f4b32e5fe99e0b86d576da1312593b39f47d8ceef365e95ed/packaging-26.2-py3-none-any.whl", hash = "sha256:5fc45236b9446107ff2415ce77c807cee2862cb6fac22b8a73826d0693b0980e", size = 100195, upload-time = "2026-04-24T20:15:22.081Z" },
+]
+
+[[package]]
+name = "pluggy"
+version = "1.6.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/f9/e2/3e91f31a7d2b083fe6ef3fa267035b518369d9511ffab804f839851d2779/pluggy-1.6.0.tar.gz", hash = "sha256:7dcc130b76258d33b90f61b658791dede3486c3e6bfb003ee5c9bfb396dd22f3", size = 69412, upload-time = "2025-05-15T12:30:07.975Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/54/20/4d324d65cc6d9205fabedc306948156824eb9f0ee1633355a8f7ec5c66bf/pluggy-1.6.0-py3-none-any.whl", hash = "sha256:e920276dd6813095e9377c0bc5566d94c932c33b27a3e3945d8389c374dd4746", size = 20538, upload-time = "2025-05-15T12:30:06.134Z" },
+]
+
+[[package]]
 name = "pydantic"
 version = "2.12.5"
 source = { registry = "https://pypi.org/simple" }
@@ -338,6 +387,11 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/69/44/36f1a6e523abc58ae5f928898e4aca2e0ea509b5aa6f6f392a5d882be928/pydantic-2.12.5.tar.gz", hash = "sha256:4d351024c75c0f085a9febbb665ce8c0c6ec5d30e903bdb6394b7ede26aebb49", size = 821591, upload-time = "2025-11-26T15:11:46.471Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/5a/87/b70ad306ebb6f9b585f114d0ac2137d792b48be34d732d60e597c2f8465a/pydantic-2.12.5-py3-none-any.whl", hash = "sha256:e561593fccf61e8a20fc46dfc2dfe075b8be7d0188df33f221ad1f0139180f9d", size = 463580, upload-time = "2025-11-26T15:11:44.605Z" },
+]
+
+[package.optional-dependencies]
+email = [
+    { name = "email-validator" },
 ]
 
 [[package]]
@@ -443,6 +497,95 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/ac/01/b26a8c0d70a76fc333a620ce1ee7b11f8ab4b3791306350e28a578dcb47f/pymeshlab-2025.7.post1-cp314-cp314-manylinux_2_35_aarch64.whl", hash = "sha256:de6468bf43d5eeb23cdac78fe30286694ff5ad6d349a9bfa44584ac7e434e054", size = 65417867, upload-time = "2026-01-30T08:41:39.434Z" },
     { url = "https://files.pythonhosted.org/packages/79/c0/9b769a1acd7ce4405059820793c2f14129d9faba99b595ea35c8c9d8c57d/pymeshlab-2025.7.post1-cp314-cp314-manylinux_2_35_x86_64.whl", hash = "sha256:951fe5aeb3e92632f3db3a1a6525279b41e5d7191c6b9011429dbb0b67f2f0d3", size = 106572030, upload-time = "2026-01-30T08:41:43.909Z" },
     { url = "https://files.pythonhosted.org/packages/3e/f0/65e3b96a14e9c80e05c085f8b32b923ccd5a70acf63eb66528e3fa94cf54/pymeshlab-2025.7.post1-cp314-cp314-win_amd64.whl", hash = "sha256:881389fb62ac832c81555fe22a3990a81624deb78e78ca3862836075d5c62c2b", size = 56595688, upload-time = "2026-01-30T08:41:47.145Z" },
+]
+
+[[package]]
+name = "pytest"
+version = "9.0.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "colorama", marker = "sys_platform == 'win32'" },
+    { name = "iniconfig" },
+    { name = "packaging" },
+    { name = "pluggy" },
+    { name = "pygments" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/7d/0d/549bd94f1a0a402dc8cf64563a117c0f3765662e2e668477624baeec44d5/pytest-9.0.3.tar.gz", hash = "sha256:b86ada508af81d19edeb213c681b1d48246c1a91d304c6c81a427674c17eb91c", size = 1572165, upload-time = "2026-04-07T17:16:18.027Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d4/24/a372aaf5c9b7208e7112038812994107bc65a84cd00e0354a88c2c77a617/pytest-9.0.3-py3-none-any.whl", hash = "sha256:2c5efc453d45394fdd706ade797c0a81091eccd1d6e4bccfcd476e2b8e0ab5d9", size = 375249, upload-time = "2026-04-07T17:16:16.13Z" },
+]
+
+[[package]]
+name = "redis"
+version = "7.4.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/7b/7f/3759b1d0d72b7c92f0d70ffd9dc962b7b7b5ee74e135f9d7d8ab06b8a318/redis-7.4.0.tar.gz", hash = "sha256:64a6ea7bf567ad43c964d2c30d82853f8df927c5c9017766c55a1d1ed95d18ad", size = 4943913, upload-time = "2026-03-24T09:14:37.53Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/74/3a/95deec7db1eb53979973ebd156f3369a72732208d1391cd2e5d127062a32/redis-7.4.0-py3-none-any.whl", hash = "sha256:a9c74a5c893a5ef8455a5adb793a31bb70feb821c86eccb62eebef5a19c429ec", size = 409772, upload-time = "2026-03-24T09:14:35.968Z" },
+]
+
+[[package]]
+name = "rhino-python-renderer"
+version = "0.1.0"
+source = { editable = "../rhino-python-renderer" }
+dependencies = [
+    { name = "devtools" },
+    { name = "pydantic", extra = ["email"] },
+    { name = "pytest" },
+    { name = "redis" },
+    { name = "rhino3dm" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "devtools", specifier = ">=0.12.2" },
+    { name = "pydantic", extras = ["email"], specifier = ">=2.12.5" },
+    { name = "pytest", specifier = ">=9.0.2" },
+    { name = "redis", specifier = ">=7.3.0" },
+    { name = "rhino3dm", specifier = ">=8.17.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "matplotlib", specifier = ">=3.10.7" },
+    { name = "shapely", specifier = ">=2.1.2" },
+    { name = "trimesh", extras = ["easy"], specifier = ">=4.9.0" },
+]
+
+[[package]]
+name = "rhino3dm"
+version = "8.17.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/5f/c9/7390e9e6c4a494bbe3c2394e36149b5b7af53011ec6ceda60a4e8f37084f/rhino3dm-8.17.0.tar.gz", hash = "sha256:86d9d3c3b47bd70286df9daf40785821914d1e0c93387be34bcbd81d9f3ec9bf", size = 75965396, upload-time = "2025-03-12T22:55:57.252Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/cc/fa/5a134317af3f4377064292bbd5f5b1d82932446e49c20ccd907adb02baf2/rhino3dm-8.17.0-cp312-cp312-macosx_13_0_universal2.whl", hash = "sha256:6e6372d3b4b5661bf694e49099aae12dec946e4b558e9d42ab9ab7ebda0ff5db", size = 8463324, upload-time = "2025-03-12T22:54:23.627Z" },
+    { url = "https://files.pythonhosted.org/packages/15/e4/377dcb111f08db40c1301ff9b337e414bbdc651407966ead6ff8784f3f16/rhino3dm-8.17.0-cp312-cp312-macosx_14_0_universal2.whl", hash = "sha256:2f21e64fb69d9ccb3c419e43292de2c2868650d740bdc13c2f91ced48ff9303a", size = 8450695, upload-time = "2025-03-12T22:54:26.014Z" },
+    { url = "https://files.pythonhosted.org/packages/40/a9/5bbf67901d6f5b0554a8a3c95cd2f74deba4fcd300175a154ff669e7b9e8/rhino3dm-8.17.0-cp312-cp312-macosx_15_0_universal2.whl", hash = "sha256:84cde05f6bd028e8e49806b7b541b30198982c9857e9af7515f4538dc456ed79", size = 8392441, upload-time = "2025-03-12T22:54:29.446Z" },
+    { url = "https://files.pythonhosted.org/packages/6e/72/d5e19cfbaf733c59761921a59fd23b015ee5b9d6739096ca36eae1713a12/rhino3dm-8.17.0-cp312-cp312-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:060371194daf99009fb5f4987c5a3a107a9643a0e6d6d811c36d00c91e741a61", size = 5146401, upload-time = "2025-03-12T22:54:31.541Z" },
+    { url = "https://files.pythonhosted.org/packages/a7/c6/886b34d08d6e10eda94644c4ae522a56c8639e8aa45b78d6a508903262a9/rhino3dm-8.17.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:5e8219af0d008645d16a67649cfa5e810fbfa8726ff17f0cda347e7967e1620c", size = 5425393, upload-time = "2025-03-12T22:54:33.854Z" },
+    { url = "https://files.pythonhosted.org/packages/7e/25/656b1db956ec11257d25fc45070a6ee8fbaa05c5447bce68bc17ca233caa/rhino3dm-8.17.0-cp312-cp312-win_amd64.whl", hash = "sha256:aafd0a37cc08a0618e81cb9f8da52d503dfcc19f774f0ed1f0da7f749746f6df", size = 2378249, upload-time = "2025-03-12T22:54:35.811Z" },
+    { url = "https://files.pythonhosted.org/packages/47/c2/8978334412691b70a595c9b1a17f1ff51895b3d590bbaa508804db572734/rhino3dm-8.17.0-cp313-cp313-macosx_13_0_universal2.whl", hash = "sha256:6fda8a119e7889590ab39f8a6e542450a9370d6c910d80611d827e2295b2d103", size = 8463354, upload-time = "2025-03-12T22:54:38.358Z" },
+    { url = "https://files.pythonhosted.org/packages/2f/a0/5018dbeea51a654332b9201ca7d61850d7c3cf153a1e40b997f50d6dff52/rhino3dm-8.17.0-cp313-cp313-macosx_14_0_universal2.whl", hash = "sha256:5311f99128abd8a0d8b83f5293ca78d6dba022563375584d61824d4d53dd89e8", size = 8450488, upload-time = "2025-03-12T22:54:44.383Z" },
+    { url = "https://files.pythonhosted.org/packages/00/a0/684309e8ef65bf354b3ed26e8ed5e22c6c22173ec0713b6b12613a34e21a/rhino3dm-8.17.0-cp313-cp313-macosx_15_0_universal2.whl", hash = "sha256:c5be116af4a128a995f29263115d9e049264680f9b58459e7b5b6cdd30686068", size = 8392458, upload-time = "2025-03-12T22:54:51.946Z" },
+    { url = "https://files.pythonhosted.org/packages/5c/3e/7a174155d4da96f2298d3805849ca77e39ddc29abfb3f39cb76c9ddde5a2/rhino3dm-8.17.0-cp313-cp313-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:056a9da37da061e2a92274876de375d55365ad64528c9cc48f8b018fc60ca27f", size = 5149591, upload-time = "2025-03-12T22:54:56.562Z" },
+    { url = "https://files.pythonhosted.org/packages/75/4c/760626ee1d98e668045f6b4f044ad370a45aea395383a46fb38485ccf8a2/rhino3dm-8.17.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:b5dc1d6e0e8e0ee4f3bf6463eb3536b0154f74e7284ea590b8f328bee757a786", size = 5429896, upload-time = "2025-03-12T22:55:01.075Z" },
+    { url = "https://files.pythonhosted.org/packages/cb/01/19dde08558483c772981c6fd331a3cd501e547c58bf0d9959b9eeb19d3db/rhino3dm-8.17.0-cp313-cp313-win_amd64.whl", hash = "sha256:fade438d3acb71053ba709d92f77bdd742ab7f713a7d2f1bdd85023491072c78", size = 2378286, upload-time = "2025-03-12T22:55:03.237Z" },
+]
+
+[[package]]
+name = "rtree"
+version = "1.4.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/95/09/7302695875a019514de9a5dd17b8320e7a19d6e7bc8f85dcfb79a4ce2da3/rtree-1.4.1.tar.gz", hash = "sha256:c6b1b3550881e57ebe530cc6cffefc87cd9bf49c30b37b894065a9f810875e46", size = 52425, upload-time = "2025-08-13T19:32:01.413Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/04/d9/108cd989a4c0954e60b3cdc86fd2826407702b5375f6dfdab2802e5fed98/rtree-1.4.1-py3-none-macosx_10_9_x86_64.whl", hash = "sha256:d672184298527522d4914d8ae53bf76982b86ca420b0acde9298a7a87d81d4a4", size = 468484, upload-time = "2025-08-13T19:31:50.593Z" },
+    { url = "https://files.pythonhosted.org/packages/f3/cf/2710b6fd6b07ea0aef317b29f335790ba6adf06a28ac236078ed9bd8a91d/rtree-1.4.1-py3-none-macosx_11_0_arm64.whl", hash = "sha256:a7e48d805e12011c2cf739a29d6a60ae852fb1de9fc84220bbcef67e6e595d7d", size = 436325, upload-time = "2025-08-13T19:31:52.367Z" },
+    { url = "https://files.pythonhosted.org/packages/55/e1/4d075268a46e68db3cac51846eb6a3ab96ed481c585c5a1ad411b3c23aad/rtree-1.4.1-py3-none-manylinux_2_24_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:efa8c4496e31e9ad58ff6c7df89abceac7022d906cb64a3e18e4fceae6b77f65", size = 459789, upload-time = "2025-08-13T19:31:53.926Z" },
+    { url = "https://files.pythonhosted.org/packages/d1/75/e5d44be90525cd28503e7f836d077ae6663ec0687a13ba7810b4114b3668/rtree-1.4.1-py3-none-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:12de4578f1b3381a93a655846900be4e3d5f4cd5e306b8b00aa77c1121dc7e8c", size = 507644, upload-time = "2025-08-13T19:31:55.164Z" },
+    { url = "https://files.pythonhosted.org/packages/fd/85/b8684f769a142163b52859a38a486493b05bafb4f2fb71d4f945de28ebf9/rtree-1.4.1-py3-none-musllinux_1_2_aarch64.whl", hash = "sha256:b558edda52eca3e6d1ee629042192c65e6b7f2c150d6d6cd207ce82f85be3967", size = 1454478, upload-time = "2025-08-13T19:31:56.808Z" },
+    { url = "https://files.pythonhosted.org/packages/e9/a4/c2292b95246b9165cc43a0c3757e80995d58bc9b43da5cb47ad6e3535213/rtree-1.4.1-py3-none-musllinux_1_2_x86_64.whl", hash = "sha256:f155bc8d6bac9dcd383481dee8c130947a4866db1d16cb6dff442329a038a0dc", size = 1555140, upload-time = "2025-08-13T19:31:58.031Z" },
+    { url = "https://files.pythonhosted.org/packages/74/25/5282c8270bfcd620d3e73beb35b40ac4ab00f0a898d98ebeb41ef0989ec8/rtree-1.4.1-py3-none-win_amd64.whl", hash = "sha256:efe125f416fd27150197ab8521158662943a40f87acab8028a1aac4ad667a489", size = 389358, upload-time = "2025-08-13T19:31:59.247Z" },
+    { url = "https://files.pythonhosted.org/packages/3f/50/0a9e7e7afe7339bd5e36911f0ceb15fed51945836ed803ae5afd661057fd/rtree-1.4.1-py3-none-win_arm64.whl", hash = "sha256:3d46f55729b28138e897ffef32f7ce93ac335cb67f9120125ad3742a220800f0", size = 355253, upload-time = "2025-08-13T19:32:00.296Z" },
 ]
 
 [[package]]
@@ -639,6 +782,8 @@ dependencies = [
     { name = "numpy" },
     { name = "pydantic" },
     { name = "pymeshlab" },
+    { name = "rhino-python-renderer" },
+    { name = "rtree" },
     { name = "scipy" },
     { name = "shapely" },
     { name = "trimesh" },
@@ -656,6 +801,8 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.4.4" },
     { name = "pydantic", specifier = ">=2.12.5" },
     { name = "pymeshlab", specifier = ">=2025.7.post1" },
+    { name = "rhino-python-renderer", editable = "../rhino-python-renderer" },
+    { name = "rtree", specifier = ">=1.4.1" },
     { name = "scipy", specifier = ">=1.17.1" },
     { name = "shapely", specifier = ">=2.1.2" },
     { name = "trimesh", specifier = ">=4.12.0" },

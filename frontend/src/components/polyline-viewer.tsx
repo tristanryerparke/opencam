@@ -2,8 +2,6 @@ import { useCallback, useEffect, useRef } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
-import { Line2 } from "three/examples/jsm/lines/Line2.js";
-import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
 import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
@@ -77,12 +75,9 @@ type BoundaryEdge = {
 
 const POLYLINE_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"] as const;
 const POLYLINE_LINEWIDTH = 2.35;
-const POLYLINE_HALO_LINEWIDTH = 4.8;
 const CLEARANCE_POLYLINE_LINEWIDTH = 2.1;
-const CLEARANCE_POLYLINE_HALO_LINEWIDTH = 4.2;
 const CLEARANCE_DASH_SIZE = 1.5;
 const CLEARANCE_GAP_SIZE = 1.1;
-const MESH_EDGE_LINEWIDTH = 1.35;
 const MESH_DEPTH_OFFSET_FACTOR = 1;
 const MESH_DEPTH_OFFSET_UNITS = 1;
 const OVERLAY_LIFT_FACTOR = 1e-5;
@@ -645,8 +640,6 @@ export function PolylineViewer({
   const meshBoundsRef = useRef<THREE.Box3 | null>(null);
   const selectionHighlightGroupRef = useRef<THREE.Group | null>(null);
   const selectionOutlineMaterialRef = useRef<LineMaterial | null>(null);
-  const meshEdgeMaterialRef = useRef<LineMaterial | null>(null);
-  const polylineMaterialsRef = useRef<LineMaterial[]>([]);
   const scsRendererRef = useRef<SCSRenderer | null>(null);
   const simulationDummyMeshRef = useRef<THREE.Mesh | null>(null);
   const simulationToolPreviewMeshRef = useRef<THREE.Mesh | null>(null);
@@ -1014,10 +1007,6 @@ export function PolylineViewer({
       camera.updateProjectionMatrix();
       renderer.setSize(width, height, false);
       selectionOutlineMaterialRef.current?.resolution.set(width, height);
-      meshEdgeMaterialRef.current?.resolution.set(width, height);
-      for (const material of polylineMaterialsRef.current) {
-        material.resolution.set(width, height);
-      }
     };
 
     resize();
@@ -1089,8 +1078,6 @@ export function PolylineViewer({
       meshBoundsRef.current = null;
       selectionHighlightGroupRef.current = null;
       selectionOutlineMaterialRef.current = null;
-      meshEdgeMaterialRef.current = null;
-      polylineMaterialsRef.current = [];
       scsRendererRef.current = null;
       simulationDummyMeshRef.current = null;
       simulationToolPreviewMeshRef.current = null;
@@ -1120,7 +1107,6 @@ export function PolylineViewer({
     meshBoundsRef.current = null;
     selectionHighlightGroupRef.current = null;
     selectionOutlineMaterialRef.current = null;
-    meshEdgeMaterialRef.current = null;
 
     let cancelled = false;
 
@@ -1202,31 +1188,21 @@ export function PolylineViewer({
         meshGroup.add(selectionMesh);
         meshSelectionMeshRef.current = selectionMesh;
 
-        const edgeSource = new THREE.EdgesGeometry(
+        const edgeGeometry = new THREE.EdgesGeometry(
           weldedGeometry,
           DISPLAY_EDGE_THRESHOLD_ANGLE_DEGREES,
         );
-        const edgeGeometry = new LineSegmentsGeometry().fromEdgesGeometry(edgeSource);
-        edgeSource.dispose();
-
-        const edgeMaterial = new LineMaterial({
-          color: meshEdgeColor,
-          linewidth: MESH_EDGE_LINEWIDTH,
-          alphaToCoverage: true,
-          depthTest: true,
-          depthWrite: false,
-          transparent: false,
-        });
-        edgeMaterial.resolution.set(
-          renderer.domElement.clientWidth,
-          renderer.domElement.clientHeight,
+        const edgeLine = new THREE.LineSegments(
+          edgeGeometry,
+          new THREE.LineBasicMaterial({
+            color: meshEdgeColor,
+            depthTest: true,
+            depthWrite: false,
+          }),
         );
-        meshEdgeMaterialRef.current = edgeMaterial;
-
-        const edgeLines = new LineSegments2(edgeGeometry, edgeMaterial);
-        edgeLines.renderOrder = 2;
-        edgeLines.frustumCulled = false;
-        meshGroup.add(edgeLines);
+        edgeLine.renderOrder = 2;
+        edgeLine.frustumCulled = false;
+        meshGroup.add(edgeLine);
 
         const selectionHighlightGroup = new THREE.Group();
         mesh.add(selectionHighlightGroup);
@@ -1262,7 +1238,6 @@ export function PolylineViewer({
       meshBoundsRef.current = null;
       selectionHighlightGroupRef.current = null;
       selectionOutlineMaterialRef.current = null;
-      meshEdgeMaterialRef.current = null;
     };
   }, [clearSimulationResources, meshColor, meshEdgeColor, meshUrl, rebuildSimulationResources, renderSelectionHighlight, showOriginalMesh]);
 
@@ -1275,7 +1250,6 @@ export function PolylineViewer({
     }
 
     clearGroup(polylineGroup);
-    polylineMaterialsRef.current = [];
 
     const bounds = getSceneBounds(polylines, meshBoundsRef.current);
     const camera = cameraRef.current;
@@ -1296,68 +1270,35 @@ export function PolylineViewer({
       }
 
       const positions = polyline.points.flatMap(([x, y, z]) => [x, y, z + overlayLift]);
-      const haloGeometry = new LineGeometry();
-      haloGeometry.setPositions(positions);
-      const lineGeometry = new LineGeometry();
-      lineGeometry.setPositions(positions);
+      const lineGeometry = new THREE.BufferGeometry();
+      lineGeometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
 
-      const haloMaterial = new LineMaterial({
-        color: 0x0f172a,
-        linewidth: isClearanceMove
-          ? CLEARANCE_POLYLINE_HALO_LINEWIDTH
-          : POLYLINE_HALO_LINEWIDTH,
-        transparent: true,
-        opacity: isClearanceMove ? 0.5 : 0.42,
-        depthTest: true,
-        depthWrite: false,
-      });
-      haloMaterial.alphaToCoverage = true;
-      haloMaterial.resolution.set(
-        renderer.domElement.clientWidth,
-        renderer.domElement.clientHeight,
-      );
-      if (isClearanceMove) {
-        haloMaterial.dashed = true;
-        haloMaterial.dashScale = 1;
-        haloMaterial.dashSize = CLEARANCE_DASH_SIZE;
-        haloMaterial.gapSize = CLEARANCE_GAP_SIZE;
-      }
+      const lineMaterial = isClearanceMove
+        ? new THREE.LineDashedMaterial({
+            color,
+            linewidth: CLEARANCE_POLYLINE_LINEWIDTH,
+            dashSize: CLEARANCE_DASH_SIZE,
+            gapSize: CLEARANCE_GAP_SIZE,
+            transparent: true,
+            opacity: 1,
+            depthTest: true,
+            depthWrite: false,
+          })
+        : new THREE.LineBasicMaterial({
+            color,
+            linewidth: POLYLINE_LINEWIDTH,
+            transparent: true,
+            opacity: 1,
+            depthTest: true,
+            depthWrite: false,
+          });
 
-      const haloLine = new Line2(haloGeometry, haloMaterial);
-      if (isClearanceMove) {
-        haloLine.computeLineDistances();
-      }
-      haloLine.renderOrder = 18;
-      polylineGroup.add(haloLine);
-      polylineMaterialsRef.current.push(haloMaterial);
-
-      const lineMaterial = new LineMaterial({
-        color,
-        linewidth: isClearanceMove ? CLEARANCE_POLYLINE_LINEWIDTH : POLYLINE_LINEWIDTH,
-        transparent: true,
-        opacity: 1,
-        depthTest: true,
-        depthWrite: false,
-      });
-      lineMaterial.alphaToCoverage = true;
-      lineMaterial.resolution.set(
-        renderer.domElement.clientWidth,
-        renderer.domElement.clientHeight,
-      );
-      if (isClearanceMove) {
-        lineMaterial.dashed = true;
-        lineMaterial.dashScale = 1;
-        lineMaterial.dashSize = CLEARANCE_DASH_SIZE;
-        lineMaterial.gapSize = CLEARANCE_GAP_SIZE;
-      }
-
-      const line = new Line2(lineGeometry, lineMaterial);
+      const line = new THREE.Line(lineGeometry, lineMaterial);
       if (isClearanceMove) {
         line.computeLineDistances();
       }
-      line.renderOrder = 19;
+      line.renderOrder = 18;
       polylineGroup.add(line);
-      polylineMaterialsRef.current.push(lineMaterial);
     });
   }, [polylines]);
 

@@ -391,6 +391,7 @@ function App() {
     return generatedPaths.map((path) => ({
       id: path.id,
       name: path.name ?? (path.kind === "clearance" ? "Clearance move" : "Generated profile"),
+      kind: path.kind,
       color: path.kind === "clearance" ? "#dc2626" : "#1d4ed8",
       points: path.locations.map(({ x, y, z }) => [x, y, z] as const),
     }));

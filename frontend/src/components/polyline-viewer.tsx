@@ -7,10 +7,17 @@ import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
 import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
 import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
-import { mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import {
+  mergeVertices,
+  toCreasedNormals,
+} from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
 import { SCSRenderer } from "@/simulation/scs/scs-renderer";
-import { type SimulationSamplePoint, type ToolData } from "@/simulation/toolpath";
+import {
+  type SimulationSamplePoint,
+  type ToolData,
+  type ToolpathKind,
+} from "@/simulation/toolpath";
 import { cn } from "@/lib/utils";
 
 export type PolylinePoint = readonly [number, number, number];
@@ -20,6 +27,7 @@ export type PolylineDefinition = {
   name: string;
   points: ReadonlyArray<PolylinePoint>;
   color?: string;
+  kind?: ToolpathKind;
 };
 
 export type MeshFaceSelection = {
@@ -68,11 +76,25 @@ type BoundaryEdge = {
 };
 
 const POLYLINE_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"] as const;
-const POLYLINE_LINEWIDTH = 2;
-const MESH_EDGE_LINEWIDTH = 1.5;
-const POLYLINE_Z_OFFSET = 0.02;
+const POLYLINE_LINEWIDTH = 2.35;
+const POLYLINE_HALO_LINEWIDTH = 4.8;
+const CLEARANCE_POLYLINE_LINEWIDTH = 2.1;
+const CLEARANCE_POLYLINE_HALO_LINEWIDTH = 4.2;
+const CLEARANCE_DASH_SIZE = 1.5;
+const CLEARANCE_GAP_SIZE = 1.1;
+const MESH_EDGE_LINEWIDTH = 1.35;
+const MESH_DEPTH_OFFSET_FACTOR = 1;
+const MESH_DEPTH_OFFSET_UNITS = 1;
+const OVERLAY_LIFT_FACTOR = 1e-5;
+const MIN_OVERLAY_LIFT = 0.0001;
+const MAX_OVERLAY_LIFT = 0.05;
+const CAMERA_NEAR_DISTANCE_FACTOR = 1e-4;
+const CAMERA_NEAR_SCENE_FACTOR = 1e-5;
+const CAMERA_FAR_RADIUS_MULTIPLIER = 6;
+const CAMERA_MAX_DISTANCE_MULTIPLIER = 14;
 const NORMAL_ALIGNMENT_EPSILON = 0.9999;
-const DISPLAY_EDGE_THRESHOLD_ANGLE_DEGREES = 0.001;
+const DISPLAY_EDGE_THRESHOLD_ANGLE_DEGREES = 12;
+const DISPLAY_SHADING_CREASE_ANGLE_DEGREES = 35;
 const PLANE_EPSILON = 0.001;
 const STOCK_COLOR = 0xcbd5e1;
 const CUT_SURFACE_COLOR = 0xfb923c;
@@ -136,6 +158,47 @@ function getSceneBounds(
   return polylineBounds ? bounds.union(polylineBounds) : bounds;
 }
 
+function getSceneDiagonal(box: THREE.Box3) {
+  return box.getSize(new THREE.Vector3()).length();
+}
+
+function getOverlayLift(box: THREE.Box3) {
+  return THREE.MathUtils.clamp(
+    getSceneDiagonal(box) * OVERLAY_LIFT_FACTOR,
+    MIN_OVERLAY_LIFT,
+    MAX_OVERLAY_LIFT,
+  );
+}
+
+function updateCameraDepthRange(
+  box: THREE.Box3,
+  camera: THREE.PerspectiveCamera,
+  controls: OrbitControls,
+) {
+  const size = box.getSize(new THREE.Vector3());
+  const sceneRadius = Math.max(size.length() * 0.5, 0.5);
+  const distanceToTarget = Math.max(
+    camera.position.distanceTo(controls.target),
+    sceneRadius * 0.1,
+    0.01,
+  );
+  const near = Math.max(
+    0.001,
+    distanceToTarget * CAMERA_NEAR_DISTANCE_FACTOR,
+    sceneRadius * CAMERA_NEAR_SCENE_FACTOR,
+  );
+  const far = Math.max(
+    near * 10,
+    distanceToTarget + sceneRadius * CAMERA_FAR_RADIUS_MULTIPLIER,
+  );
+
+  if (Math.abs(camera.near - near) > 1e-6 || Math.abs(camera.far - far) > 1e-3) {
+    camera.near = near;
+    camera.far = far;
+    camera.updateProjectionMatrix();
+  }
+}
+
 function fitCameraToBox(
   box: THREE.Box3,
   camera: THREE.PerspectiveCamera,
@@ -152,14 +215,13 @@ function fitCameraToBox(
     center.y - distance * 1.1,
     center.z + distance * 0.9,
   );
-  camera.near = Math.max(maxDimension / 10000, 0.001);
-  camera.far = distance * 100;
-  camera.updateProjectionMatrix();
 
   controls.target.copy(center);
   controls.minDistance = Math.max(maxDimension * 0.0005, 0.01);
-  controls.maxDistance = maxDimension * 12;
+  controls.maxDistance = Math.max(maxDimension * CAMERA_MAX_DISTANCE_MULTIPLIER, distance * 2);
   controls.update();
+
+  updateCameraDepthRange(box, camera, controls);
 }
 
 function disposeObject(object: THREE.Object3D) {
@@ -578,6 +640,7 @@ export function PolylineViewer({
   const polylineGroupRef = useRef<THREE.Group | null>(null);
   const meshGroupRef = useRef<THREE.Group | null>(null);
   const meshRef = useRef<THREE.Mesh | null>(null);
+  const meshSelectionMeshRef = useRef<THREE.Mesh | null>(null);
   const meshSelectionDataRef = useRef<MeshSelectionData | null>(null);
   const meshBoundsRef = useRef<THREE.Box3 | null>(null);
   const selectionHighlightGroupRef = useRef<THREE.Group | null>(null);
@@ -784,6 +847,7 @@ export function PolylineViewer({
         depthTest: false,
         depthWrite: false,
       });
+      outlineMaterial.alphaToCoverage = true;
       outlineMaterial.resolution.set(
         renderer.domElement.clientWidth,
         renderer.domElement.clientHeight,
@@ -810,7 +874,12 @@ export function PolylineViewer({
     camera.up.set(0, 0, 1);
     cameraRef.current = camera;
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    const renderer = new THREE.WebGLRenderer({
+      antialias: true,
+      alpha: true,
+      stencil: true,
+      reversedDepthBuffer: true,
+    });
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     renderer.autoClear = false;
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -904,10 +973,10 @@ export function PolylineViewer({
       }
 
       const currentCamera = cameraRef.current;
-      const currentMesh = meshRef.current;
+      const currentSelectionMesh = meshSelectionMeshRef.current;
       const selectionData = meshSelectionDataRef.current;
 
-      if (!currentCamera || !currentMesh || !selectionData) {
+      if (!currentCamera || !currentSelectionMesh || !selectionData) {
         return;
       }
 
@@ -916,14 +985,14 @@ export function PolylineViewer({
       pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
       raycaster.setFromCamera(pointer, currentCamera);
-      const [intersection] = raycaster.intersectObject(currentMesh, false);
+      const [intersection] = raycaster.intersectObject(currentSelectionMesh, false);
 
       if (!intersection || intersection.faceIndex == null) {
         return;
       }
 
       const selection = createMeshFaceSelection(
-        currentMesh.geometry as THREE.BufferGeometry,
+        currentSelectionMesh.geometry as THREE.BufferGeometry,
         selectionData,
         intersection.faceIndex,
       );
@@ -960,6 +1029,11 @@ export function PolylineViewer({
 
     const render = () => {
       controls.update();
+      updateCameraDepthRange(
+        getSceneBounds(currentPolylinesRef.current, meshBoundsRef.current),
+        camera,
+        controls,
+      );
       renderer.clear();
       renderer.render(scene, camera);
 
@@ -1010,6 +1084,7 @@ export function PolylineViewer({
       polylineGroupRef.current = null;
       meshGroupRef.current = null;
       meshRef.current = null;
+      meshSelectionMeshRef.current = null;
       meshSelectionDataRef.current = null;
       meshBoundsRef.current = null;
       selectionHighlightGroupRef.current = null;
@@ -1040,6 +1115,7 @@ export function PolylineViewer({
     clearGroup(meshGroup);
     clearSimulationResources();
     meshRef.current = null;
+    meshSelectionMeshRef.current = null;
     meshSelectionDataRef.current = null;
     meshBoundsRef.current = null;
     selectionHighlightGroupRef.current = null;
@@ -1074,49 +1150,83 @@ export function PolylineViewer({
         const meshGeometry = loader.parse(buffer);
         meshGeometry.deleteAttribute("normal");
         const weldedGeometry = mergeVertices(meshGeometry);
-        weldedGeometry.computeVertexNormals();
+        meshGeometry.dispose();
         weldedGeometry.computeBoundingBox();
         weldedGeometry.computeBoundingSphere();
 
+        const renderGeometry = toCreasedNormals(
+          weldedGeometry.clone(),
+          THREE.MathUtils.degToRad(DISPLAY_SHADING_CREASE_ANGLE_DEGREES),
+        );
+        renderGeometry.computeBoundingBox();
+        renderGeometry.computeBoundingSphere();
+
+        const depthMaterial = new THREE.MeshDepthMaterial({
+          depthWrite: true,
+          depthTest: true,
+          polygonOffset: true,
+          polygonOffsetFactor: MESH_DEPTH_OFFSET_FACTOR,
+          polygonOffsetUnits: MESH_DEPTH_OFFSET_UNITS,
+        });
+        depthMaterial.colorWrite = false;
+
+        const depthMesh = new THREE.Mesh(renderGeometry, depthMaterial);
+        depthMesh.renderOrder = 0;
+        depthMesh.frustumCulled = false;
+        meshGroup.add(depthMesh);
+
         const meshMaterial = new THREE.MeshStandardMaterial({
           color: meshColor,
-          roughness: 0.55,
-          metalness: 0.08,
-          flatShading: true,
-          polygonOffset: true,
-          polygonOffsetFactor: 3,
-          polygonOffsetUnits: 4,
+          roughness: 0.72,
+          metalness: 0.02,
+          depthWrite: false,
+          depthFunc: THREE.LessEqualDepth,
         });
-        const mesh = new THREE.Mesh(weldedGeometry, meshMaterial);
+        const mesh = new THREE.Mesh(renderGeometry, meshMaterial);
+        mesh.renderOrder = 1;
+        mesh.frustumCulled = false;
         meshGroup.add(mesh);
         meshGroup.visible =
           faceSelectionModeRef.current || showOriginalMesh || !simulationToolRef.current;
         meshRef.current = mesh;
 
-        const meshEdgeGeometry = new THREE.EdgesGeometry(
+        const selectionMeshMaterial = new THREE.MeshBasicMaterial({
+          side: THREE.DoubleSide,
+          transparent: true,
+          opacity: 0,
+          depthTest: false,
+          depthWrite: false,
+        });
+        selectionMeshMaterial.colorWrite = false;
+        const selectionMesh = new THREE.Mesh(weldedGeometry, selectionMeshMaterial);
+        meshGroup.add(selectionMesh);
+        meshSelectionMeshRef.current = selectionMesh;
+
+        const edgeSource = new THREE.EdgesGeometry(
           weldedGeometry,
           DISPLAY_EDGE_THRESHOLD_ANGLE_DEGREES,
         );
-        const meshEdgePositions = meshEdgeGeometry.getAttribute("position");
-        const meshEdgeSegmentsGeometry = new LineSegmentsGeometry();
-        meshEdgeSegmentsGeometry.setPositions(
-          Array.from(meshEdgePositions.array as Iterable<number>),
-        );
-        meshEdgeGeometry.dispose();
+        const edgeGeometry = new LineSegmentsGeometry().fromEdgesGeometry(edgeSource);
+        edgeSource.dispose();
 
-        const meshEdgeMaterial = new LineMaterial({
+        const edgeMaterial = new LineMaterial({
           color: meshEdgeColor,
           linewidth: MESH_EDGE_LINEWIDTH,
-          transparent: true,
-          opacity: 0.85,
+          alphaToCoverage: true,
+          depthTest: true,
+          depthWrite: false,
+          transparent: false,
         });
-        meshEdgeMaterial.resolution.set(
+        edgeMaterial.resolution.set(
           renderer.domElement.clientWidth,
           renderer.domElement.clientHeight,
         );
-        meshEdgeMaterialRef.current = meshEdgeMaterial;
-        const meshEdges = new LineSegments2(meshEdgeSegmentsGeometry, meshEdgeMaterial);
-        mesh.add(meshEdges);
+        meshEdgeMaterialRef.current = edgeMaterial;
+
+        const edgeLines = new LineSegments2(edgeGeometry, edgeMaterial);
+        edgeLines.renderOrder = 2;
+        edgeLines.frustumCulled = false;
+        meshGroup.add(edgeLines);
 
         const selectionHighlightGroup = new THREE.Group();
         mesh.add(selectionHighlightGroup);
@@ -1147,6 +1257,7 @@ export function PolylineViewer({
       clearGroup(meshGroup);
       clearSimulationResources();
       meshRef.current = null;
+      meshSelectionMeshRef.current = null;
       meshSelectionDataRef.current = null;
       meshBoundsRef.current = null;
       selectionHighlightGroupRef.current = null;
@@ -1174,32 +1285,77 @@ export function PolylineViewer({
       fitCameraToBox(bounds, camera, controls);
     }
 
+    const overlayLift = getOverlayLift(bounds);
+
     polylines.forEach((polyline, index) => {
       const color = polyline.color ?? POLYLINE_COLORS[index % POLYLINE_COLORS.length];
+      const isClearanceMove = polyline.kind === "clearance";
 
       if (polyline.points.length < 2) {
         return;
       }
 
-      const positions = polyline.points.flatMap(([x, y, z]) => [x, y, z + POLYLINE_Z_OFFSET]);
+      const positions = polyline.points.flatMap(([x, y, z]) => [x, y, z + overlayLift]);
+      const haloGeometry = new LineGeometry();
+      haloGeometry.setPositions(positions);
       const lineGeometry = new LineGeometry();
       lineGeometry.setPositions(positions);
 
+      const haloMaterial = new LineMaterial({
+        color: 0x0f172a,
+        linewidth: isClearanceMove
+          ? CLEARANCE_POLYLINE_HALO_LINEWIDTH
+          : POLYLINE_HALO_LINEWIDTH,
+        transparent: true,
+        opacity: isClearanceMove ? 0.5 : 0.42,
+        depthTest: true,
+        depthWrite: false,
+      });
+      haloMaterial.alphaToCoverage = true;
+      haloMaterial.resolution.set(
+        renderer.domElement.clientWidth,
+        renderer.domElement.clientHeight,
+      );
+      if (isClearanceMove) {
+        haloMaterial.dashed = true;
+        haloMaterial.dashScale = 1;
+        haloMaterial.dashSize = CLEARANCE_DASH_SIZE;
+        haloMaterial.gapSize = CLEARANCE_GAP_SIZE;
+      }
+
+      const haloLine = new Line2(haloGeometry, haloMaterial);
+      if (isClearanceMove) {
+        haloLine.computeLineDistances();
+      }
+      haloLine.renderOrder = 18;
+      polylineGroup.add(haloLine);
+      polylineMaterialsRef.current.push(haloMaterial);
+
       const lineMaterial = new LineMaterial({
         color,
-        linewidth: POLYLINE_LINEWIDTH,
+        linewidth: isClearanceMove ? CLEARANCE_POLYLINE_LINEWIDTH : POLYLINE_LINEWIDTH,
         transparent: true,
         opacity: 1,
         depthTest: true,
         depthWrite: false,
       });
+      lineMaterial.alphaToCoverage = true;
       lineMaterial.resolution.set(
         renderer.domElement.clientWidth,
         renderer.domElement.clientHeight,
       );
+      if (isClearanceMove) {
+        lineMaterial.dashed = true;
+        lineMaterial.dashScale = 1;
+        lineMaterial.dashSize = CLEARANCE_DASH_SIZE;
+        lineMaterial.gapSize = CLEARANCE_GAP_SIZE;
+      }
 
       const line = new Line2(lineGeometry, lineMaterial);
-      line.renderOrder = 10;
+      if (isClearanceMove) {
+        line.computeLineDistances();
+      }
+      line.renderOrder = 19;
       polylineGroup.add(line);
       polylineMaterialsRef.current.push(lineMaterial);
     });

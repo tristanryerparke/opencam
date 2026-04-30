@@ -17,14 +17,36 @@ import {
   type PolylinePoint,
 } from "@/components/polyline-viewer";
 import { Button } from "@/components/ui/button";
+import { Slider } from "@/components/ui/slider";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { getBackendUrl } from "@/hooks/useBackendConnection";
 import { type ToolpathOperation } from "@/simulation/toolpath";
 
 type GeneratedPathResponse = ToolpathOperation["paths"][number];
 type GeneratedOperationResponse = ToolpathOperation;
+type ToolPositionResponse = {
+  x: number;
+  y: number;
+  z: number;
+  comment?: string | null;
+};
+
 type SweptSimulationResponse = {
-  meshDataUrl: string;
+  meshUrl: string;
+  simulationId: string;
+  frameCount: number;
+  toolMeshUrl: string;
+  toolPosition: ToolPositionResponse;
+};
+
+type SweptSimulationFrameResponse = {
+  meshUrl: string;
+  toolPosition: ToolPositionResponse;
+};
+
+type SweptSimulationFramesResponse = {
+  startIndex: number;
+  frames: SweptSimulationFrameResponse[];
 };
 
 type MeshCacheState = "idle" | "saving" | "ready" | "error";
@@ -36,11 +58,22 @@ type CachedMeshPayload = {
   dataUrl: string;
 };
 
+type SidebarSettingsPayload = {
+  selectedOperation: OperationType;
+  formValues: FormValues;
+};
+
 const CACHED_MESH_STORAGE_KEY = "opencam.cached-stl";
+const SIDEBAR_SETTINGS_STORAGE_KEY = "opencam.sidebar-settings";
 const ORIGINAL_MESH_COLOR = 0x94a3b8;
 const ORIGINAL_MESH_EDGE_COLOR = 0x334155;
 const MILLED_STOCK_MESH_COLOR = 0xfb923c;
-const MILLED_STOCK_MESH_EDGE_COLOR = 0x7e491e;
+const SIMULATION_PLAYBACK_INTERVAL_MS = 150;
+const SIMULATION_PREFETCH_FRAME_COUNT = 40;
+const SIMULATION_PREFETCH_TRIGGER_FRAME_COUNT = Math.max(
+  1,
+  Math.ceil(SIMULATION_PREFETCH_FRAME_COUNT / 2),
+);
 
 function isCachedMeshPayload(value: unknown): value is CachedMeshPayload {
   if (!value || typeof value !== "object") {
@@ -54,6 +87,46 @@ function isCachedMeshPayload(value: unknown): value is CachedMeshPayload {
     typeof payload.type === "string" &&
     typeof payload.lastModified === "number" &&
     typeof payload.dataUrl === "string"
+  );
+}
+
+function isOperationType(value: unknown): value is OperationType {
+  return value === "profile" || value === "pocket";
+}
+
+function isFormValues(value: unknown): value is FormValues {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const form = value as Record<string, unknown>;
+
+  return (
+    typeof form.toolDiameter === "string" &&
+    typeof form.cuttingHeight === "string" &&
+    typeof form.maxDepthOfCut === "string" &&
+    typeof form.zStepHeight === "string" &&
+    typeof form.feedrate === "string" &&
+    typeof form.rpm === "string" &&
+    typeof form.zMin === "string" &&
+    typeof form.zMax === "string" &&
+    typeof form.clearancePlaneHeight === "string" &&
+    typeof form.stepover === "string" &&
+    typeof form.stockToLeave === "string" &&
+    (form.side === "outside" || form.side === "inside")
+  );
+}
+
+function isSidebarSettingsPayload(value: unknown): value is SidebarSettingsPayload {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const payload = value as Record<string, unknown>;
+
+  return (
+    isOperationType(payload.selectedOperation) &&
+    isFormValues(payload.formValues)
   );
 }
 
@@ -104,6 +177,29 @@ function dataUrlToFile(
     type: mimeType,
     lastModified,
   });
+}
+
+function resolveBackendAssetUrl(url: string) {
+  if (/^(?:[a-z]+:)?\/\//i.test(url) || url.startsWith("blob:") || url.startsWith("data:")) {
+    return url;
+  }
+
+  if (url.startsWith("/")) {
+    return `${getBackendUrl()}${url}`;
+  }
+
+  return `${getBackendUrl()}/${url}`;
+}
+
+async function prefetchMeshObjectUrl(url: string) {
+  const response = await fetch(resolveBackendAssetUrl(url));
+
+  if (!response.ok) {
+    throw new Error(`Failed to load mesh (${response.status}).`);
+  }
+
+  const meshBlob = await response.blob();
+  return URL.createObjectURL(meshBlob);
 }
 
 async function getMeshVertexMaxZ(file: File) {
@@ -192,6 +288,10 @@ function getPolylineLength(points: ReadonlyArray<PolylinePoint>) {
   return total;
 }
 
+function toolPositionToPoint(position: ToolPositionResponse): PolylinePoint {
+  return [position.x, position.y, position.z] as const;
+}
+
 function parsePositiveNumber(value: string, label: string) {
   const parsed = Number(value);
 
@@ -220,12 +320,37 @@ function App() {
   const [hasInitializedMeshCache, setHasInitializedMeshCache] = useState(false);
   const skipNextMeshCacheWrite = useRef(false);
   const preserveMeshCacheMessageRef = useRef(false);
+  const hasInitializedSidebarSettingsRef = useRef(false);
   const [faceSelectionMode, setFaceSelectionMode] = useState(false);
   const [selectedOperation, setSelectedOperation] = useState<OperationType>("profile");
   const [selectedMeshFace, setSelectedMeshFace] = useState<MeshFaceSelection | null>(null);
   const [generatedOperation, setGeneratedOperation] =
     useState<GeneratedOperationResponse | null>(null);
   const [milledMeshUrl, setMilledMeshUrl] = useState<string | null>(null);
+  const [simulationToolMeshUrl, setSimulationToolMeshUrl] = useState<string | null>(null);
+  const [simulationToolPosition, setSimulationToolPosition] = useState<PolylinePoint | null>(null);
+  const [simulationId, setSimulationId] = useState<string | null>(null);
+  const [simulationFrameCount, setSimulationFrameCount] = useState(0);
+  const [simulationFrameIndex, setSimulationFrameIndex] = useState(0);
+  const [isSimulationPlaying, setIsSimulationPlaying] = useState(false);
+  const loadedSimulationFrameRef = useRef<{
+    simulationId: string | null;
+    frameIndex: number | null;
+  }>({
+    simulationId: null,
+    frameIndex: null,
+  });
+  const simulationFrameRequestTokenRef = useRef(0);
+  const simulationFrameDisplayRequestRef = useRef(0);
+  const simulationFrameCacheRef = useRef<Map<number, SweptSimulationFrameResponse>>(new Map());
+  const simulationFrameRequestCacheRef = useRef<Map<string, Promise<void>>>(new Map());
+  const simulationFramePrefetchTriggerRef = useRef<{
+    simulationId: string | null;
+    frameIndex: number | null;
+  }>({
+    simulationId: null,
+    frameIndex: null,
+  });
   const [requestState, setRequestState] = useState<RequestState>("idle");
   const [requestMessage, setRequestMessage] = useState<string>("");
   const [showOriginalMesh, setShowOriginalMesh] = useState(true);
@@ -243,6 +368,52 @@ function App() {
     stockToLeave: "0",
     side: "outside",
   });
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      hasInitializedSidebarSettingsRef.current = true;
+      return;
+    }
+
+    try {
+      const cachedSettings = window.localStorage.getItem(SIDEBAR_SETTINGS_STORAGE_KEY);
+      if (!cachedSettings) {
+        return;
+      }
+
+      const parsed = JSON.parse(cachedSettings) as unknown;
+      if (!isSidebarSettingsPayload(parsed)) {
+        throw new Error("Invalid cached sidebar settings payload.");
+      }
+
+      setSelectedOperation(parsed.selectedOperation);
+      setFormValues(parsed.formValues);
+    } catch {
+      window.localStorage.removeItem(SIDEBAR_SETTINGS_STORAGE_KEY);
+    } finally {
+      hasInitializedSidebarSettingsRef.current = true;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!hasInitializedSidebarSettingsRef.current || typeof window === "undefined") {
+      return;
+    }
+
+    const payload: SidebarSettingsPayload = {
+      selectedOperation,
+      formValues,
+    };
+
+    try {
+      window.localStorage.setItem(
+        SIDEBAR_SETTINGS_STORAGE_KEY,
+        JSON.stringify(payload),
+      );
+    } catch (error: unknown) {
+      console.error("Failed to persist sidebar settings", error);
+    }
+  }, [formValues, selectedOperation]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -384,6 +555,32 @@ function App() {
     };
   }, [hasInitializedMeshCache, meshFile]);
 
+  function resetSimulationPlaybackState() {
+    loadedSimulationFrameRef.current = {
+      simulationId: null,
+      frameIndex: null,
+    };
+    simulationFrameRequestTokenRef.current += 1;
+    simulationFrameDisplayRequestRef.current += 1;
+    simulationFrameCacheRef.current.forEach((frame) => {
+      if (frame.meshUrl.startsWith("blob:")) {
+        URL.revokeObjectURL(frame.meshUrl);
+      }
+    });
+    simulationFrameCacheRef.current.clear();
+    simulationFrameRequestCacheRef.current.clear();
+    simulationFramePrefetchTriggerRef.current = {
+      simulationId: null,
+      frameIndex: null,
+    };
+    setSimulationToolMeshUrl(null);
+    setSimulationToolPosition(null);
+    setSimulationId(null);
+    setSimulationFrameCount(0);
+    setSimulationFrameIndex(0);
+    setIsSimulationPlaying(false);
+  }
+
   const generatedPaths: GeneratedPathResponse[] = generatedOperation?.paths ?? [];
   const activeMeshUrl = showOriginalMesh || !milledMeshUrl ? meshUrl : milledMeshUrl;
 
@@ -429,6 +626,289 @@ function App() {
   const meshCacheStatusLabel =
     meshCacheState === "saving" ? "Caching STL in local storage..." : meshCacheMessage;
 
+  const applySimulationFrame = useCallback(
+    (nextSimulationId: string, frameIndex: number, frame: SweptSimulationFrameResponse) => {
+      loadedSimulationFrameRef.current = {
+        simulationId: nextSimulationId,
+        frameIndex,
+      };
+      setMilledMeshUrl(frame.meshUrl);
+      setSimulationToolPosition(toolPositionToPoint(frame.toolPosition));
+    },
+    [],
+  );
+
+  const fetchSimulationFrameBatch = useCallback(
+    async (
+      nextSimulationId: string,
+      startFrameIndex: number,
+      count: number,
+      totalFrameCount: number,
+    ) => {
+      if (count <= 0 || startFrameIndex < 0 || startFrameIndex >= totalFrameCount) {
+        return;
+      }
+
+      const endFrameIndex = Math.min(startFrameIndex + count - 1, totalFrameCount - 1);
+      let hasMissingFrame = false;
+
+      for (let frameIndex = startFrameIndex; frameIndex <= endFrameIndex; frameIndex += 1) {
+        if (!simulationFrameCacheRef.current.has(frameIndex)) {
+          hasMissingFrame = true;
+          break;
+        }
+      }
+
+      if (!hasMissingFrame) {
+        return;
+      }
+
+      const requestKey = `${startFrameIndex}:${endFrameIndex}`;
+      const cachedRequest = simulationFrameRequestCacheRef.current.get(requestKey);
+      if (cachedRequest) {
+        await cachedRequest;
+        return;
+      }
+
+      const requestToken = simulationFrameRequestTokenRef.current;
+      const request = (async () => {
+        const response = await fetch(
+          `${getBackendUrl()}/simulate/swept/${nextSimulationId}/frames?start_index=${startFrameIndex}&count=${endFrameIndex - startFrameIndex + 1}`,
+        );
+
+        if (!response.ok) {
+          const contentType = response.headers.get("content-type") ?? "";
+          if (contentType.includes("application/json")) {
+            const payload = (await response.json()) as { detail?: string };
+            throw new Error(payload.detail ?? "Failed to load simulation frames.");
+          }
+
+          const detail = await response.text();
+          throw new Error(detail || "Failed to load simulation frames.");
+        }
+
+        const payload = (await response.json()) as SweptSimulationFramesResponse;
+        if (simulationFrameRequestTokenRef.current !== requestToken) {
+          return;
+        }
+
+        const prefetchedFrames = await Promise.all(
+          payload.frames.map(async (frame, index) => {
+            const frameIndex = payload.startIndex + index;
+            const cachedFrame = simulationFrameCacheRef.current.get(frameIndex);
+            if (cachedFrame) {
+              return {
+                frameIndex,
+                frame: cachedFrame,
+                createdMeshUrl: null,
+              };
+            }
+
+            const meshUrl = await prefetchMeshObjectUrl(frame.meshUrl);
+            return {
+              frameIndex,
+              frame: {
+                ...frame,
+                meshUrl,
+              },
+              createdMeshUrl: meshUrl,
+            };
+          }),
+        );
+
+        if (simulationFrameRequestTokenRef.current !== requestToken) {
+          prefetchedFrames.forEach(({ createdMeshUrl }) => {
+            if (createdMeshUrl) {
+              URL.revokeObjectURL(createdMeshUrl);
+            }
+          });
+          return;
+        }
+
+        prefetchedFrames.forEach(({ frameIndex, frame, createdMeshUrl }) => {
+          if (simulationFrameCacheRef.current.has(frameIndex)) {
+            if (createdMeshUrl) {
+              URL.revokeObjectURL(createdMeshUrl);
+            }
+            return;
+          }
+
+          simulationFrameCacheRef.current.set(frameIndex, frame);
+        });
+      })();
+
+      simulationFrameRequestCacheRef.current.set(requestKey, request);
+
+      try {
+        await request;
+      } finally {
+        simulationFrameRequestCacheRef.current.delete(requestKey);
+      }
+    },
+    [],
+  );
+
+  const updateSimulationPrefetchTrigger = useCallback(
+    (nextSimulationId: string, frameIndex: number | null) => {
+      simulationFramePrefetchTriggerRef.current = {
+        simulationId: nextSimulationId,
+        frameIndex,
+      };
+    },
+    [],
+  );
+
+  const fetchSimulationFrame = useCallback(
+    async (nextSimulationId: string, frameIndex: number, frameCount: number) => {
+      const cachedFrame = simulationFrameCacheRef.current.get(frameIndex);
+      if (cachedFrame) {
+        return cachedFrame;
+      }
+
+      const endFrameIndex = Math.min(
+        frameIndex + SIMULATION_PREFETCH_FRAME_COUNT,
+        frameCount - 1,
+      );
+
+      await fetchSimulationFrameBatch(
+        nextSimulationId,
+        frameIndex,
+        SIMULATION_PREFETCH_FRAME_COUNT + 1,
+        frameCount,
+      );
+
+      const frame = simulationFrameCacheRef.current.get(frameIndex) ?? null;
+      if (frame) {
+        updateSimulationPrefetchTrigger(nextSimulationId, endFrameIndex);
+      }
+
+      return frame;
+    },
+    [fetchSimulationFrameBatch, updateSimulationPrefetchTrigger],
+  );
+
+  const prefetchSimulationFrames = useCallback(
+    (nextSimulationId: string, frameIndex: number, frameCount: number) => {
+      if (frameIndex >= frameCount - 1) {
+        return;
+      }
+
+      const prefetchTrigger = simulationFramePrefetchTriggerRef.current;
+      const bufferedUntilFrameIndex =
+        prefetchTrigger.simulationId === nextSimulationId ? prefetchTrigger.frameIndex : null;
+      const remainingBufferedFrameCount =
+        bufferedUntilFrameIndex == null ? 0 : bufferedUntilFrameIndex - frameIndex;
+
+      if (remainingBufferedFrameCount > SIMULATION_PREFETCH_TRIGGER_FRAME_COUNT) {
+        return;
+      }
+
+      const prefetchStartFrameIndex = Math.max(
+        frameIndex + 1,
+        (bufferedUntilFrameIndex ?? frameIndex) + 1,
+      );
+      if (prefetchStartFrameIndex >= frameCount) {
+        return;
+      }
+
+      const prefetchCount = Math.min(
+        SIMULATION_PREFETCH_FRAME_COUNT,
+        frameCount - prefetchStartFrameIndex,
+      );
+      const nextBufferedUntilFrameIndex = prefetchStartFrameIndex + prefetchCount - 1;
+
+      updateSimulationPrefetchTrigger(nextSimulationId, nextBufferedUntilFrameIndex);
+      void fetchSimulationFrameBatch(
+        nextSimulationId,
+        prefetchStartFrameIndex,
+        prefetchCount,
+        frameCount,
+      ).catch((error: unknown) => {
+        console.error("Failed to prefetch simulation frames", error);
+        updateSimulationPrefetchTrigger(nextSimulationId, bufferedUntilFrameIndex);
+      });
+    },
+    [fetchSimulationFrameBatch, updateSimulationPrefetchTrigger],
+  );
+
+  const loadSimulationFrame = useCallback(
+    async (
+      nextSimulationId: string,
+      frameIndex: number,
+      frameCount: number,
+      requestId: number,
+    ) => {
+      const frame = await fetchSimulationFrame(nextSimulationId, frameIndex, frameCount);
+      if (!frame || simulationFrameDisplayRequestRef.current !== requestId) {
+        return;
+      }
+
+      applySimulationFrame(nextSimulationId, frameIndex, frame);
+      prefetchSimulationFrames(nextSimulationId, frameIndex, frameCount);
+    },
+    [applySimulationFrame, fetchSimulationFrame, prefetchSimulationFrames],
+  );
+
+  useEffect(() => {
+    if (!simulationId || simulationFrameCount === 0) {
+      return undefined;
+    }
+
+    if (simulationFrameIndex < 0 || simulationFrameIndex >= simulationFrameCount) {
+      return undefined;
+    }
+
+    if (
+      loadedSimulationFrameRef.current.simulationId === simulationId &&
+      loadedSimulationFrameRef.current.frameIndex === simulationFrameIndex
+    ) {
+      prefetchSimulationFrames(simulationId, simulationFrameIndex, simulationFrameCount);
+      return undefined;
+    }
+
+    let cancelled = false;
+    const requestId = simulationFrameDisplayRequestRef.current + 1;
+    simulationFrameDisplayRequestRef.current = requestId;
+
+    void loadSimulationFrame(simulationId, simulationFrameIndex, simulationFrameCount, requestId).catch((error: unknown) => {
+      if (cancelled) {
+        return;
+      }
+
+      console.error("Failed to load simulation frame", error);
+      setIsSimulationPlaying(false);
+      setRequestState("error");
+      setRequestMessage(
+        error instanceof Error ? error.message : "Failed to load simulation frame.",
+      );
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loadSimulationFrame, prefetchSimulationFrames, simulationFrameCount, simulationFrameIndex, simulationId]);
+
+  useEffect(() => {
+    if (!isSimulationPlaying || simulationFrameCount <= 1) {
+      return undefined;
+    }
+
+    if (simulationFrameIndex >= simulationFrameCount - 1) {
+      setIsSimulationPlaying(false);
+      return undefined;
+    }
+
+    const intervalId = window.setInterval(() => {
+      setSimulationFrameIndex((current) =>
+        current >= simulationFrameCount - 1 ? current : current + 1,
+      );
+    }, SIMULATION_PLAYBACK_INTERVAL_MS);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [isSimulationPlaying, simulationFrameCount, simulationFrameIndex]);
+
   function updateNumericField(
     field: NumericField,
     value: string,
@@ -440,10 +920,11 @@ function App() {
     }));
   }
 
-  const handleMeshFaceSelect = useCallback((selection: MeshFaceSelection) => {
+  function handleMeshFaceSelect(selection: MeshFaceSelection) {
     setSelectedMeshFace(selection);
     setGeneratedOperation(null);
     setMilledMeshUrl(null);
+    resetSimulationPlaybackState();
     setRequestState("idle");
     setRequestMessage("");
     setShowOriginalMesh(true);
@@ -455,7 +936,38 @@ function App() {
           ? formatNumericValue(selection.planeZ, { allowNegative: true })
           : "",
     }));
-  }, []);
+  }
+
+  function handleSimulationFrameChange(values: number[]) {
+    if (!simulationId || simulationFrameCount === 0) {
+      return;
+    }
+
+    const nextFrameIndex = Math.max(
+      0,
+      Math.min(Math.round(values[0] ?? 0), simulationFrameCount - 1),
+    );
+
+    setIsSimulationPlaying(false);
+    setShowOriginalMesh(false);
+    setSimulationFrameIndex(nextFrameIndex);
+  }
+
+  function handleSimulationPlay() {
+    if (!simulationId || simulationFrameCount === 0) {
+      return;
+    }
+
+    setShowOriginalMesh(false);
+    setSimulationFrameIndex((current) =>
+      current >= simulationFrameCount - 1 && simulationFrameCount > 1 ? 0 : current,
+    );
+    setIsSimulationPlaying(true);
+  }
+
+  function handleSimulationPause() {
+    setIsSimulationPlaying(false);
+  }
 
   async function handleGenerateOperation() {
     if (!selectedMeshFace) {
@@ -546,6 +1058,7 @@ function App() {
 
       setGeneratedOperation(null);
       setMilledMeshUrl(null);
+      resetSimulationPlaybackState();
       setShowOriginalMesh(true);
       setRequestState("submitting");
       setRequestMessage(`Generating ${operationLabel.toLowerCase()} toolpath...`);
@@ -570,20 +1083,16 @@ function App() {
       }
 
       const operation = (await response.json()) as GeneratedOperationResponse;
-      const meshDataUrl = await fileToDataUrl(meshFile);
+      const simulationRequest = new FormData();
+      simulationRequest.append("mesh", meshFile, meshFile.name);
+      simulationRequest.append("operation", JSON.stringify(operation));
 
       setGeneratedOperation(operation);
       setRequestMessage("Running swept milling simulation...");
 
       const simulationResponse = await fetch(`${getBackendUrl()}/simulate/swept`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          meshDataUrl,
-          operation,
-        }),
+        body: simulationRequest,
       });
 
       if (!simulationResponse.ok) {
@@ -598,13 +1107,44 @@ function App() {
       }
 
       const simulation = (await simulationResponse.json()) as SweptSimulationResponse;
-      setMilledMeshUrl(simulation.meshDataUrl);
+      const finalFrameIndex = Math.max(simulation.frameCount - 1, 0);
+      const finalFrame: SweptSimulationFrameResponse = {
+        meshUrl: await prefetchMeshObjectUrl(simulation.meshUrl),
+        toolPosition: simulation.toolPosition,
+      };
+
+      simulationFrameCacheRef.current.set(finalFrameIndex, finalFrame);
+      loadedSimulationFrameRef.current = {
+        simulationId: simulation.simulationId,
+        frameIndex: finalFrameIndex,
+      };
+      setSimulationToolMeshUrl(resolveBackendAssetUrl(simulation.toolMeshUrl));
+      setSimulationToolPosition(toolPositionToPoint(simulation.toolPosition));
+      setSimulationId(simulation.simulationId);
+      setSimulationFrameCount(simulation.frameCount);
+      setSimulationFrameIndex(finalFrameIndex);
+      setIsSimulationPlaying(false);
+      setMilledMeshUrl(finalFrame.meshUrl);
+      if (simulation.frameCount > 0) {
+        const initialPrefetchCount = Math.min(SIMULATION_PREFETCH_FRAME_COUNT, simulation.frameCount);
+        updateSimulationPrefetchTrigger(simulation.simulationId, initialPrefetchCount - 1);
+        void fetchSimulationFrameBatch(
+          simulation.simulationId,
+          0,
+          initialPrefetchCount,
+          simulation.frameCount,
+        ).catch((error: unknown) => {
+          console.error("Failed to prefetch initial simulation frames", error);
+          updateSimulationPrefetchTrigger(simulation.simulationId, null);
+        });
+      }
       setShowOriginalMesh(false);
       setRequestState("success");
       setRequestMessage(`${operationLabel} toolpaths generated and swept simulation completed.`);
     } catch (error) {
       setGeneratedOperation(null);
       setMilledMeshUrl(null);
+      resetSimulationPlaybackState();
       setShowOriginalMesh(true);
       setRequestState("error");
       setRequestMessage(
@@ -622,6 +1162,7 @@ function App() {
     setSelectedMeshFace(null);
     setGeneratedOperation(null);
     setMilledMeshUrl(null);
+    resetSimulationPlaybackState();
     setRequestState("idle");
     setRequestMessage("");
     setShowOriginalMesh(true);
@@ -667,6 +1208,7 @@ function App() {
               setSelectedOperation(operation);
               setGeneratedOperation(null);
               setMilledMeshUrl(null);
+              resetSimulationPlaybackState();
               setRequestState("idle");
               setRequestMessage("");
               setShowOriginalMesh(true);
@@ -685,16 +1227,47 @@ function App() {
             <PolylineViewer
               meshUrl={activeMeshUrl}
               meshColor={showOriginalMesh || !milledMeshUrl ? ORIGINAL_MESH_COLOR : MILLED_STOCK_MESH_COLOR}
-              meshEdgeColor={showOriginalMesh || !milledMeshUrl ? ORIGINAL_MESH_EDGE_COLOR : MILLED_STOCK_MESH_EDGE_COLOR}
+              meshEdgeColor={showOriginalMesh || !milledMeshUrl ? ORIGINAL_MESH_EDGE_COLOR : null}
               polylines={operationPolylines}
               faceSelectionMode={faceSelectionMode}
               selectedMeshFace={selectedMeshFace}
+              simulationToolMeshUrl={simulationToolMeshUrl}
+              simulationToolPosition={simulationToolPosition}
+              showOriginalMesh={showOriginalMesh}
               onMeshFaceSelect={handleMeshFaceSelect}
               className="h-full min-h-0 flex-1 rounded-none border-0 shadow-none"
             />
 
+            {simulationId && simulationFrameCount > 0 ? (
+              <div className="pointer-events-none absolute inset-x-4 bottom-4 z-20">
+                <div className="pointer-events-auto mx-auto flex max-w-3xl items-center gap-3 rounded-md border bg-background/95 px-3 py-2 shadow">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={simulationFrameCount <= 1}
+                    onClick={isSimulationPlaying ? handleSimulationPause : handleSimulationPlay}
+                  >
+                    {isSimulationPlaying ? "Pause" : "Play"}
+                  </Button>
+
+                  <Slider
+                    min={0}
+                    max={Math.max(simulationFrameCount - 1, 0)}
+                    step={1}
+                    value={[simulationFrameIndex]}
+                    onValueChange={handleSimulationFrameChange}
+                    className="flex-1"
+                  />
+
+                  <div className="w-24 text-right text-xs text-muted-foreground">
+                    Frame {simulationFrameIndex + 1} / {simulationFrameCount}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
             {milledMeshUrl ? (
-              <div className="pointer-events-none absolute bottom-4 right-4 z-20">
+              <div className="pointer-events-none absolute bottom-20 right-4 z-20">
                 <Button
                   type="button"
                   variant="outline"

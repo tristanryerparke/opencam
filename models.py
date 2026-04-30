@@ -55,13 +55,22 @@ class ToolpathOperation(CamelBaseModel):
     paths: list[Path]
 
 
-class SweptSimulationRequest(CamelBaseModel):
-    mesh_data_url: str
-    operation: ToolpathOperation
-
-
 class SweptSimulationResponse(CamelBaseModel):
-    mesh_data_url: str
+    mesh_url: str
+    simulation_id: str
+    frame_count: int
+    tool_mesh_url: str
+    tool_position: CutterLocationData
+
+
+class SweptSimulationFrameResponse(CamelBaseModel):
+    mesh_url: str
+    tool_position: CutterLocationData
+
+
+class SweptSimulationFramesResponse(CamelBaseModel):
+    start_index: int
+    frames: list[SweptSimulationFrameResponse]
 
 
 if __name__ == "__main__":

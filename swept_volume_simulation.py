@@ -2,17 +2,27 @@ import base64
 import io
 import math
 import struct
+import time
+from dataclasses import dataclass
 
 import numpy as np
 import trimesh
 from manifold3d import Error, Manifold, Mesh64
 
-from models import ToolpathOperation
+from models import CutterLocationData, ToolpathOperation
 from planar_region_2d_reduction import simplify_mesh_data_2d
 
-TOOL_SEGMENTS = 32
+TOOL_SEGMENTS = 16
+SIM_STEPDISTANCE = 5
+SIMPLIFY_EVERY_N_FRAMES = 100
 DEFAULT_PLANAR_ANGLE_DEGREES = 0.01
 DEFAULT_MIN_REGION_FACES = 3
+
+
+@dataclass
+class SimulatedMeshFrame:
+    mesh_bytes: bytes
+    tool_position: CutterLocationData
 
 
 def decode_mesh_data_url(mesh_data_url: str) -> bytes:
@@ -23,6 +33,11 @@ def decode_mesh_data_url(mesh_data_url: str) -> bytes:
         return base64.b64decode(encoded, validate=True)
     except ValueError as exc:
         raise ValueError("Mesh payload is not valid base64 data.") from exc
+
+
+def encode_mesh_data_url(mesh_bytes: bytes) -> str:
+    mesh_base64 = base64.b64encode(mesh_bytes).decode("ascii")
+    return f"data:model/stl;base64,{mesh_base64}"
 
 
 def load_stl_bounds(stl_bytes: bytes) -> tuple[np.ndarray, np.ndarray]:
@@ -197,6 +212,34 @@ def load_tool_positions(operation: ToolpathOperation) -> list[np.ndarray]:
     return positions
 
 
+def subdivide_tool_positions(positions: list[np.ndarray], step_distance: float) -> list[np.ndarray]:
+    if not positions:
+        return []
+
+    subdivided_positions: list[np.ndarray] = [positions[0]]
+
+    for index in range(1, len(positions)):
+        start = positions[index - 1]
+        end = positions[index]
+        translation = end - start
+        segment_length = float(np.linalg.norm(translation))
+
+        if segment_length < 1e-9:
+            continue
+
+        if segment_length > step_distance:
+            step_count = int(math.ceil(segment_length / step_distance))
+            for step_index in range(1, step_count):
+                interpolation = (step_index * step_distance) / segment_length
+                if interpolation >= 1.0:
+                    break
+                subdivided_positions.append(start + translation * interpolation)
+
+        subdivided_positions.append(end)
+
+    return subdivided_positions
+
+
 def simplify_planar_mesh(vertices: np.ndarray, faces: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     vertex_array = np.asarray(vertices, dtype=np.float64)
     face_array = ensure_triangle_faces(faces)
@@ -217,6 +260,64 @@ def simplify_planar_mesh(vertices: np.ndarray, faces: np.ndarray) -> tuple[np.nd
         return vertex_array[:, :3], face_array
 
     return simplified_vertices, simplified_faces
+
+
+def simplify_manifold_for_boolean(manifold: Manifold, *, context: str) -> Manifold:
+    simplification_start = time.perf_counter()
+    before_vertices = manifold.num_vert()
+    before_faces = manifold.num_tri()
+    mesh_vertices, mesh_faces = manifold_to_mesh(manifold, context=f"extracting mesh for {context}")
+    reduced_vertices, reduced_faces = simplify_planar_mesh(mesh_vertices, mesh_faces)
+    reduced_face_count = len(reduced_faces)
+    reduced_face_percentage = (
+        ((before_faces - reduced_face_count) / before_faces) * 100.0 if before_faces > 0 else 0.0
+    )
+
+    if reduced_face_count >= before_faces:
+        simplification_elapsed = time.perf_counter() - simplification_start
+        print(
+            f"[simulate/swept]   periodic simplification kept original at {context}: "
+            f"{before_vertices} vertices, {before_faces} -> {reduced_face_count} faces "
+            f"({reduced_face_percentage:.2f}% reduction) in {simplification_elapsed:.3f}s"
+        )
+        return manifold
+
+    try:
+        simplified_manifold = mesh_to_manifold(
+            reduced_vertices,
+            reduced_faces,
+            context=f"rebuilding manifold for {context}",
+        )
+    except RuntimeError as exc:
+        simplification_elapsed = time.perf_counter() - simplification_start
+        print(
+            f"[simulate/swept]   periodic simplification rebuild failed at {context}: {exc}; "
+            f"pre-rebuild faces {before_faces} -> {reduced_face_count} "
+            f"({reduced_face_percentage:.2f}% reduction) in {simplification_elapsed:.3f}s; "
+            "keeping original manifold"
+        )
+        return manifold
+
+    after_vertices = simplified_manifold.num_vert()
+    after_faces = simplified_manifold.num_tri()
+    after_face_percentage = (
+        ((before_faces - after_faces) / before_faces) * 100.0 if before_faces > 0 else 0.0
+    )
+    simplification_elapsed = time.perf_counter() - simplification_start
+    if after_faces > before_faces:
+        print(
+            f"[simulate/swept]   periodic simplification increased face count at {context}: "
+            f"{before_faces} -> {after_faces} faces ({after_face_percentage:.2f}% reduction) "
+            f"in {simplification_elapsed:.3f}s; keeping original manifold"
+        )
+        return manifold
+
+    print(
+        f"[simulate/swept]   periodic simplification reduced {context}: "
+        f"{before_vertices} -> {after_vertices} vertices, {before_faces} -> {after_faces} faces "
+        f"({after_face_percentage:.2f}% reduction) in {simplification_elapsed:.3f}s"
+    )
+    return simplified_manifold
 
 
 def write_binary_stl(vertices: np.ndarray, faces: np.ndarray) -> bytes:
@@ -257,25 +358,83 @@ def write_binary_stl(vertices: np.ndarray, faces: np.ndarray) -> bytes:
     return buffer.getvalue()
 
 
-def simulate_swept_milling(mesh_data_url: str, operation: ToolpathOperation) -> str:
-    stock_min, stock_max = load_stl_bounds(decode_mesh_data_url(mesh_data_url))
+def write_glb(vertices: np.ndarray, faces: np.ndarray) -> bytes:
+    mesh = trimesh.Trimesh(
+        vertices=np.asarray(vertices, dtype=np.float64)[:, :3],
+        faces=ensure_triangle_faces(faces),
+        process=False,
+    )
+    return mesh.export(file_type="glb")
+
+
+def mesh_to_data_url(vertices: np.ndarray, faces: np.ndarray) -> str:
+    return encode_mesh_data_url(write_binary_stl(vertices, faces))
+
+
+def position_to_location(position: np.ndarray) -> CutterLocationData:
+    return CutterLocationData(
+        x=float(position[0]),
+        y=float(position[1]),
+        z=float(position[2]),
+    )
+
+
+def load_stl_bytes(mesh_input: bytes | str) -> bytes:
+    if isinstance(mesh_input, bytes):
+        return mesh_input
+    return decode_mesh_data_url(mesh_input)
+
+
+def simulate_swept_milling_frames(
+    mesh_input: bytes | str,
+    operation: ToolpathOperation,
+) -> tuple[bytes, list[SimulatedMeshFrame]]:
+    stock_min, stock_max = load_stl_bounds(load_stl_bytes(mesh_input))
     stock_vertices, stock_faces = build_box_mesh(stock_min, stock_max)
     stock_manifold = mesh_to_manifold(stock_vertices, stock_faces, context="stock mesh import")
 
-    tool_vertices, _tool_faces = build_cylinder_mesh(
+    tool_vertices, tool_faces = build_cylinder_mesh(
         operation.tool.diameter,
         operation.tool.cutting_height,
         TOOL_SEGMENTS,
     )
-    positions = load_tool_positions(operation)
+    tool_mesh_bytes = write_glb(tool_vertices, tool_faces)
+    original_positions = load_tool_positions(operation)
+    positions = subdivide_tool_positions(original_positions, SIM_STEPDISTANCE)
     current = stock_manifold
+    frames: list[SimulatedMeshFrame] = []
+    total_segments = max(len(positions) - 1, 0)
+
+    print(f"[simulate/swept] Stock bounds: min={stock_min.tolist()} max={stock_max.tolist()}")
+    print(
+        f"[simulate/swept] Tool: diameter={operation.tool.diameter} height={operation.tool.cutting_height} segments={TOOL_SEGMENTS}"
+    )
+    print(f"[simulate/swept] Original positions: {len(original_positions)}")
+    print(f"[simulate/swept] Original swept segments: {max(len(original_positions) - 1, 0)}")
+    print(f"[simulate/swept] Subdivided positions: {len(positions)}")
+    print(f"[simulate/swept] Subdivided swept segments: {total_segments}")
+    print(f"[simulate/swept] Segment subdivision distance: {SIM_STEPDISTANCE}")
+    if SIMPLIFY_EVERY_N_FRAMES > 0:
+        print(f"[simulate/swept] Periodic boolean simplification: every {SIMPLIFY_EVERY_N_FRAMES} frames")
+    else:
+        print("[simulate/swept] Periodic boolean simplification: disabled")
+
+    subtraction_seconds = 0.0
+    buffered_distance = 0.0
 
     for step in range(1, len(positions)):
         pos_a = positions[step - 1]
         pos_b = positions[step]
         translation = pos_b - pos_a
-        if np.linalg.norm(translation) < 1e-9:
+        segment_length = float(np.linalg.norm(translation))
+        if segment_length < 1e-9:
+            print(f"[simulate/swept] Segment {step}/{total_segments}: skipped zero-length segment")
             continue
+
+        print(
+            f"[simulate/swept] Segment {step}/{total_segments}: length={segment_length:.3f} "
+            f"start={pos_a.tolist()} end={pos_b.tolist()}"
+        )
 
         sweep_rotation = rotation_matrix_about_z_to_face_xy_direction(translation)
         rotated_tool_vertices = tool_vertices @ sweep_rotation.T
@@ -286,13 +445,80 @@ def simulate_swept_milling(mesh_data_url: str, operation: ToolpathOperation) -> 
             end_verts=end_sweep_vertices,
             context=f"swept volume for segment {step}",
         )
+
+        subtraction_start = time.perf_counter()
         current = ensure_no_manifold_error(
             current - swept_manifold,
             context=f"subtraction at segment {step}",
         )
+        subtraction_elapsed = time.perf_counter() - subtraction_start
+        subtraction_seconds += subtraction_elapsed
 
-    final_vertices, final_faces = manifold_to_mesh(current, context="extracting final swept stock mesh")
-    final_vertices, final_faces = simplify_planar_mesh(final_vertices, final_faces)
-    milled_stl = write_binary_stl(final_vertices, final_faces)
-    milled_stl_base64 = base64.b64encode(milled_stl).decode("ascii")
-    return f"data:model/stl;base64,{milled_stl_base64}"
+        print(
+            f"[simulate/swept]   subtraction finished in {subtraction_elapsed:.3f}s "
+            f"-> {current.num_vert()} vertices, {current.num_tri()} faces"
+        )
+
+        if SIMPLIFY_EVERY_N_FRAMES > 0 and step % SIMPLIFY_EVERY_N_FRAMES == 0:
+            current = simplify_manifold_for_boolean(
+                current,
+                context=f"segment {step}",
+            )
+
+        buffered_distance += segment_length
+        is_final_segment = step == len(positions) - 1
+        should_buffer_frame = buffered_distance >= SIM_STEPDISTANCE or is_final_segment
+
+        if not should_buffer_frame:
+            print(
+                f"[simulate/swept]   accumulating short sweep segments: "
+                f"{buffered_distance:.3f}/{SIM_STEPDISTANCE} travel since last frame"
+            )
+            continue
+
+        frame_vertices, frame_faces = manifold_to_mesh(
+            current,
+            context=f"extracting mesh for segment {step}",
+        )
+        reduced_vertices, reduced_faces = simplify_planar_mesh(frame_vertices, frame_faces)
+        frames.append(
+            SimulatedMeshFrame(
+                mesh_bytes=write_glb(reduced_vertices, reduced_faces),
+                tool_position=position_to_location(pos_b),
+            )
+        )
+
+        print(
+            f"[simulate/swept]   buffered frame {len(frames) - 1} "
+            f"after {buffered_distance:.3f} tool travel with {len(reduced_vertices)} vertices "
+            f"and {len(reduced_faces)} faces"
+        )
+        buffered_distance = 0.0
+
+    if not frames:
+        print("[simulate/swept] No swept segments were processed; buffering simplified stock mesh")
+        final_vertices, final_faces = manifold_to_mesh(
+            current,
+            context="extracting initial stock mesh",
+        )
+        reduced_vertices, reduced_faces = simplify_planar_mesh(final_vertices, final_faces)
+        frames.append(
+            SimulatedMeshFrame(
+                mesh_bytes=write_glb(reduced_vertices, reduced_faces),
+                tool_position=position_to_location(positions[0]) if positions else CutterLocationData(x=0.0, y=0.0, z=0.0),
+            )
+        )
+        print(
+            f"[simulate/swept]   buffered frame 0 with {len(reduced_vertices)} vertices and {len(reduced_faces)} faces"
+        )
+
+    print(f"[simulate/swept] Total subtraction time: {subtraction_seconds:.3f}s")
+    print(f"[simulate/swept] Buffered {len(frames)} simulation frames")
+    return tool_mesh_bytes, frames
+
+
+def simulate_swept_milling(mesh_data_url: str, operation: ToolpathOperation) -> str:
+    _tool_mesh_bytes, frames = simulate_swept_milling_frames(mesh_data_url, operation)
+    final_mesh = trimesh.load(io.BytesIO(frames[-1].mesh_bytes), file_type="glb", force="mesh")
+    final_stl_bytes = final_mesh.export(file_type="stl")
+    return encode_mesh_data_url(final_stl_bytes)

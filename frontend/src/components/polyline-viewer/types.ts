@@ -29,8 +29,11 @@ export type MeshFaceSelection = {
 
 export type PolylineViewerProps = {
   meshUrl?: string | null;
+  secondaryMeshUrl?: string | null;
   meshColor?: number;
   meshEdgeColor?: number | null;
+  secondaryMeshColor?: number;
+  secondaryMeshEdgeColor?: number | null;
   polylines: ReadonlyArray<PolylineDefinition>;
   className?: string;
   faceSelectionMode?: boolean;

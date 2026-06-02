@@ -20,6 +20,10 @@ export type FormValues = {
   clearancePlaneHeight: string;
   stepover: string;
   stockToLeave: string;
+  maxSimDistance: string;
+  chunkPaddingX: string;
+  chunkPaddingY: string;
+  chunkPaddingZ: string;
   side: ProfilingSide;
 };
 
@@ -279,6 +283,50 @@ export function AppSidebar({
             inputMode="decimal"
             value={formValues.stockToLeave}
             onChange={(event) => onUpdateNumericField("stockToLeave", event.target.value)}
+          />
+        </div>
+
+        <div className="space-y-1">
+          <Label htmlFor="max-sim-distance">Max sim distance</Label>
+          <Input
+            id="max-sim-distance"
+            type="text"
+            inputMode="decimal"
+            value={formValues.maxSimDistance}
+            onChange={(event) => onUpdateNumericField("maxSimDistance", event.target.value)}
+          />
+        </div>
+
+        <div className="space-y-1">
+          <Label htmlFor="chunk-padding-x">Chunk padding X</Label>
+          <Input
+            id="chunk-padding-x"
+            type="text"
+            inputMode="decimal"
+            value={formValues.chunkPaddingX}
+            onChange={(event) => onUpdateNumericField("chunkPaddingX", event.target.value)}
+          />
+        </div>
+
+        <div className="space-y-1">
+          <Label htmlFor="chunk-padding-y">Chunk padding Y</Label>
+          <Input
+            id="chunk-padding-y"
+            type="text"
+            inputMode="decimal"
+            value={formValues.chunkPaddingY}
+            onChange={(event) => onUpdateNumericField("chunkPaddingY", event.target.value)}
+          />
+        </div>
+
+        <div className="space-y-1">
+          <Label htmlFor="chunk-padding-z">Chunk padding Z</Label>
+          <Input
+            id="chunk-padding-z"
+            type="text"
+            inputMode="decimal"
+            value={formValues.chunkPaddingZ}
+            onChange={(event) => onUpdateNumericField("chunkPaddingZ", event.target.value)}
           />
         </div>
 

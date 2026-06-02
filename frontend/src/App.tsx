@@ -32,15 +32,20 @@ type ToolPositionResponse = {
 };
 
 type SweptSimulationResponse = {
-  meshUrl: string;
+  activeMeshUrl: string;
+  cachedMeshUrl: string;
   simulationId: string;
   frameCount: number;
+  chunkCount: number;
+  chunkIndex: number;
   toolMeshUrl: string;
   toolPosition: ToolPositionResponse;
 };
 
 type SweptSimulationFrameResponse = {
-  meshUrl: string;
+  activeMeshUrl: string;
+  cachedMeshUrl: string;
+  chunkIndex: number;
   toolPosition: ToolPositionResponse;
 };
 
@@ -68,6 +73,7 @@ const SIDEBAR_SETTINGS_STORAGE_KEY = "opencam.sidebar-settings";
 const ORIGINAL_MESH_COLOR = 0x94a3b8;
 const ORIGINAL_MESH_EDGE_COLOR = 0x334155;
 const MILLED_STOCK_MESH_COLOR = 0xfb923c;
+const ACTIVE_DEBUG_MESH_COLOR = 0x22c55e;
 const SIMULATION_PLAYBACK_INTERVAL_MS = 150;
 const SIMULATION_PREFETCH_FRAME_COUNT = 40;
 const SIMULATION_PREFETCH_TRIGGER_FRAME_COUNT = Math.max(
@@ -113,6 +119,10 @@ function isFormValues(value: unknown): value is FormValues {
     typeof form.clearancePlaneHeight === "string" &&
     typeof form.stepover === "string" &&
     typeof form.stockToLeave === "string" &&
+    typeof form.maxSimDistance === "string" &&
+    typeof form.chunkPaddingX === "string" &&
+    typeof form.chunkPaddingY === "string" &&
+    typeof form.chunkPaddingZ === "string" &&
     (form.side === "outside" || form.side === "inside")
   );
 }
@@ -326,11 +336,13 @@ function App() {
   const [selectedMeshFace, setSelectedMeshFace] = useState<MeshFaceSelection | null>(null);
   const [generatedOperation, setGeneratedOperation] =
     useState<GeneratedOperationResponse | null>(null);
-  const [milledMeshUrl, setMilledMeshUrl] = useState<string | null>(null);
+  const [simulationActiveMeshUrl, setSimulationActiveMeshUrl] = useState<string | null>(null);
+  const [simulationCachedMeshUrl, setSimulationCachedMeshUrl] = useState<string | null>(null);
   const [simulationToolMeshUrl, setSimulationToolMeshUrl] = useState<string | null>(null);
   const [simulationToolPosition, setSimulationToolPosition] = useState<PolylinePoint | null>(null);
   const [simulationId, setSimulationId] = useState<string | null>(null);
   const [simulationFrameCount, setSimulationFrameCount] = useState(0);
+  const [simulationChunkCount, setSimulationChunkCount] = useState(0);
   const [simulationFrameIndex, setSimulationFrameIndex] = useState(0);
   const [isSimulationPlaying, setIsSimulationPlaying] = useState(false);
   const loadedSimulationFrameRef = useRef<{
@@ -343,6 +355,8 @@ function App() {
   const simulationFrameRequestTokenRef = useRef(0);
   const simulationFrameDisplayRequestRef = useRef(0);
   const simulationFrameCacheRef = useRef<Map<number, SweptSimulationFrameResponse>>(new Map());
+  const simulationChunkMeshCacheRef = useRef<Map<number, string>>(new Map());
+  const simulationChunkMeshRequestCacheRef = useRef<Map<number, Promise<string>>>(new Map());
   const simulationFrameRequestCacheRef = useRef<Map<string, Promise<void>>>(new Map());
   const simulationFramePrefetchTriggerRef = useRef<{
     simulationId: string | null;
@@ -366,6 +380,10 @@ function App() {
     clearancePlaneHeight: "25.4",
     stepover: "25",
     stockToLeave: "0",
+    maxSimDistance: "30",
+    chunkPaddingX: "5",
+    chunkPaddingY: "5",
+    chunkPaddingZ: "5",
     side: "outside",
   });
 
@@ -563,26 +581,37 @@ function App() {
     simulationFrameRequestTokenRef.current += 1;
     simulationFrameDisplayRequestRef.current += 1;
     simulationFrameCacheRef.current.forEach((frame) => {
-      if (frame.meshUrl.startsWith("blob:")) {
-        URL.revokeObjectURL(frame.meshUrl);
+      if (frame.activeMeshUrl.startsWith("blob:")) {
+        URL.revokeObjectURL(frame.activeMeshUrl);
       }
     });
     simulationFrameCacheRef.current.clear();
+    simulationChunkMeshCacheRef.current.forEach((objectUrl) => {
+      if (objectUrl.startsWith("blob:")) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    });
+    simulationChunkMeshCacheRef.current.clear();
+    simulationChunkMeshRequestCacheRef.current.clear();
     simulationFrameRequestCacheRef.current.clear();
     simulationFramePrefetchTriggerRef.current = {
       simulationId: null,
       frameIndex: null,
     };
+    setSimulationActiveMeshUrl(null);
+    setSimulationCachedMeshUrl(null);
     setSimulationToolMeshUrl(null);
     setSimulationToolPosition(null);
     setSimulationId(null);
     setSimulationFrameCount(0);
+    setSimulationChunkCount(0);
     setSimulationFrameIndex(0);
     setIsSimulationPlaying(false);
   }
 
   const generatedPaths: GeneratedPathResponse[] = generatedOperation?.paths ?? [];
-  const activeMeshUrl = showOriginalMesh || !milledMeshUrl ? meshUrl : milledMeshUrl;
+  const primaryMeshUrl = showOriginalMesh || !simulationCachedMeshUrl ? meshUrl : simulationCachedMeshUrl;
+  const secondaryMeshUrl = showOriginalMesh ? null : simulationActiveMeshUrl;
 
   const operationPolylines = useMemo<PolylineDefinition[]>(() => {
     return generatedPaths.map((path) => ({
@@ -626,16 +655,64 @@ function App() {
   const meshCacheStatusLabel =
     meshCacheState === "saving" ? "Caching STL in local storage..." : meshCacheMessage;
 
+  const fetchChunkMesh = useCallback(async (nextSimulationId: string, chunkIndex: number) => {
+    const cachedMesh = simulationChunkMeshCacheRef.current.get(chunkIndex);
+    if (cachedMesh) {
+      return cachedMesh;
+    }
+
+    const inFlightRequest = simulationChunkMeshRequestCacheRef.current.get(chunkIndex);
+    if (inFlightRequest) {
+      return inFlightRequest;
+    }
+
+    const request = prefetchMeshObjectUrl(
+      `/simulate/swept/${nextSimulationId}/chunks/${chunkIndex}/cached-mesh.glb`,
+    )
+      .then((objectUrl) => {
+        simulationChunkMeshCacheRef.current.set(chunkIndex, objectUrl);
+        return objectUrl;
+      })
+      .finally(() => {
+        simulationChunkMeshRequestCacheRef.current.delete(chunkIndex);
+      });
+
+    simulationChunkMeshRequestCacheRef.current.set(chunkIndex, request);
+    return request;
+  }, []);
+
+  const prefetchAdjacentChunkMeshes = useCallback(
+    (nextSimulationId: string, chunkIndex: number, chunkCount: number) => {
+      for (const neighborIndex of [chunkIndex - 1, chunkIndex + 1]) {
+        if (neighborIndex < 0 || neighborIndex >= chunkCount) {
+          continue;
+        }
+
+        void fetchChunkMesh(nextSimulationId, neighborIndex).catch((error: unknown) => {
+          console.error("Failed to prefetch adjacent chunk mesh", error);
+        });
+      }
+    },
+    [fetchChunkMesh],
+  );
+
   const applySimulationFrame = useCallback(
-    (nextSimulationId: string, frameIndex: number, frame: SweptSimulationFrameResponse) => {
+    async (
+      nextSimulationId: string,
+      frameIndex: number,
+      frame: SweptSimulationFrameResponse,
+      chunkCount: number,
+    ) => {
       loadedSimulationFrameRef.current = {
         simulationId: nextSimulationId,
         frameIndex,
       };
-      setMilledMeshUrl(frame.meshUrl);
+      setSimulationActiveMeshUrl(frame.activeMeshUrl);
+      setSimulationCachedMeshUrl(await fetchChunkMesh(nextSimulationId, frame.chunkIndex));
       setSimulationToolPosition(toolPositionToPoint(frame.toolPosition));
+      prefetchAdjacentChunkMeshes(nextSimulationId, frame.chunkIndex, chunkCount);
     },
-    [],
+    [fetchChunkMesh, prefetchAdjacentChunkMeshes],
   );
 
   const fetchSimulationFrameBatch = useCallback(
@@ -704,14 +781,14 @@ function App() {
               };
             }
 
-            const meshUrl = await prefetchMeshObjectUrl(frame.meshUrl);
+            const activeMeshUrl = await prefetchMeshObjectUrl(frame.activeMeshUrl);
             return {
               frameIndex,
               frame: {
                 ...frame,
-                meshUrl,
+                activeMeshUrl,
               },
-              createdMeshUrl: meshUrl,
+              createdMeshUrl: activeMeshUrl,
             };
           }),
         );
@@ -843,10 +920,10 @@ function App() {
         return;
       }
 
-      applySimulationFrame(nextSimulationId, frameIndex, frame);
+      await applySimulationFrame(nextSimulationId, frameIndex, frame, simulationChunkCount);
       prefetchSimulationFrames(nextSimulationId, frameIndex, frameCount);
     },
-    [applySimulationFrame, fetchSimulationFrame, prefetchSimulationFrames],
+    [applySimulationFrame, fetchSimulationFrame, prefetchSimulationFrames, simulationChunkCount],
   );
 
   useEffect(() => {
@@ -923,7 +1000,8 @@ function App() {
   function handleMeshFaceSelect(selection: MeshFaceSelection) {
     setSelectedMeshFace(selection);
     setGeneratedOperation(null);
-    setMilledMeshUrl(null);
+    setSimulationActiveMeshUrl(null);
+    setSimulationCachedMeshUrl(null);
     resetSimulationPlaybackState();
     setRequestState("idle");
     setRequestMessage("");
@@ -1009,6 +1087,10 @@ function App() {
       const zMax = Number(formValues.zMax);
       const clearancePlaneHeight = Number(formValues.clearancePlaneHeight);
       const stockToLeave = parseNonNegativeNumber(formValues.stockToLeave, "Stock to leave");
+      const maxSimDistance = parsePositiveNumber(formValues.maxSimDistance, "Max sim distance");
+      const chunkPaddingX = parseNonNegativeNumber(formValues.chunkPaddingX, "Chunk padding X");
+      const chunkPaddingY = parseNonNegativeNumber(formValues.chunkPaddingY, "Chunk padding Y");
+      const chunkPaddingZ = parseNonNegativeNumber(formValues.chunkPaddingZ, "Chunk padding Z");
 
       if (!Number.isFinite(zMin)) {
         throw new Error("Z min is required.");
@@ -1057,7 +1139,8 @@ function App() {
       }
 
       setGeneratedOperation(null);
-      setMilledMeshUrl(null);
+      setSimulationActiveMeshUrl(null);
+      setSimulationCachedMeshUrl(null);
       resetSimulationPlaybackState();
       setShowOriginalMesh(true);
       setRequestState("submitting");
@@ -1086,9 +1169,13 @@ function App() {
       const simulationRequest = new FormData();
       simulationRequest.append("mesh", meshFile, meshFile.name);
       simulationRequest.append("operation", JSON.stringify(operation));
+      simulationRequest.append("max_sim_distance", String(maxSimDistance));
+      simulationRequest.append("chunk_padding_x", String(chunkPaddingX));
+      simulationRequest.append("chunk_padding_y", String(chunkPaddingY));
+      simulationRequest.append("chunk_padding_z", String(chunkPaddingZ));
 
       setGeneratedOperation(operation);
-      setRequestMessage("Running swept milling simulation...");
+      setRequestMessage("Running chunked swept milling simulation...");
 
       const simulationResponse = await fetch(`${getBackendUrl()}/simulate/swept`, {
         method: "POST",
@@ -1109,11 +1196,17 @@ function App() {
       const simulation = (await simulationResponse.json()) as SweptSimulationResponse;
       const finalFrameIndex = Math.max(simulation.frameCount - 1, 0);
       const finalFrame: SweptSimulationFrameResponse = {
-        meshUrl: await prefetchMeshObjectUrl(simulation.meshUrl),
+        activeMeshUrl: await prefetchMeshObjectUrl(simulation.activeMeshUrl),
+        cachedMeshUrl: simulation.cachedMeshUrl,
+        chunkIndex: simulation.chunkIndex,
         toolPosition: simulation.toolPosition,
       };
 
       simulationFrameCacheRef.current.set(finalFrameIndex, finalFrame);
+      simulationChunkMeshCacheRef.current.set(
+        simulation.chunkIndex,
+        await prefetchMeshObjectUrl(simulation.cachedMeshUrl),
+      );
       loadedSimulationFrameRef.current = {
         simulationId: simulation.simulationId,
         frameIndex: finalFrameIndex,
@@ -1122,9 +1215,13 @@ function App() {
       setSimulationToolPosition(toolPositionToPoint(simulation.toolPosition));
       setSimulationId(simulation.simulationId);
       setSimulationFrameCount(simulation.frameCount);
+      setSimulationChunkCount(simulation.chunkCount);
       setSimulationFrameIndex(finalFrameIndex);
       setIsSimulationPlaying(false);
-      setMilledMeshUrl(finalFrame.meshUrl);
+      setSimulationActiveMeshUrl(finalFrame.activeMeshUrl);
+      setSimulationCachedMeshUrl(
+        simulationChunkMeshCacheRef.current.get(simulation.chunkIndex) ?? null,
+      );
       if (simulation.frameCount > 0) {
         const initialPrefetchCount = Math.min(SIMULATION_PREFETCH_FRAME_COUNT, simulation.frameCount);
         updateSimulationPrefetchTrigger(simulation.simulationId, initialPrefetchCount - 1);
@@ -1140,10 +1237,16 @@ function App() {
       }
       setShowOriginalMesh(false);
       setRequestState("success");
-      setRequestMessage(`${operationLabel} toolpaths generated and swept simulation completed.`);
+      prefetchAdjacentChunkMeshes(
+        simulation.simulationId,
+        simulation.chunkIndex,
+        simulation.chunkCount,
+      );
+      setRequestMessage(`${operationLabel} toolpaths generated and chunked swept simulation completed.`);
     } catch (error) {
       setGeneratedOperation(null);
-      setMilledMeshUrl(null);
+      setSimulationActiveMeshUrl(null);
+      setSimulationCachedMeshUrl(null);
       resetSimulationPlaybackState();
       setShowOriginalMesh(true);
       setRequestState("error");
@@ -1161,7 +1264,8 @@ function App() {
     setMeshFile(file);
     setSelectedMeshFace(null);
     setGeneratedOperation(null);
-    setMilledMeshUrl(null);
+    setSimulationActiveMeshUrl(null);
+    setSimulationCachedMeshUrl(null);
     resetSimulationPlaybackState();
     setRequestState("idle");
     setRequestMessage("");
@@ -1207,7 +1311,8 @@ function App() {
             onOperationChange={(operation) => {
               setSelectedOperation(operation);
               setGeneratedOperation(null);
-              setMilledMeshUrl(null);
+              setSimulationActiveMeshUrl(null);
+              setSimulationCachedMeshUrl(null);
               resetSimulationPlaybackState();
               setRequestState("idle");
               setRequestMessage("");
@@ -1225,9 +1330,12 @@ function App() {
 
           <main className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
             <PolylineViewer
-              meshUrl={activeMeshUrl}
-              meshColor={showOriginalMesh || !milledMeshUrl ? ORIGINAL_MESH_COLOR : MILLED_STOCK_MESH_COLOR}
-              meshEdgeColor={showOriginalMesh || !milledMeshUrl ? ORIGINAL_MESH_EDGE_COLOR : null}
+              meshUrl={primaryMeshUrl}
+              secondaryMeshUrl={secondaryMeshUrl}
+              meshColor={showOriginalMesh || !simulationCachedMeshUrl ? ORIGINAL_MESH_COLOR : MILLED_STOCK_MESH_COLOR}
+              meshEdgeColor={showOriginalMesh || !simulationCachedMeshUrl ? ORIGINAL_MESH_EDGE_COLOR : null}
+              secondaryMeshColor={ACTIVE_DEBUG_MESH_COLOR}
+              secondaryMeshEdgeColor={null}
               polylines={operationPolylines}
               faceSelectionMode={faceSelectionMode}
               selectedMeshFace={selectedMeshFace}
@@ -1266,7 +1374,7 @@ function App() {
               </div>
             ) : null}
 
-            {milledMeshUrl ? (
+            {simulationCachedMeshUrl ? (
               <div className="pointer-events-none absolute bottom-20 right-4 z-20">
                 <Button
                   type="button"

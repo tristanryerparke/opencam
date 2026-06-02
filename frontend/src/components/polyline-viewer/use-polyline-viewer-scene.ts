@@ -50,8 +50,11 @@ export function usePolylineViewerScene(
   containerRef: RefObject<HTMLDivElement | null>,
   {
     meshUrl = null,
+    secondaryMeshUrl = null,
     meshColor = 0x94a3b8,
     meshEdgeColor = 0x334155,
+    secondaryMeshColor = 0xfb923c,
+    secondaryMeshEdgeColor = null,
     polylines,
     faceSelectionMode = false,
     selectedMeshFace = null,
@@ -70,6 +73,7 @@ export function usePolylineViewerScene(
   const controlsRef = useRef<OrbitControls | null>(null);
   const polylineGroupRef = useRef<THREE.Group | null>(null);
   const meshGroupRef = useRef<THREE.Group | null>(null);
+  const secondaryMeshGroupRef = useRef<THREE.Group | null>(null);
   const meshRef = useRef<THREE.Mesh | null>(null);
   const meshSelectionMeshRef = useRef<THREE.Mesh | null>(null);
   const meshSelectionDataRef = useRef<MeshSelectionData | null>(null);
@@ -144,6 +148,131 @@ export function usePolylineViewerScene(
     simulationCuttersRef.current = [];
     simulationPreparedStepRef.current = 0;
   }, []);
+
+  const loadDisplayMeshIntoGroup = useCallback(
+    async (
+      targetGroup: THREE.Group,
+      sourceUrl: string,
+      color: number,
+      edgeColor: number | null,
+      renderer: THREE.WebGLRenderer,
+      *,
+      enableSelection: boolean,
+      cancelled: () => boolean,
+    ) => {
+      const sourceGeometry = await loadMeshGeometry(sourceUrl);
+
+      if (cancelled()) {
+        sourceGeometry.dispose();
+        return null;
+      }
+
+      sourceGeometry.deleteAttribute("normal");
+      const weldedGeometry = mergeVertices(sourceGeometry);
+      sourceGeometry.dispose();
+      weldedGeometry.computeBoundingBox();
+      weldedGeometry.computeBoundingSphere();
+
+      const renderGeometry = toCreasedNormals(
+        weldedGeometry.clone(),
+        THREE.MathUtils.degToRad(DISPLAY_SHADING_CREASE_ANGLE_DEGREES),
+      );
+      renderGeometry.computeBoundingBox();
+      renderGeometry.computeBoundingSphere();
+
+      const depthMaterial = new THREE.MeshDepthMaterial({
+        depthWrite: true,
+        depthTest: true,
+        polygonOffset: true,
+        polygonOffsetFactor: MESH_DEPTH_OFFSET_FACTOR,
+        polygonOffsetUnits: MESH_DEPTH_OFFSET_UNITS,
+      });
+      depthMaterial.colorWrite = false;
+
+      const depthMesh = new THREE.Mesh(renderGeometry, depthMaterial);
+      depthMesh.renderOrder = 0;
+      depthMesh.frustumCulled = false;
+      targetGroup.add(depthMesh);
+
+      const meshMaterial = new THREE.MeshStandardMaterial({
+        color,
+        roughness: 0.72,
+        metalness: 0.02,
+        depthWrite: false,
+        depthFunc: THREE.LessEqualDepth,
+      });
+      const mesh = new THREE.Mesh(renderGeometry, meshMaterial);
+      mesh.renderOrder = 1;
+      mesh.frustumCulled = false;
+      targetGroup.add(mesh);
+
+      if (edgeColor != null) {
+        const edgeGeometry = new THREE.EdgesGeometry(
+          weldedGeometry,
+          DISPLAY_EDGE_THRESHOLD_ANGLE_DEGREES,
+        );
+        const edgePositions = edgeGeometry.getAttribute("position");
+        const edgeSegmentsGeometry = new LineSegmentsGeometry();
+        edgeSegmentsGeometry.setPositions(
+          Array.from(edgePositions.array as Iterable<number>),
+        );
+        edgeGeometry.dispose();
+
+        const edgeMaterial = new LineMaterial({
+          color: edgeColor,
+          linewidth: MESH_EDGE_LINEWIDTH,
+          transparent: true,
+          opacity: 0.9,
+          depthTest: true,
+          depthWrite: false,
+        });
+        edgeMaterial.alphaToCoverage = true;
+        edgeMaterial.resolution.set(
+          renderer.domElement.clientWidth,
+          renderer.domElement.clientHeight,
+        );
+
+        const edgeLine = new LineSegments2(edgeSegmentsGeometry, edgeMaterial);
+        edgeLine.renderOrder = 2;
+        edgeLine.frustumCulled = false;
+        targetGroup.add(edgeLine);
+
+        if (enableSelection) {
+          meshEdgeMaterialRef.current = edgeMaterial;
+        }
+      }
+
+      if (!enableSelection) {
+        weldedGeometry.dispose();
+        return { mesh, bounds: renderGeometry.boundingBox?.clone() ?? null };
+      }
+
+      const selectionMeshMaterial = new THREE.MeshBasicMaterial({
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0,
+        depthTest: false,
+        depthWrite: false,
+      });
+      selectionMeshMaterial.colorWrite = false;
+      const selectionMesh = new THREE.Mesh(weldedGeometry, selectionMeshMaterial);
+      selectionMesh.frustumCulled = false;
+      targetGroup.add(selectionMesh);
+      meshSelectionMeshRef.current = selectionMesh;
+
+      const selectionHighlightGroup = new THREE.Group();
+      mesh.add(selectionHighlightGroup);
+      selectionHighlightGroupRef.current = selectionHighlightGroup;
+
+      const selectionData = createMeshSelectionData(weldedGeometry);
+      meshSelectionDataRef.current = selectionData;
+      meshBoundsRef.current = selectionData.bounds.clone();
+      meshRef.current = mesh;
+
+      return { mesh, bounds: selectionData.bounds.clone() };
+    },
+    [],
+  );
 
   const updateToolPreview = useCallback(() => {
     const previewMesh = simulationToolPreviewMeshRef.current;
@@ -473,6 +602,10 @@ export function usePolylineViewerScene(
     scene.add(meshGroup);
     meshGroupRef.current = meshGroup;
 
+    const secondaryMeshGroup = new THREE.Group();
+    scene.add(secondaryMeshGroup);
+    secondaryMeshGroupRef.current = secondaryMeshGroup;
+
     const simulationToolPreviewGeometry = createBaseSimulationCylinderGeometry();
     simulationToolPreviewBaseGeometryRef.current = simulationToolPreviewGeometry;
     const simulationToolPreviewMesh = new THREE.Mesh(
@@ -626,6 +759,7 @@ export function usePolylineViewerScene(
       controlsRef.current = null;
       polylineGroupRef.current = null;
       meshGroupRef.current = null;
+      secondaryMeshGroupRef.current = null;
       meshRef.current = null;
       meshSelectionMeshRef.current = null;
       meshSelectionDataRef.current = null;
@@ -679,111 +813,27 @@ export function usePolylineViewerScene(
 
     const loadMesh = async () => {
       try {
-        const sourceGeometry = await loadMeshGeometry(meshUrl);
+        const result = await loadDisplayMeshIntoGroup(
+          meshGroup,
+          meshUrl,
+          meshColor,
+          meshEdgeColor,
+          renderer,
+          {
+            enableSelection: true,
+            cancelled: () => cancelled,
+          },
+        );
 
-        if (cancelled) {
-          sourceGeometry.dispose();
+        if (!result || cancelled) {
           return;
         }
 
-        sourceGeometry.deleteAttribute("normal");
-        const weldedGeometry = mergeVertices(sourceGeometry);
-        sourceGeometry.dispose();
-        weldedGeometry.computeBoundingBox();
-        weldedGeometry.computeBoundingSphere();
-
-        const renderGeometry = toCreasedNormals(
-          weldedGeometry.clone(),
-          THREE.MathUtils.degToRad(DISPLAY_SHADING_CREASE_ANGLE_DEGREES),
-        );
-        renderGeometry.computeBoundingBox();
-        renderGeometry.computeBoundingSphere();
-
-        const depthMaterial = new THREE.MeshDepthMaterial({
-          depthWrite: true,
-          depthTest: true,
-          polygonOffset: true,
-          polygonOffsetFactor: MESH_DEPTH_OFFSET_FACTOR,
-          polygonOffsetUnits: MESH_DEPTH_OFFSET_UNITS,
-        });
-        depthMaterial.colorWrite = false;
-
-        const depthMesh = new THREE.Mesh(renderGeometry, depthMaterial);
-        depthMesh.renderOrder = 0;
-        depthMesh.frustumCulled = false;
-        meshGroup.add(depthMesh);
-
-        const meshMaterial = new THREE.MeshStandardMaterial({
-          color: meshColor,
-          roughness: 0.72,
-          metalness: 0.02,
-          depthWrite: false,
-          depthFunc: THREE.LessEqualDepth,
-        });
-        const mesh = new THREE.Mesh(renderGeometry, meshMaterial);
-        mesh.renderOrder = 1;
-        mesh.frustumCulled = false;
-        meshGroup.add(mesh);
         meshGroup.visible =
           faceSelectionModeRef.current || showOriginalMeshRef.current || !simulationToolRef.current;
-        meshRef.current = mesh;
 
-        const selectionMeshMaterial = new THREE.MeshBasicMaterial({
-          side: THREE.DoubleSide,
-          transparent: true,
-          opacity: 0,
-          depthTest: false,
-          depthWrite: false,
-        });
-        selectionMeshMaterial.colorWrite = false;
-        const selectionMesh = new THREE.Mesh(weldedGeometry, selectionMeshMaterial);
-        selectionMesh.frustumCulled = false;
-        meshGroup.add(selectionMesh);
-        meshSelectionMeshRef.current = selectionMesh;
-
-        if (meshEdgeColor != null) {
-          const edgeGeometry = new THREE.EdgesGeometry(
-            weldedGeometry,
-            DISPLAY_EDGE_THRESHOLD_ANGLE_DEGREES,
-          );
-          const edgePositions = edgeGeometry.getAttribute("position");
-          const edgeSegmentsGeometry = new LineSegmentsGeometry();
-          edgeSegmentsGeometry.setPositions(
-            Array.from(edgePositions.array as Iterable<number>),
-          );
-          edgeGeometry.dispose();
-
-          const edgeMaterial = new LineMaterial({
-            color: meshEdgeColor,
-            linewidth: MESH_EDGE_LINEWIDTH,
-            transparent: true,
-            opacity: 0.9,
-            depthTest: true,
-            depthWrite: false,
-          });
-          edgeMaterial.alphaToCoverage = true;
-          edgeMaterial.resolution.set(
-            renderer.domElement.clientWidth,
-            renderer.domElement.clientHeight,
-          );
-          meshEdgeMaterialRef.current = edgeMaterial;
-
-          const edgeLine = new LineSegments2(edgeSegmentsGeometry, edgeMaterial);
-          edgeLine.renderOrder = 2;
-          edgeLine.frustumCulled = false;
-          meshGroup.add(edgeLine);
-        }
-
-        const selectionHighlightGroup = new THREE.Group();
-        mesh.add(selectionHighlightGroup);
-        selectionHighlightGroupRef.current = selectionHighlightGroup;
-
-        const selectionData = createMeshSelectionData(weldedGeometry);
-        meshSelectionDataRef.current = selectionData;
-        meshBoundsRef.current = selectionData.bounds.clone();
-
-        if (!hasUserInteractedRef.current) {
-          const bounds = getSceneBounds(currentPolylinesRef.current, selectionData.bounds);
+        if (!hasUserInteractedRef.current && result.bounds) {
+          const bounds = getSceneBounds(currentPolylinesRef.current, result.bounds);
           fitCameraToBox(bounds, camera, controls);
         }
 
@@ -812,12 +862,61 @@ export function usePolylineViewerScene(
     };
   }, [
     clearSimulationResources,
+    loadDisplayMeshIntoGroup,
     meshColor,
     meshEdgeColor,
     meshUrl,
     rebuildSimulationResources,
     renderSelectionHighlight,
     showOriginalMesh,
+  ]);
+
+  useEffect(() => {
+    const secondaryMeshGroup = secondaryMeshGroupRef.current;
+    const renderer = rendererRef.current;
+
+    if (!secondaryMeshGroup || !renderer) {
+      return undefined;
+    }
+
+    clearGroup(secondaryMeshGroup);
+
+    let cancelled = false;
+    if (!secondaryMeshUrl) {
+      return undefined;
+    }
+
+    const loadSecondaryMesh = async () => {
+      try {
+        await loadDisplayMeshIntoGroup(
+          secondaryMeshGroup,
+          secondaryMeshUrl,
+          secondaryMeshColor,
+          secondaryMeshEdgeColor,
+          renderer,
+          {
+            enableSelection: false,
+            cancelled: () => cancelled,
+          },
+        );
+      } catch (error) {
+        if (!cancelled) {
+          console.error("Failed to load secondary mesh", error);
+        }
+      }
+    };
+
+    void loadSecondaryMesh();
+
+    return () => {
+      cancelled = true;
+      clearGroup(secondaryMeshGroup);
+    };
+  }, [
+    loadDisplayMeshIntoGroup,
+    secondaryMeshColor,
+    secondaryMeshEdgeColor,
+    secondaryMeshUrl,
   ]);
 
   useEffect(() => {

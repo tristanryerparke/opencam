@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 import numpy as np
 import trimesh
-from manifold3d import Error, Manifold, Mesh64
+from manifold3d import Error, Manifold, Mesh64, OpType
 
 from models import CutterLocationData, ToolpathOperation
 from planar_region_2d_reduction import simplify_mesh_data_2d
@@ -20,9 +20,17 @@ DEFAULT_MIN_REGION_FACES = 3
 
 
 @dataclass
+class SimulatedChunk:
+    cached_mesh_bytes: bytes
+    frame_start_index: int
+    frame_end_index: int
+
+
+@dataclass
 class SimulatedMeshFrame:
-    mesh_bytes: bytes
+    active_mesh_bytes: bytes
     tool_position: CutterLocationData
+    chunk_index: int
 
 
 def decode_mesh_data_url(mesh_data_url: str) -> bytes:
@@ -151,6 +159,18 @@ def mesh_to_manifold(vertices: np.ndarray, faces: np.ndarray, *, context: str) -
         np.ascontiguousarray(ensure_triangle_faces(faces), dtype=np.uint64),
     )
     return ensure_no_manifold_error(Manifold(mesh), context=context)
+
+
+def boolean_manifolds(
+    manifolds: list[Manifold],
+    operation: OpType,
+    *,
+    context: str,
+) -> Manifold:
+    return ensure_no_manifold_error(
+        Manifold.batch_boolean(manifolds, operation),
+        context=context,
+    )
 
 
 def manifold_to_mesh(manifold: Manifold, *, context: str) -> tuple[np.ndarray, np.ndarray]:
@@ -385,13 +405,93 @@ def load_stl_bytes(mesh_input: bytes | str) -> bytes:
     return decode_mesh_data_url(mesh_input)
 
 
+def chunk_tool_positions(
+    positions: list[np.ndarray],
+    max_sim_distance: float,
+) -> list[list[np.ndarray]]:
+    if max_sim_distance <= 0:
+        raise ValueError("max_sim_distance must be positive")
+
+    if len(positions) <= 1:
+        return [positions[:]] if positions else []
+
+    chunks: list[list[np.ndarray]] = []
+    start_index = 0
+
+    while start_index < len(positions) - 1:
+        end_index = start_index + 1
+        cumulative_distance = float(np.linalg.norm(positions[end_index] - positions[start_index]))
+
+        while end_index + 1 < len(positions):
+            next_distance = float(np.linalg.norm(positions[end_index + 1] - positions[end_index]))
+            if cumulative_distance + next_distance > max_sim_distance:
+                break
+            end_index += 1
+            cumulative_distance += next_distance
+
+        chunks.append(positions[start_index : end_index + 1])
+        start_index = end_index
+
+    if not chunks and positions:
+        chunks.append(positions[:1])
+
+    return chunks
+
+
+def toolpath_chunk_bounds(
+    tool_vertices: np.ndarray,
+    positions: list[np.ndarray],
+    padding: tuple[float, float, float],
+) -> tuple[np.ndarray, np.ndarray]:
+    if not positions:
+        raise ValueError("Chunk positions are required")
+
+    tool_vertices_xyz = np.asarray(tool_vertices, dtype=np.float64)[:, :3]
+    position_stack = np.asarray(positions, dtype=np.float64)
+    tool_min = np.min(tool_vertices_xyz, axis=0)
+    tool_max = np.max(tool_vertices_xyz, axis=0)
+    position_min = np.min(position_stack, axis=0)
+    position_max = np.max(position_stack, axis=0)
+    padding_vector = np.asarray(padding, dtype=np.float64)
+
+    bounds_min = position_min + tool_min - padding_vector
+    bounds_max = position_max + tool_max + padding_vector
+    return bounds_min, bounds_max
+
+
+def manifold_to_simplified_glb(manifold: Manifold, *, context: str) -> bytes:
+    vertices, faces = manifold_to_mesh(manifold, context=context)
+    reduced_vertices, reduced_faces = simplify_planar_mesh(vertices, faces)
+    return write_glb(reduced_vertices, reduced_faces)
+
+
+def combine_glb_meshes(mesh_bytes_list: list[bytes]) -> trimesh.Trimesh:
+    meshes = []
+    for mesh_bytes in mesh_bytes_list:
+        mesh = trimesh.load(io.BytesIO(mesh_bytes), file_type="glb", force="mesh")
+        if mesh is None or mesh.is_empty:
+            continue
+        meshes.append(mesh)
+
+    if not meshes:
+        return trimesh.Trimesh(vertices=np.zeros((0, 3)), faces=np.zeros((0, 3), dtype=np.int32), process=False)
+
+    if len(meshes) == 1:
+        return meshes[0]
+
+    return trimesh.util.concatenate(meshes)
+
+
 def simulate_swept_milling_frames(
     mesh_input: bytes | str,
     operation: ToolpathOperation,
-) -> tuple[bytes, list[SimulatedMeshFrame]]:
+    *,
+    max_sim_distance: float = 30.0,
+    chunk_padding: tuple[float, float, float] = (5.0, 5.0, 5.0),
+) -> tuple[bytes, list[SimulatedChunk], list[SimulatedMeshFrame]]:
     stock_min, stock_max = load_stl_bounds(load_stl_bytes(mesh_input))
     stock_vertices, stock_faces = build_box_mesh(stock_min, stock_max)
-    stock_manifold = mesh_to_manifold(stock_vertices, stock_faces, context="stock mesh import")
+    current_stock = mesh_to_manifold(stock_vertices, stock_faces, context="stock mesh import")
 
     tool_vertices, tool_faces = build_cylinder_mesh(
         operation.tool.diameter,
@@ -400,10 +500,9 @@ def simulate_swept_milling_frames(
     )
     tool_mesh_bytes = write_glb(tool_vertices, tool_faces)
     original_positions = load_tool_positions(operation)
-    positions = subdivide_tool_positions(original_positions, SIM_STEPDISTANCE)
-    current = stock_manifold
+    position_chunks = chunk_tool_positions(original_positions, max_sim_distance)
     frames: list[SimulatedMeshFrame] = []
-    total_segments = max(len(positions) - 1, 0)
+    chunks: list[SimulatedChunk] = []
 
     print(f"[simulate/swept] Stock bounds: min={stock_min.tolist()} max={stock_max.tolist()}")
     print(
@@ -411,8 +510,9 @@ def simulate_swept_milling_frames(
     )
     print(f"[simulate/swept] Original positions: {len(original_positions)}")
     print(f"[simulate/swept] Original swept segments: {max(len(original_positions) - 1, 0)}")
-    print(f"[simulate/swept] Subdivided positions: {len(positions)}")
-    print(f"[simulate/swept] Subdivided swept segments: {total_segments}")
+    print(f"[simulate/swept] Chunk count: {len(position_chunks)}")
+    print(f"[simulate/swept] Max chunk travel distance: {max_sim_distance}")
+    print(f"[simulate/swept] Chunk padding: {list(chunk_padding)}")
     print(f"[simulate/swept] Segment subdivision distance: {SIM_STEPDISTANCE}")
     if SIMPLIFY_EVERY_N_FRAMES > 0:
         print(f"[simulate/swept] Periodic boolean simplification: every {SIMPLIFY_EVERY_N_FRAMES} frames")
@@ -420,105 +520,166 @@ def simulate_swept_milling_frames(
         print("[simulate/swept] Periodic boolean simplification: disabled")
 
     subtraction_seconds = 0.0
-    buffered_distance = 0.0
 
-    for step in range(1, len(positions)):
-        pos_a = positions[step - 1]
-        pos_b = positions[step]
-        translation = pos_b - pos_a
-        segment_length = float(np.linalg.norm(translation))
-        if segment_length < 1e-9:
-            print(f"[simulate/swept] Segment {step}/{total_segments}: skipped zero-length segment")
-            continue
-
-        print(
-            f"[simulate/swept] Segment {step}/{total_segments}: length={segment_length:.3f} "
-            f"start={pos_a.tolist()} end={pos_b.tolist()}"
-        )
-
-        sweep_rotation = rotation_matrix_about_z_to_face_xy_direction(translation)
-        rotated_tool_vertices = tool_vertices @ sweep_rotation.T
-        start_sweep_vertices = rotated_tool_vertices + pos_a[None, :]
-        end_sweep_vertices = rotated_tool_vertices + pos_b[None, :]
-        swept_manifold = swept_volume_manifold(
-            start_sweep_vertices,
-            end_verts=end_sweep_vertices,
-            context=f"swept volume for segment {step}",
-        )
-
-        subtraction_start = time.perf_counter()
-        current = ensure_no_manifold_error(
-            current - swept_manifold,
-            context=f"subtraction at segment {step}",
-        )
-        subtraction_elapsed = time.perf_counter() - subtraction_start
-        subtraction_seconds += subtraction_elapsed
-
-        print(
-            f"[simulate/swept]   subtraction finished in {subtraction_elapsed:.3f}s "
-            f"-> {current.num_vert()} vertices, {current.num_tri()} faces"
-        )
-
-        if SIMPLIFY_EVERY_N_FRAMES > 0 and step % SIMPLIFY_EVERY_N_FRAMES == 0:
-            current = simplify_manifold_for_boolean(
-                current,
-                context=f"segment {step}",
-            )
-
-        buffered_distance += segment_length
-        is_final_segment = step == len(positions) - 1
-        should_buffer_frame = buffered_distance >= SIM_STEPDISTANCE or is_final_segment
-
-        if not should_buffer_frame:
-            print(
-                f"[simulate/swept]   accumulating short sweep segments: "
-                f"{buffered_distance:.3f}/{SIM_STEPDISTANCE} travel since last frame"
-            )
-            continue
-
-        frame_vertices, frame_faces = manifold_to_mesh(
-            current,
-            context=f"extracting mesh for segment {step}",
-        )
-        reduced_vertices, reduced_faces = simplify_planar_mesh(frame_vertices, frame_faces)
-        frames.append(
-            SimulatedMeshFrame(
-                mesh_bytes=write_glb(reduced_vertices, reduced_faces),
-                tool_position=position_to_location(pos_b),
-            )
-        )
-
-        print(
-            f"[simulate/swept]   buffered frame {len(frames) - 1} "
-            f"after {buffered_distance:.3f} tool travel with {len(reduced_vertices)} vertices "
-            f"and {len(reduced_faces)} faces"
-        )
-        buffered_distance = 0.0
-
-    if not frames:
-        print("[simulate/swept] No swept segments were processed; buffering simplified stock mesh")
-        final_vertices, final_faces = manifold_to_mesh(
-            current,
+    if not position_chunks:
+        simplified_stock_bytes = manifold_to_simplified_glb(
+            current_stock,
             context="extracting initial stock mesh",
         )
-        reduced_vertices, reduced_faces = simplify_planar_mesh(final_vertices, final_faces)
-        frames.append(
-            SimulatedMeshFrame(
-                mesh_bytes=write_glb(reduced_vertices, reduced_faces),
-                tool_position=position_to_location(positions[0]) if positions else CutterLocationData(x=0.0, y=0.0, z=0.0),
+        chunks.append(
+            SimulatedChunk(
+                cached_mesh_bytes=simplified_stock_bytes,
+                frame_start_index=0,
+                frame_end_index=0,
             )
         )
+        frames.append(
+            SimulatedMeshFrame(
+                active_mesh_bytes=write_glb(
+                    np.zeros((0, 3), dtype=np.float64),
+                    np.zeros((0, 3), dtype=np.int32),
+                ),
+                tool_position=CutterLocationData(x=0.0, y=0.0, z=0.0),
+                chunk_index=0,
+            )
+        )
+        return tool_mesh_bytes, chunks, frames
+
+    for chunk_index, chunk_positions in enumerate(position_chunks):
+        chunk_bounds_min, chunk_bounds_max = toolpath_chunk_bounds(
+            tool_vertices,
+            chunk_positions,
+            chunk_padding,
+        )
+        chunk_box_vertices, chunk_box_faces = build_box_mesh(chunk_bounds_min, chunk_bounds_max)
+        chunk_box_manifold = mesh_to_manifold(
+            chunk_box_vertices,
+            chunk_box_faces,
+            context=f"chunk {chunk_index} bounds",
+        )
+
+        chunk_interest = boolean_manifolds(
+            [current_stock, chunk_box_manifold],
+            OpType.Intersect,
+            context=f"chunk {chunk_index} interest intersection",
+        )
+        chunk_cached = ensure_no_manifold_error(
+            current_stock - chunk_box_manifold,
+            context=f"chunk {chunk_index} cached subtraction",
+        )
+        chunk_cached_mesh_bytes = manifold_to_simplified_glb(
+            chunk_cached,
+            context=f"extracting cached mesh for chunk {chunk_index}",
+        )
+
+        chunk_frame_start_index = len(frames)
+        chunk_local_current = chunk_interest
+        chunk_subdivided_positions = subdivide_tool_positions(chunk_positions, SIM_STEPDISTANCE)
+        chunk_total_segments = max(len(chunk_subdivided_positions) - 1, 0)
+        buffered_distance = 0.0
+
         print(
-            f"[simulate/swept]   buffered frame 0 with {len(reduced_vertices)} vertices and {len(reduced_faces)} faces"
+            f"[simulate/swept] Chunk {chunk_index + 1}/{len(position_chunks)}: "
+            f"positions={len(chunk_positions)} subdivided={len(chunk_subdivided_positions)} "
+            f"bounds_min={chunk_bounds_min.tolist()} bounds_max={chunk_bounds_max.tolist()}"
+        )
+
+        for step in range(1, len(chunk_subdivided_positions)):
+            pos_a = chunk_subdivided_positions[step - 1]
+            pos_b = chunk_subdivided_positions[step]
+            translation = pos_b - pos_a
+            segment_length = float(np.linalg.norm(translation))
+            if segment_length < 1e-9:
+                print(
+                    f"[simulate/swept] Chunk {chunk_index + 1}/{len(position_chunks)} "
+                    f"segment {step}/{chunk_total_segments}: skipped zero-length segment"
+                )
+                continue
+
+            sweep_rotation = rotation_matrix_about_z_to_face_xy_direction(translation)
+            rotated_tool_vertices = tool_vertices @ sweep_rotation.T
+            start_sweep_vertices = rotated_tool_vertices + pos_a[None, :]
+            end_sweep_vertices = rotated_tool_vertices + pos_b[None, :]
+            swept_manifold = swept_volume_manifold(
+                start_sweep_vertices,
+                end_verts=end_sweep_vertices,
+                context=f"chunk {chunk_index} swept volume for segment {step}",
+            )
+
+            subtraction_start = time.perf_counter()
+            chunk_local_current = ensure_no_manifold_error(
+                chunk_local_current - swept_manifold,
+                context=f"chunk {chunk_index} subtraction at segment {step}",
+            )
+            subtraction_elapsed = time.perf_counter() - subtraction_start
+            subtraction_seconds += subtraction_elapsed
+
+            if SIMPLIFY_EVERY_N_FRAMES > 0 and step % SIMPLIFY_EVERY_N_FRAMES == 0:
+                chunk_local_current = simplify_manifold_for_boolean(
+                    chunk_local_current,
+                    context=f"chunk {chunk_index} segment {step}",
+                )
+
+            buffered_distance += segment_length
+            is_final_segment = step == len(chunk_subdivided_positions) - 1
+            should_buffer_frame = buffered_distance >= SIM_STEPDISTANCE or is_final_segment
+
+            if not should_buffer_frame:
+                continue
+
+            frames.append(
+                SimulatedMeshFrame(
+                    active_mesh_bytes=manifold_to_simplified_glb(
+                        chunk_local_current,
+                        context=f"extracting active mesh for chunk {chunk_index} segment {step}",
+                    ),
+                    tool_position=position_to_location(pos_b),
+                    chunk_index=chunk_index,
+                )
+            )
+            buffered_distance = 0.0
+
+        if len(frames) == chunk_frame_start_index:
+            fallback_position = chunk_subdivided_positions[0] if chunk_subdivided_positions else chunk_positions[0]
+            frames.append(
+                SimulatedMeshFrame(
+                    active_mesh_bytes=manifold_to_simplified_glb(
+                        chunk_local_current,
+                        context=f"extracting fallback active mesh for chunk {chunk_index}",
+                    ),
+                    tool_position=position_to_location(fallback_position),
+                    chunk_index=chunk_index,
+                )
+            )
+
+        chunk_frame_end_index = len(frames) - 1
+        chunks.append(
+            SimulatedChunk(
+                cached_mesh_bytes=chunk_cached_mesh_bytes,
+                frame_start_index=chunk_frame_start_index,
+                frame_end_index=chunk_frame_end_index,
+            )
+        )
+
+        current_stock = ensure_no_manifold_error(
+            chunk_cached + chunk_local_current,
+            context=f"recombine stock after chunk {chunk_index}",
         )
 
     print(f"[simulate/swept] Total subtraction time: {subtraction_seconds:.3f}s")
-    print(f"[simulate/swept] Buffered {len(frames)} simulation frames")
-    return tool_mesh_bytes, frames
+    print(f"[simulate/swept] Buffered {len(frames)} simulation frames across {len(chunks)} chunks")
+    return tool_mesh_bytes, chunks, frames
 
 
 def simulate_swept_milling(mesh_data_url: str, operation: ToolpathOperation) -> str:
-    _tool_mesh_bytes, frames = simulate_swept_milling_frames(mesh_data_url, operation)
-    final_mesh = trimesh.load(io.BytesIO(frames[-1].mesh_bytes), file_type="glb", force="mesh")
+    _tool_mesh_bytes, chunks, frames = simulate_swept_milling_frames(mesh_data_url, operation)
+    final_frame = frames[-1]
+    final_chunk = chunks[final_frame.chunk_index]
+    final_mesh = combine_glb_meshes(
+        [
+            final_chunk.cached_mesh_bytes,
+            final_frame.active_mesh_bytes,
+        ]
+    )
     final_stl_bytes = final_mesh.export(file_type="stl")
     return encode_mesh_data_url(final_stl_bytes)

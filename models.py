@@ -56,15 +56,20 @@ class ToolpathOperation(CamelBaseModel):
 
 
 class SweptSimulationResponse(CamelBaseModel):
-    mesh_url: str
+    active_mesh_url: str
+    cached_mesh_url: str
     simulation_id: str
     frame_count: int
+    chunk_count: int
+    chunk_index: int
     tool_mesh_url: str
     tool_position: CutterLocationData
 
 
 class SweptSimulationFrameResponse(CamelBaseModel):
-    mesh_url: str
+    active_mesh_url: str
+    cached_mesh_url: str
+    chunk_index: int
     tool_position: CutterLocationData
 
 

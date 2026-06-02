@@ -14,7 +14,8 @@ from planar_region_2d_reduction import simplify_mesh_data_2d
 
 TOOL_SEGMENTS = 16
 SIM_STEPDISTANCE = 5
-SIMPLIFY_EVERY_N_FRAMES = 100
+SIMPLIFY_AFTER_EACH_CHUNK = False
+DEFAULT_CHUNK_PADDING = (5.0, 5.0, 1.0)
 DEFAULT_PLANAR_ANGLE_DEGREES = 0.01
 DEFAULT_MIN_REGION_FACES = 3
 
@@ -296,7 +297,7 @@ def simplify_manifold_for_boolean(manifold: Manifold, *, context: str) -> Manifo
     if reduced_face_count >= before_faces:
         simplification_elapsed = time.perf_counter() - simplification_start
         print(
-            f"[simulate/swept]   periodic simplification kept original at {context}: "
+            f"[simulate/swept]   boolean simplification kept original at {context}: "
             f"{before_vertices} vertices, {before_faces} -> {reduced_face_count} faces "
             f"({reduced_face_percentage:.2f}% reduction) in {simplification_elapsed:.3f}s"
         )
@@ -311,7 +312,7 @@ def simplify_manifold_for_boolean(manifold: Manifold, *, context: str) -> Manifo
     except RuntimeError as exc:
         simplification_elapsed = time.perf_counter() - simplification_start
         print(
-            f"[simulate/swept]   periodic simplification rebuild failed at {context}: {exc}; "
+            f"[simulate/swept]   boolean simplification rebuild failed at {context}: {exc}; "
             f"pre-rebuild faces {before_faces} -> {reduced_face_count} "
             f"({reduced_face_percentage:.2f}% reduction) in {simplification_elapsed:.3f}s; "
             "keeping original manifold"
@@ -326,14 +327,14 @@ def simplify_manifold_for_boolean(manifold: Manifold, *, context: str) -> Manifo
     simplification_elapsed = time.perf_counter() - simplification_start
     if after_faces > before_faces:
         print(
-            f"[simulate/swept]   periodic simplification increased face count at {context}: "
+            f"[simulate/swept]   boolean simplification increased face count at {context}: "
             f"{before_faces} -> {after_faces} faces ({after_face_percentage:.2f}% reduction) "
             f"in {simplification_elapsed:.3f}s; keeping original manifold"
         )
         return manifold
 
     print(
-        f"[simulate/swept]   periodic simplification reduced {context}: "
+        f"[simulate/swept]   boolean simplification reduced {context}: "
         f"{before_vertices} -> {after_vertices} vertices, {before_faces} -> {after_faces} faces "
         f"({after_face_percentage:.2f}% reduction) in {simplification_elapsed:.3f}s"
     )
@@ -459,6 +460,173 @@ def toolpath_chunk_bounds(
     return bounds_min, bounds_max
 
 
+def translated_tool_contact_box(
+    tool_vertices: np.ndarray,
+    stock_min: np.ndarray,
+    stock_max: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    tool_vertices_xyz = np.asarray(tool_vertices, dtype=np.float64)[:, :3]
+    tool_min = np.min(tool_vertices_xyz, axis=0)
+    tool_max = np.max(tool_vertices_xyz, axis=0)
+    return (
+        np.asarray(stock_min, dtype=np.float64) - tool_max,
+        np.asarray(stock_max, dtype=np.float64) - tool_min,
+    )
+
+
+def clip_segment_to_box(
+    start_position: np.ndarray,
+    end_position: np.ndarray,
+    bounds_min: np.ndarray,
+    bounds_max: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray] | None:
+    start = np.asarray(start_position, dtype=np.float64)
+    end = np.asarray(end_position, dtype=np.float64)
+    direction = end - start
+    t_min = 0.0
+    t_max = 1.0
+    tolerance = 1e-9
+
+    for axis in range(3):
+        axis_delta = float(direction[axis])
+        axis_start = float(start[axis])
+        axis_min = float(bounds_min[axis])
+        axis_max = float(bounds_max[axis])
+
+        if abs(axis_delta) < tolerance:
+            if axis_start < axis_min - tolerance or axis_start > axis_max + tolerance:
+                return None
+            continue
+
+        axis_t0 = (axis_min - axis_start) / axis_delta
+        axis_t1 = (axis_max - axis_start) / axis_delta
+        if axis_t0 > axis_t1:
+            axis_t0, axis_t1 = axis_t1, axis_t0
+
+        t_min = max(t_min, axis_t0)
+        t_max = min(t_max, axis_t1)
+        if t_min > t_max + tolerance:
+            return None
+
+    clipped_start = start + direction * max(t_min, 0.0)
+    clipped_end = start + direction * min(t_max, 1.0)
+    if np.allclose(clipped_start, clipped_end, atol=1e-9, rtol=0.0):
+        return None
+    return clipped_start, clipped_end
+
+
+def filter_contact_position_sequences(
+    positions: list[np.ndarray],
+    tool_vertices: np.ndarray,
+    stock_min: np.ndarray,
+    stock_max: np.ndarray,
+) -> tuple[list[list[np.ndarray]], int, int, int]:
+    if len(positions) < 2:
+        return [], 0, 0, 0
+
+    contact_bounds_min, contact_bounds_max = translated_tool_contact_box(tool_vertices, stock_min, stock_max)
+    contact_sequences: list[list[np.ndarray]] = []
+    current_sequence: list[np.ndarray] = []
+    retained_segments = 0
+    skipped_segments = 0
+    trimmed_segments = 0
+
+    for index in range(1, len(positions)):
+        start_position = positions[index - 1]
+        end_position = positions[index]
+        clipped_segment = clip_segment_to_box(
+            start_position,
+            end_position,
+            contact_bounds_min,
+            contact_bounds_max,
+        )
+        if clipped_segment is None:
+            skipped_segments += 1
+            if current_sequence:
+                contact_sequences.append(current_sequence)
+                current_sequence = []
+            continue
+
+        retained_segments += 1
+        clipped_start, clipped_end = clipped_segment
+        if not np.allclose(clipped_start, start_position, atol=1e-9, rtol=0.0) or not np.allclose(
+            clipped_end,
+            end_position,
+            atol=1e-9,
+            rtol=0.0,
+        ):
+            trimmed_segments += 1
+
+        if not current_sequence:
+            current_sequence.append(clipped_start)
+        elif not np.allclose(current_sequence[-1], clipped_start, atol=1e-9, rtol=0.0):
+            current_sequence.append(clipped_start)
+
+        if not np.allclose(current_sequence[-1], clipped_end, atol=1e-9, rtol=0.0):
+            current_sequence.append(clipped_end)
+
+    if current_sequence:
+        contact_sequences.append(current_sequence)
+
+    return contact_sequences, retained_segments, skipped_segments, trimmed_segments
+
+
+def build_position_chunks(
+    position_sequences: list[list[np.ndarray]],
+    max_sim_distance: float,
+) -> tuple[list[list[np.ndarray]], int]:
+    position_chunks: list[list[np.ndarray]] = []
+    chunk_seed_position_count = 0
+
+    for sequence in position_sequences:
+        if not sequence:
+            continue
+        chunk_seed_positions = subdivide_tool_positions(sequence, max_sim_distance)
+        chunk_seed_position_count += len(chunk_seed_positions)
+        position_chunks.extend(chunk_tool_positions(chunk_seed_positions, max_sim_distance))
+
+    return position_chunks, chunk_seed_position_count
+
+
+def simulate_manifold_by_moves(
+    manifold: Manifold,
+    tool_vertices: np.ndarray,
+    positions: list[np.ndarray],
+    *,
+    context_prefix: str,
+) -> tuple[Manifold, float, int]:
+    current = manifold
+    subtraction_seconds = 0.0
+    applied_segments = 0
+
+    for step in range(1, len(positions)):
+        pos_a = positions[step - 1]
+        pos_b = positions[step]
+        translation = pos_b - pos_a
+        if np.linalg.norm(translation) < 1e-9:
+            continue
+
+        sweep_rotation = rotation_matrix_about_z_to_face_xy_direction(translation)
+        rotated_tool_vertices = tool_vertices @ sweep_rotation.T
+        start_sweep_vertices = rotated_tool_vertices + pos_a[None, :]
+        end_sweep_vertices = rotated_tool_vertices + pos_b[None, :]
+        swept_manifold = swept_volume_manifold(
+            start_sweep_vertices,
+            end_verts=end_sweep_vertices,
+            context=f"{context_prefix} swept volume for segment {step}",
+        )
+
+        subtraction_start = time.perf_counter()
+        current = ensure_no_manifold_error(
+            current - swept_manifold,
+            context=f"{context_prefix} subtraction at segment {step}",
+        )
+        subtraction_seconds += time.perf_counter() - subtraction_start
+        applied_segments += 1
+
+    return current, subtraction_seconds, applied_segments
+
+
 def manifold_to_simplified_glb(manifold: Manifold, *, context: str) -> bytes:
     vertices, faces = manifold_to_mesh(manifold, context=context)
     reduced_vertices, reduced_faces = simplify_planar_mesh(vertices, faces)
@@ -487,7 +655,7 @@ def simulate_swept_milling_frames(
     operation: ToolpathOperation,
     *,
     max_sim_distance: float = 30.0,
-    chunk_padding: tuple[float, float, float] = (5.0, 5.0, 5.0),
+    chunk_padding: tuple[float, float, float] = DEFAULT_CHUNK_PADDING,
 ) -> tuple[bytes, list[SimulatedChunk], list[SimulatedMeshFrame]]:
     stock_min, stock_max = load_stl_bounds(load_stl_bytes(mesh_input))
     stock_vertices, stock_faces = build_box_mesh(stock_min, stock_max)
@@ -500,7 +668,19 @@ def simulate_swept_milling_frames(
     )
     tool_mesh_bytes = write_glb(tool_vertices, tool_faces)
     original_positions = load_tool_positions(operation)
-    position_chunks = chunk_tool_positions(original_positions, max_sim_distance)
+    (
+        contact_position_sequences,
+        retained_contact_segments,
+        skipped_non_contact_segments,
+        trimmed_contact_segments,
+    ) = filter_contact_position_sequences(
+        original_positions,
+        tool_vertices,
+        stock_min,
+        stock_max,
+    )
+    position_chunks, chunk_seed_position_count = build_position_chunks(contact_position_sequences, max_sim_distance)
+    filtered_position_count = sum(len(sequence) for sequence in contact_position_sequences)
     frames: list[SimulatedMeshFrame] = []
     chunks: list[SimulatedChunk] = []
 
@@ -510,16 +690,23 @@ def simulate_swept_milling_frames(
     )
     print(f"[simulate/swept] Original positions: {len(original_positions)}")
     print(f"[simulate/swept] Original swept segments: {max(len(original_positions) - 1, 0)}")
+    print(f"[simulate/swept] Contact sequences: {len(contact_position_sequences)}")
+    print(f"[simulate/swept] Retained contact segments: {retained_contact_segments}")
+    print(f"[simulate/swept] Trimmed contact-transition segments: {trimmed_contact_segments}")
+    print(f"[simulate/swept] Skipped non-contact segments: {skipped_non_contact_segments}")
+    print(f"[simulate/swept] Filtered positions: {filtered_position_count}")
+    print(f"[simulate/swept] Chunk seed positions: {chunk_seed_position_count}")
     print(f"[simulate/swept] Chunk count: {len(position_chunks)}")
     print(f"[simulate/swept] Max chunk travel distance: {max_sim_distance}")
     print(f"[simulate/swept] Chunk padding: {list(chunk_padding)}")
     print(f"[simulate/swept] Segment subdivision distance: {SIM_STEPDISTANCE}")
-    if SIMPLIFY_EVERY_N_FRAMES > 0:
-        print(f"[simulate/swept] Periodic boolean simplification: every {SIMPLIFY_EVERY_N_FRAMES} frames")
+    if SIMPLIFY_AFTER_EACH_CHUNK:
+        print("[simulate/swept] Boolean simplification: after each chunk")
     else:
-        print("[simulate/swept] Periodic boolean simplification: disabled")
+        print("[simulate/swept] Boolean simplification: disabled")
 
-    subtraction_seconds = 0.0
+    stock_subtraction_seconds = 0.0
+    animation_subtraction_seconds = 0.0
 
     if not position_chunks:
         simplified_stock_bytes = manifold_to_simplified_glb(
@@ -546,6 +733,7 @@ def simulate_swept_milling_frames(
         return tool_mesh_bytes, chunks, frames
 
     for chunk_index, chunk_positions in enumerate(position_chunks):
+        chunk_start_stock = current_stock
         chunk_bounds_min, chunk_bounds_max = toolpath_chunk_bounds(
             tool_vertices,
             chunk_positions,
@@ -559,18 +747,25 @@ def simulate_swept_milling_frames(
         )
 
         chunk_interest = boolean_manifolds(
-            [current_stock, chunk_box_manifold],
+            [chunk_start_stock, chunk_box_manifold],
             OpType.Intersect,
             context=f"chunk {chunk_index} interest intersection",
         )
         chunk_cached = ensure_no_manifold_error(
-            current_stock - chunk_box_manifold,
+            chunk_start_stock - chunk_box_manifold,
             context=f"chunk {chunk_index} cached subtraction",
         )
         chunk_cached_mesh_bytes = manifold_to_simplified_glb(
             chunk_cached,
             context=f"extracting cached mesh for chunk {chunk_index}",
         )
+        chunk_final_stock, chunk_stock_subtraction_seconds, chunk_fast_segment_count = simulate_manifold_by_moves(
+            chunk_start_stock,
+            tool_vertices,
+            chunk_positions,
+            context_prefix=f"chunk {chunk_index} stock",
+        )
+        stock_subtraction_seconds += chunk_stock_subtraction_seconds
 
         chunk_frame_start_index = len(frames)
         chunk_local_current = chunk_interest
@@ -580,7 +775,8 @@ def simulate_swept_milling_frames(
 
         print(
             f"[simulate/swept] Chunk {chunk_index + 1}/{len(position_chunks)}: "
-            f"positions={len(chunk_positions)} subdivided={len(chunk_subdivided_positions)} "
+            f"positions={len(chunk_positions)} fast_segments={chunk_fast_segment_count} "
+            f"subdivided={len(chunk_subdivided_positions)} "
             f"bounds_min={chunk_bounds_min.tolist()} bounds_max={chunk_bounds_max.tolist()}"
         )
 
@@ -603,22 +799,16 @@ def simulate_swept_milling_frames(
             swept_manifold = swept_volume_manifold(
                 start_sweep_vertices,
                 end_verts=end_sweep_vertices,
-                context=f"chunk {chunk_index} swept volume for segment {step}",
+                context=f"chunk {chunk_index} local swept volume for segment {step}",
             )
 
             subtraction_start = time.perf_counter()
             chunk_local_current = ensure_no_manifold_error(
                 chunk_local_current - swept_manifold,
-                context=f"chunk {chunk_index} subtraction at segment {step}",
+                context=f"chunk {chunk_index} local subtraction at segment {step}",
             )
             subtraction_elapsed = time.perf_counter() - subtraction_start
-            subtraction_seconds += subtraction_elapsed
-
-            if SIMPLIFY_EVERY_N_FRAMES > 0 and step % SIMPLIFY_EVERY_N_FRAMES == 0:
-                chunk_local_current = simplify_manifold_for_boolean(
-                    chunk_local_current,
-                    context=f"chunk {chunk_index} segment {step}",
-                )
+            animation_subtraction_seconds += subtraction_elapsed
 
             buffered_distance += segment_length
             is_final_segment = step == len(chunk_subdivided_positions) - 1
@@ -661,12 +851,15 @@ def simulate_swept_milling_frames(
             )
         )
 
-        current_stock = ensure_no_manifold_error(
-            chunk_cached + chunk_local_current,
-            context=f"recombine stock after chunk {chunk_index}",
-        )
+        current_stock = chunk_final_stock
+        if SIMPLIFY_AFTER_EACH_CHUNK and chunk_index < len(position_chunks) - 1:
+            current_stock = simplify_manifold_for_boolean(
+                current_stock,
+                context=f"recombined stock after chunk {chunk_index}",
+            )
 
-    print(f"[simulate/swept] Total subtraction time: {subtraction_seconds:.3f}s")
+    print(f"[simulate/swept] Total stock subtraction time: {stock_subtraction_seconds:.3f}s")
+    print(f"[simulate/swept] Total animation subtraction time: {animation_subtraction_seconds:.3f}s")
     print(f"[simulate/swept] Buffered {len(frames)} simulation frames across {len(chunks)} chunks")
     return tool_mesh_bytes, chunks, frames
 

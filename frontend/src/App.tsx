@@ -383,7 +383,7 @@ function App() {
     maxSimDistance: "30",
     chunkPaddingX: "5",
     chunkPaddingY: "5",
-    chunkPaddingZ: "5",
+    chunkPaddingZ: "1",
     side: "outside",
   });
 

@@ -146,7 +146,7 @@ async def simulate_swept(
     max_sim_distance: float = Form(30.0),
     chunk_padding_x: float = Form(5.0),
     chunk_padding_y: float = Form(5.0),
-    chunk_padding_z: float = Form(5.0),
+    chunk_padding_z: float = Form(1.0),
 ):
     try:
         parsed_operation = ToolpathOperation.model_validate_json(operation)

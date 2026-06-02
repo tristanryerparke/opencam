@@ -156,7 +156,6 @@ export function usePolylineViewerScene(
       color: number,
       edgeColor: number | null,
       renderer: THREE.WebGLRenderer,
-      *,
       enableSelection: boolean,
       cancelled: () => boolean,
     ) => {
@@ -819,10 +818,8 @@ export function usePolylineViewerScene(
           meshColor,
           meshEdgeColor,
           renderer,
-          {
-            enableSelection: true,
-            cancelled: () => cancelled,
-          },
+          true,
+          () => cancelled,
         );
 
         if (!result || cancelled) {
@@ -894,10 +891,8 @@ export function usePolylineViewerScene(
           secondaryMeshColor,
           secondaryMeshEdgeColor,
           renderer,
-          {
-            enableSelection: false,
-            cancelled: () => cancelled,
-          },
+          false,
+          () => cancelled,
         );
       } catch (error) {
         if (!cancelled) {

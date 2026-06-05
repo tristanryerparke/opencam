@@ -586,33 +586,31 @@ export function usePolylineViewerScene(
     updateToolPreview();
   }, [simulationToolPosition, showOriginalMesh, updateToolPreview]);
 
-  useEffect(() => {
-    const meshGroup = meshGroupRef.current;
-    if (!meshGroup) {
-      return;
-    }
-
-    meshGroup.visible = faceSelectionMode || showOriginalMesh || !simulationTool;
-  }, [faceSelectionMode, showOriginalMesh, simulationTool]);
-
   const renderSelectionHighlight = useCallback((selection: MeshFaceSelection | null) => {
     const mesh = meshRef.current;
     const selectionHighlightGroup = selectionHighlightGroupRef.current;
     const renderer = rendererRef.current;
     const selectionData = meshSelectionDataRef.current;
 
+    if (!selectionHighlightGroup) {
+      return;
+    }
+
+    clearGroup(selectionHighlightGroup);
+    selectionOutlineMaterialRef.current = null;
+
+    if (!showOriginalMeshRef.current) {
+      return;
+    }
+
     if (
       !mesh ||
-      !selectionHighlightGroup ||
       !(mesh.geometry instanceof THREE.BufferGeometry) ||
       !renderer ||
       !selectionData
     ) {
       return;
     }
-
-    clearGroup(selectionHighlightGroup);
-    selectionOutlineMaterialRef.current = null;
 
     if (
       !selection ||
@@ -635,7 +633,7 @@ export function usePolylineViewerScene(
       outlineGeometry.setPositions(boundaryPositions);
 
       const outlineMaterial = new LineMaterial({
-        color: 0xf59e0b,
+        color: 0x22c55e,
         linewidth: POLYLINE_LINEWIDTH,
         transparent: true,
         opacity: 1,
@@ -655,6 +653,16 @@ export function usePolylineViewerScene(
       selectionOutlineMaterialRef.current = outlineMaterial;
     }
   }, []);
+
+  useEffect(() => {
+    const meshGroup = meshGroupRef.current;
+    if (!meshGroup) {
+      return;
+    }
+
+    meshGroup.visible = faceSelectionMode || showOriginalMesh || !simulationTool;
+    renderSelectionHighlight(selectedMeshFaceRef.current);
+  }, [faceSelectionMode, renderSelectionHighlight, showOriginalMesh, simulationTool]);
 
   useEffect(() => {
     const container = containerRef.current;

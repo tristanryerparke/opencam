@@ -284,65 +284,96 @@ def segment_parameter_for_location(
     return min(max(parameter, 0.0), 1.0)
 
 
-def sample_operation_locations(
+def sample_operation_points_with_progress(
     operation: ToolpathOperation,
     step_distance: float,
-    marker_locations: list[CutterLocationData] | None = None,
-) -> list[CutterLocationData]:
-    sampled_locations: list[CutterLocationData] = []
-    remaining_markers = list(marker_locations or [])
+) -> list[tuple[float, CutterLocationData]]:
+    sampled_points: list[tuple[float, CutterLocationData]] = []
+    traversed_distance = 0.0
 
     for path in operation.paths:
         if not path.locations:
             continue
 
-        for index, start in enumerate(path.locations):
-            if not sampled_locations or not locations_match(sampled_locations[-1], start):
-                sampled_locations.append(start)
+        start = path.locations[0]
+        if not sampled_points or not locations_match(sampled_points[-1][1], start):
+            sampled_points.append((traversed_distance, start))
 
-            if index == len(path.locations) - 1:
+        for index in range(1, len(path.locations)):
+            segment_start = path.locations[index - 1]
+            segment_end = path.locations[index]
+            dx = segment_end.x - segment_start.x
+            dy = segment_end.y - segment_start.y
+            dz = segment_end.z - segment_start.z
+            segment_length = math.sqrt(dx * dx + dy * dy + dz * dz)
+
+            if segment_length <= 1e-9:
                 continue
 
-            end = path.locations[index + 1]
-            segment_points: list[tuple[float, CutterLocationData]] = []
-            segment_vector = np.array([end.x - start.x, end.y - start.y, end.z - start.z], dtype=np.float64)
-            segment_length = float(np.linalg.norm(segment_vector))
-
-            if segment_length > 1e-9 and step_distance > 0:
+            if step_distance > 0:
                 step_count = int(math.ceil(segment_length / step_distance))
                 for step_index in range(1, step_count):
                     interpolation = (step_index * step_distance) / segment_length
                     if interpolation >= 1.0:
                         break
-                    segment_points.append(
+                    sampled_points.append(
                         (
-                            interpolation,
+                            traversed_distance + step_index * step_distance,
                             CutterLocationData(
-                                x=float(start.x + (end.x - start.x) * interpolation),
-                                y=float(start.y + (end.y - start.y) * interpolation),
-                                z=float(start.z + (end.z - start.z) * interpolation),
+                                x=float(segment_start.x + dx * interpolation),
+                                y=float(segment_start.y + dy * interpolation),
+                                z=float(segment_start.z + dz * interpolation),
                             ),
                         )
                     )
 
-            next_remaining_markers: list[CutterLocationData] = []
-            for marker in remaining_markers:
-                parameter = segment_parameter_for_location(start, end, marker)
+            traversed_distance += segment_length
+            if sampled_points and locations_match(sampled_points[-1][1], segment_end):
+                sampled_points[-1] = (traversed_distance, segment_end)
+            else:
+                sampled_points.append((traversed_distance, segment_end))
+
+    return sampled_points
+
+
+def map_locations_to_path_progress(
+    operation: ToolpathOperation,
+    locations: list[CutterLocationData],
+) -> list[float]:
+    if not locations:
+        return []
+
+    progress_values: list[float] = []
+    location_index = 0
+    traversed_distance = 0.0
+
+    for path in operation.paths:
+        if not path.locations:
+            continue
+
+        for index in range(1, len(path.locations)):
+            segment_start = path.locations[index - 1]
+            segment_end = path.locations[index]
+            dx = segment_end.x - segment_start.x
+            dy = segment_end.y - segment_start.y
+            dz = segment_end.z - segment_start.z
+            segment_length = math.sqrt(dx * dx + dy * dy + dz * dz)
+
+            if segment_length <= 1e-9:
+                continue
+
+            while location_index < len(locations):
+                parameter = segment_parameter_for_location(segment_start, segment_end, locations[location_index])
                 if parameter is None:
-                    next_remaining_markers.append(marker)
-                    continue
-                segment_points.append((parameter, marker))
+                    break
+                progress_values.append(traversed_distance + segment_length * parameter)
+                location_index += 1
 
-            remaining_markers = next_remaining_markers
-            segment_points.append((1.0, end))
-            segment_points.sort(key=lambda item: item[0])
+            traversed_distance += segment_length
+            if location_index >= len(locations):
+                return progress_values
 
-            for _, point in segment_points:
-                if sampled_locations and locations_match(sampled_locations[-1], point):
-                    continue
-                sampled_locations.append(point)
-
-    return sampled_locations
+    return progress_values
 
 
 def build_animation_frames(
@@ -353,22 +384,25 @@ def build_animation_frames(
     if not mesh_frames:
         return mesh_frames
 
-    sampled_locations = sample_operation_locations(
+    sampled_points = sample_operation_points_with_progress(operation, SIM_STEPDISTANCE)
+    if not sampled_points:
+        return mesh_frames
+
+    mesh_frame_progresses = map_locations_to_path_progress(
         operation,
-        SIM_STEPDISTANCE,
         [frame.tool_position for frame in mesh_frames],
     )
-    if not sampled_locations:
+    if len(mesh_frame_progresses) != len(mesh_frames):
         return mesh_frames
 
     current_mesh_frame = initial_non_contact_frame or mesh_frames[0]
     mesh_frame_index = 0
     animation_frames: list[SimulatedMeshFrame] = []
 
-    for location in sampled_locations:
-        while mesh_frame_index < len(mesh_frames) and locations_match(
-            mesh_frames[mesh_frame_index].tool_position,
-            location,
+    for progress, location in sampled_points:
+        while (
+            mesh_frame_index < len(mesh_frames)
+            and mesh_frame_progresses[mesh_frame_index] <= progress + 1e-6
         ):
             current_mesh_frame = mesh_frames[mesh_frame_index]
             mesh_frame_index += 1

@@ -49,6 +49,78 @@ type SweptSimulationFrameResponse = {
   toolPosition: ToolPositionResponse;
 };
 
+const CUT_PATH_COLOR = "#1d4ed8";
+const CLEARANCE_PATH_COLOR = "#dc2626";
+const POSITION_EPSILON = 1e-6;
+
+function areHeightsEqual(left: number, right: number) {
+  return Math.abs(left - right) <= POSITION_EPSILON;
+}
+
+function createDisplayPolylinesForPath(path: GeneratedPathResponse): PolylineDefinition[] {
+  const pathName = path.name ?? (path.kind === "clearance" ? "Clearance move" : "Generated profile");
+
+  if (path.locations.length < 2) {
+    return [
+      {
+        id: path.id,
+        name: pathName,
+        color: path.kind === "clearance" ? CLEARANCE_PATH_COLOR : CUT_PATH_COLOR,
+        kind: path.kind,
+        points: path.locations.map(({ x, y, z }) => [x, y, z] as const),
+      },
+    ];
+  }
+
+  if (path.kind !== "clearance") {
+    return [
+      {
+        id: path.id,
+        name: pathName,
+        color: CUT_PATH_COLOR,
+        kind: path.kind,
+        points: path.locations.map(({ x, y, z }) => [x, y, z] as const),
+      },
+    ];
+  }
+
+  const clearanceZ = path.locations.reduce(
+    (maxZ, location) => Math.max(maxZ, location.z),
+    -Infinity,
+  );
+
+  const segments: PolylineDefinition[] = [];
+  let currentPoints: PolylinePoint[] = [];
+  let currentColor: string | null = null;
+
+  for (let index = 1; index < path.locations.length; index += 1) {
+    const start = path.locations[index - 1];
+    const end = path.locations[index];
+    const isPureClearanceSegment =
+      areHeightsEqual(start.z, clearanceZ) && areHeightsEqual(end.z, clearanceZ);
+    const segmentColor = isPureClearanceSegment ? CLEARANCE_PATH_COLOR : CUT_PATH_COLOR;
+    const startPoint = [start.x, start.y, start.z] as const;
+    const endPoint = [end.x, end.y, end.z] as const;
+
+    if (currentColor !== segmentColor || currentPoints.length === 0) {
+      currentPoints = [startPoint, endPoint];
+      currentColor = segmentColor;
+      segments.push({
+        id: `${path.id}:${segments.length}`,
+        name: pathName,
+        color: segmentColor,
+        kind: path.kind,
+        points: currentPoints,
+      });
+      continue;
+    }
+
+    currentPoints.push(endPoint);
+  }
+
+  return segments;
+}
+
 type SweptSimulationFramesResponse = {
   startIndex: number;
   frames: SweptSimulationFrameResponse[];
@@ -74,7 +146,7 @@ const ORIGINAL_MESH_COLOR = 0x94a3b8;
 const ORIGINAL_MESH_EDGE_COLOR = 0x334155;
 const MILLED_STOCK_MESH_COLOR = 0xfb923c;
 const ACTIVE_DEBUG_MESH_COLOR = 0x22c55e;
-const SIMULATION_PLAYBACK_INTERVAL_MS = 150;
+const SIMULATION_PLAYBACK_INTERVAL_MS = 30;
 const SIMULATION_FRAME_BATCH_SIZE = 10;
 const CHUNK_PADDING_X = 5;
 const CHUNK_PADDING_Y = 5;
@@ -609,12 +681,7 @@ function App() {
   const secondaryMeshUrl = showOriginalMesh ? null : simulationActiveMeshUrl;
 
   const operationPolylines = useMemo<PolylineDefinition[]>(() => {
-    return generatedPaths.map((path) => ({
-      id: path.id,
-      name: path.name ?? (path.kind === "clearance" ? "Clearance move" : "Generated profile"),
-      color: path.kind === "clearance" ? "#dc2626" : "#1d4ed8",
-      points: path.locations.map(({ x, y, z }) => [x, y, z] as const),
-    }));
+    return generatedPaths.flatMap((path) => createDisplayPolylinesForPath(path));
   }, [generatedPaths]);
 
   const generatedPathLength = useMemo(() => {
@@ -698,12 +765,14 @@ function App() {
       frame: SweptSimulationFrameResponse,
       chunkCount: number,
     ) => {
+      const cachedMeshUrl = await fetchChunkMesh(nextSimulationId, frame.chunkIndex);
+
       loadedSimulationFrameRef.current = {
         simulationId: nextSimulationId,
         frameIndex,
       };
       setSimulationActiveMeshUrl(frame.activeMeshUrl);
-      setSimulationCachedMeshUrl(await fetchChunkMesh(nextSimulationId, frame.chunkIndex));
+      setSimulationCachedMeshUrl(cachedMeshUrl);
       setSimulationToolPosition(toolPositionToPoint(frame.toolPosition));
       prefetchAdjacentChunkMeshes(nextSimulationId, frame.chunkIndex, chunkCount);
     },

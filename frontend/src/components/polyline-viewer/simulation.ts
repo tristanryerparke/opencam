@@ -1,6 +1,7 @@
 import * as THREE from "three";
+import { toCreasedNormals } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
-import { STOCK_COLOR } from "./constants";
+import { DISPLAY_SHADING_CREASE_ANGLE_DEGREES, STOCK_COLOR } from "./constants";
 
 export function createSimulationStockMesh(bounds: THREE.Box3) {
   const size = bounds.getSize(new THREE.Vector3());
@@ -22,6 +23,12 @@ export function createSimulationStockMesh(bounds: THREE.Box3) {
 export function createBaseSimulationCylinderGeometry() {
   const geometry = new THREE.CylinderGeometry(0.5, 0.5, 1, 24, 1, false);
   geometry.rotateX(Math.PI / 2);
-  geometry.computeVertexNormals();
-  return geometry;
+
+  const creasedGeometry = toCreasedNormals(
+    geometry,
+    THREE.MathUtils.degToRad(DISPLAY_SHADING_CREASE_ANGLE_DEGREES),
+  );
+  creasedGeometry.computeBoundingBox();
+  creasedGeometry.computeBoundingSphere();
+  return creasedGeometry;
 }

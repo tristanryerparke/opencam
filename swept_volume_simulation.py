@@ -13,7 +13,7 @@ from models import CutterLocationData, ToolpathOperation
 from planar_region_2d_reduction import simplify_mesh_data_2d
 
 TOOL_SEGMENTS = 16
-SIM_STEPDISTANCE = 5
+SIM_STEPDISTANCE = 2
 SIMPLIFY_AFTER_EACH_CHUNK = False
 DEFAULT_CHUNK_PADDING = (5.0, 5.0, 1.0)
 DEFAULT_PLANAR_ANGLE_DEGREES = 0.01
@@ -231,6 +231,157 @@ def load_tool_positions(operation: ToolpathOperation) -> list[np.ndarray]:
             previous = position
 
     return positions
+
+
+def locations_match(left: CutterLocationData, right: CutterLocationData, *, tolerance: float = 1e-6) -> bool:
+    return (
+        abs(left.x - right.x) <= tolerance
+        and abs(left.y - right.y) <= tolerance
+        and abs(left.z - right.z) <= tolerance
+    )
+
+
+def sample_locations(locations: list[CutterLocationData], step_distance: float) -> list[CutterLocationData]:
+    if not locations:
+        return []
+
+    sampled_positions = subdivide_tool_positions(
+        [np.array([location.x, location.y, location.z], dtype=np.float64) for location in locations],
+        step_distance,
+    )
+    sampled_locations: list[CutterLocationData] = []
+
+    for position in sampled_positions:
+        sampled_locations.append(position_to_location(position))
+
+    return sampled_locations
+
+
+def segment_parameter_for_location(
+    start: CutterLocationData,
+    end: CutterLocationData,
+    location: CutterLocationData,
+    *,
+    tolerance: float = 1e-6,
+) -> float | None:
+    start_vec = np.array([start.x, start.y, start.z], dtype=np.float64)
+    end_vec = np.array([end.x, end.y, end.z], dtype=np.float64)
+    location_vec = np.array([location.x, location.y, location.z], dtype=np.float64)
+    segment = end_vec - start_vec
+    segment_length_sq = float(np.dot(segment, segment))
+
+    if segment_length_sq <= tolerance * tolerance:
+        return 0.0 if locations_match(start, location, tolerance=tolerance) else None
+
+    parameter = float(np.dot(location_vec - start_vec, segment) / segment_length_sq)
+    if parameter < -tolerance or parameter > 1.0 + tolerance:
+        return None
+
+    projected = start_vec + segment * min(max(parameter, 0.0), 1.0)
+    if np.linalg.norm(location_vec - projected) > tolerance:
+        return None
+
+    return min(max(parameter, 0.0), 1.0)
+
+
+def sample_operation_locations(
+    operation: ToolpathOperation,
+    step_distance: float,
+    marker_locations: list[CutterLocationData] | None = None,
+) -> list[CutterLocationData]:
+    sampled_locations: list[CutterLocationData] = []
+    remaining_markers = list(marker_locations or [])
+
+    for path in operation.paths:
+        if not path.locations:
+            continue
+
+        for index, start in enumerate(path.locations):
+            if not sampled_locations or not locations_match(sampled_locations[-1], start):
+                sampled_locations.append(start)
+
+            if index == len(path.locations) - 1:
+                continue
+
+            end = path.locations[index + 1]
+            segment_points: list[tuple[float, CutterLocationData]] = []
+            segment_vector = np.array([end.x - start.x, end.y - start.y, end.z - start.z], dtype=np.float64)
+            segment_length = float(np.linalg.norm(segment_vector))
+
+            if segment_length > 1e-9 and step_distance > 0:
+                step_count = int(math.ceil(segment_length / step_distance))
+                for step_index in range(1, step_count):
+                    interpolation = (step_index * step_distance) / segment_length
+                    if interpolation >= 1.0:
+                        break
+                    segment_points.append(
+                        (
+                            interpolation,
+                            CutterLocationData(
+                                x=float(start.x + (end.x - start.x) * interpolation),
+                                y=float(start.y + (end.y - start.y) * interpolation),
+                                z=float(start.z + (end.z - start.z) * interpolation),
+                            ),
+                        )
+                    )
+
+            next_remaining_markers: list[CutterLocationData] = []
+            for marker in remaining_markers:
+                parameter = segment_parameter_for_location(start, end, marker)
+                if parameter is None:
+                    next_remaining_markers.append(marker)
+                    continue
+                segment_points.append((parameter, marker))
+
+            remaining_markers = next_remaining_markers
+            segment_points.append((1.0, end))
+            segment_points.sort(key=lambda item: item[0])
+
+            for _, point in segment_points:
+                if sampled_locations and locations_match(sampled_locations[-1], point):
+                    continue
+                sampled_locations.append(point)
+
+    return sampled_locations
+
+
+def build_animation_frames(
+    mesh_frames: list[SimulatedMeshFrame],
+    operation: ToolpathOperation,
+    initial_non_contact_frame: SimulatedMeshFrame | None = None,
+) -> list[SimulatedMeshFrame]:
+    if not mesh_frames:
+        return mesh_frames
+
+    sampled_locations = sample_operation_locations(
+        operation,
+        SIM_STEPDISTANCE,
+        [frame.tool_position for frame in mesh_frames],
+    )
+    if not sampled_locations:
+        return mesh_frames
+
+    current_mesh_frame = initial_non_contact_frame or mesh_frames[0]
+    mesh_frame_index = 0
+    animation_frames: list[SimulatedMeshFrame] = []
+
+    for location in sampled_locations:
+        while mesh_frame_index < len(mesh_frames) and locations_match(
+            mesh_frames[mesh_frame_index].tool_position,
+            location,
+        ):
+            current_mesh_frame = mesh_frames[mesh_frame_index]
+            mesh_frame_index += 1
+
+        animation_frames.append(
+            SimulatedMeshFrame(
+                active_mesh_bytes=current_mesh_frame.active_mesh_bytes,
+                tool_position=location,
+                chunk_index=current_mesh_frame.chunk_index,
+            )
+        )
+
+    return animation_frames
 
 
 def subdivide_tool_positions(positions: list[np.ndarray], step_distance: float) -> list[np.ndarray]:
@@ -732,6 +883,8 @@ def simulate_swept_milling_frames(
         )
         return tool_mesh_bytes, chunks, frames
 
+    initial_non_contact_frame: SimulatedMeshFrame | None = None
+
     for chunk_index, chunk_positions in enumerate(position_chunks):
         chunk_start_stock = current_stock
         chunk_bounds_min, chunk_bounds_max = toolpath_chunk_bounds(
@@ -770,6 +923,15 @@ def simulate_swept_milling_frames(
         chunk_frame_start_index = len(frames)
         chunk_local_current = chunk_interest
         chunk_subdivided_positions = subdivide_tool_positions(chunk_positions, SIM_STEPDISTANCE)
+        if initial_non_contact_frame is None and chunk_subdivided_positions:
+            initial_non_contact_frame = SimulatedMeshFrame(
+                active_mesh_bytes=manifold_to_simplified_glb(
+                    chunk_interest,
+                    context=f"extracting initial active mesh for chunk {chunk_index}",
+                ),
+                tool_position=position_to_location(chunk_subdivided_positions[0]),
+                chunk_index=chunk_index,
+            )
         chunk_total_segments = max(len(chunk_subdivided_positions) - 1, 0)
         buffered_distance = 0.0
 
@@ -857,6 +1019,8 @@ def simulate_swept_milling_frames(
                 current_stock,
                 context=f"recombined stock after chunk {chunk_index}",
             )
+
+    frames = build_animation_frames(frames, operation, initial_non_contact_frame)
 
     print(f"[simulate/swept] Total stock subtraction time: {stock_subtraction_seconds:.3f}s")
     print(f"[simulate/swept] Total animation subtraction time: {animation_subtraction_seconds:.3f}s")

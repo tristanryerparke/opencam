@@ -19,7 +19,7 @@ export const DISPLAY_SHADING_CREASE_ANGLE_DEGREES = 35;
 export const PLANE_EPSILON = 0.001;
 export const STOCK_COLOR = 0xcbd5e1;
 export const CUT_SURFACE_COLOR = 0xfb923c;
-export const TOOL_PREVIEW_COLOR = 0x9ca3af;
+export const TOOL_PREVIEW_COLOR = 0x6b7280;
 export const DEFAULT_SCENE_BOUNDS = new THREE.Box3(
   new THREE.Vector3(-90, -90, 0),
   new THREE.Vector3(110, 90, 90),

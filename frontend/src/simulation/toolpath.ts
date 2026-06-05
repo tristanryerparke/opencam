@@ -3,7 +3,6 @@ export type ToolpathKind = "cut" | "clearance";
 export type ToolData = {
   diameter: number;
   cuttingHeight: number;
-  maxDepthOfCut: number;
   numFlutes: number;
 };
 

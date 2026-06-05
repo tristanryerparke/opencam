@@ -11,7 +11,6 @@ export type ProfilingSide = "outside" | "inside";
 export type FormValues = {
   toolDiameter: string;
   cuttingHeight: string;
-  maxDepthOfCut: string;
   zStepHeight: string;
   feedrate: string;
   rpm: string;
@@ -21,9 +20,6 @@ export type FormValues = {
   stepover: string;
   stockToLeave: string;
   maxSimDistance: string;
-  chunkPaddingX: string;
-  chunkPaddingY: string;
-  chunkPaddingZ: string;
   side: ProfilingSide;
 };
 
@@ -116,30 +112,7 @@ export function AppSidebar({
           {faceSelectionMode ? "Click a mesh face in the viewport" : "Select XY-coplanar face"}
         </Button>
 
-        {selectedMeshFace ? (
-          <div className="space-y-1 text-sm">
-            <div className="font-medium">{selectedMeshFace.label}</div>
-            <p className="text-xs leading-5 text-sidebar-foreground/65">
-              {selectedMeshFace.area.toFixed(0)} mm² · {selectedMeshFace.triangleCount} triangles
-            </p>
-
-            {selectedMeshFace.planeZ != null ? (
-              <p className="text-xs leading-5 text-sidebar-foreground/65">
-                Plane Z: {selectedMeshFace.planeZ.toFixed(3)} mm
-              </p>
-            ) : null}
-
-            {selectedMeshFace.boundaryLoop ? (
-              <p className="text-xs leading-5 text-sidebar-foreground/65">
-                Boundary loop: {selectedMeshFace.boundaryLoop.length - 1} edges
-              </p>
-            ) : null}
-
-            <p className="text-xs leading-5 text-sidebar-foreground/65">
-              {selectedMeshFace.validationError ?? "Ready to machine this face."}
-            </p>
-          </div>
-        ) : meshLoaded ? (
+        {selectedMeshFace ? null : meshLoaded ? (
           <p className="text-xs leading-5 text-sidebar-foreground/65">
             No face selected. Pick a face that is coplanar to XY.
           </p>
@@ -158,12 +131,6 @@ export function AppSidebar({
           </select>
         </div>
 
-        <p className="text-xs leading-5 text-sidebar-foreground/65">
-          {selectedOperation === "profile"
-            ? "Offset the selected closed loop inward or outward."
-            : "Clear the selected closed region using concentric pocketing rings."}
-        </p>
-
         <div className="space-y-1">
           <Label htmlFor="tool-diameter">Tool diameter</Label>
           <Input
@@ -175,63 +142,56 @@ export function AppSidebar({
           />
         </div>
 
-        <div className="space-y-1">
-          <Label htmlFor="cutting-height">Cutting height</Label>
-          <Input
-            id="cutting-height"
-            type="text"
-            inputMode="decimal"
-            value={formValues.cuttingHeight}
-            onChange={(event) => onUpdateNumericField("cuttingHeight", event.target.value)}
-          />
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <Label htmlFor="cutting-height">Cutting height</Label>
+            <Input
+              id="cutting-height"
+              type="text"
+              inputMode="decimal"
+              value={formValues.cuttingHeight}
+              onChange={(event) => onUpdateNumericField("cuttingHeight", event.target.value)}
+            />
+          </div>
+
+          <div className="space-y-1">
+            <Label htmlFor="z-step-height">Z step height</Label>
+            <Input
+              id="z-step-height"
+              type="text"
+              inputMode="decimal"
+              value={formValues.zStepHeight}
+              onChange={(event) => onUpdateNumericField("zStepHeight", event.target.value)}
+            />
+          </div>
         </div>
 
-        <div className="space-y-1">
-          <Label htmlFor="max-depth">Max depth of cut</Label>
-          <Input
-            id="max-depth"
-            type="text"
-            inputMode="decimal"
-            value={formValues.maxDepthOfCut}
-            onChange={(event) => onUpdateNumericField("maxDepthOfCut", event.target.value)}
-          />
-        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <Label htmlFor="z-min">Z min</Label>
+            <Input
+              id="z-min"
+              type="text"
+              inputMode="decimal"
+              value={formValues.zMin}
+              onChange={(event) =>
+                onUpdateNumericField("zMin", event.target.value, { allowNegative: true })
+              }
+            />
+          </div>
 
-        <div className="space-y-1">
-          <Label htmlFor="z-step-height">Z step height</Label>
-          <Input
-            id="z-step-height"
-            type="text"
-            inputMode="decimal"
-            value={formValues.zStepHeight}
-            onChange={(event) => onUpdateNumericField("zStepHeight", event.target.value)}
-          />
-        </div>
-
-        <div className="space-y-1">
-          <Label htmlFor="z-min">Z min</Label>
-          <Input
-            id="z-min"
-            type="text"
-            inputMode="decimal"
-            value={formValues.zMin}
-            onChange={(event) =>
-              onUpdateNumericField("zMin", event.target.value, { allowNegative: true })
-            }
-          />
-        </div>
-
-        <div className="space-y-1">
-          <Label htmlFor="z-max">Z max</Label>
-          <Input
-            id="z-max"
-            type="text"
-            inputMode="decimal"
-            value={formValues.zMax}
-            onChange={(event) =>
-              onUpdateNumericField("zMax", event.target.value, { allowNegative: true })
-            }
-          />
+          <div className="space-y-1">
+            <Label htmlFor="z-max">Z max</Label>
+            <Input
+              id="z-max"
+              type="text"
+              inputMode="decimal"
+              value={formValues.zMax}
+              onChange={(event) =>
+                onUpdateNumericField("zMax", event.target.value, { allowNegative: true })
+              }
+            />
+          </div>
         </div>
 
         <div className="space-y-1">
@@ -249,30 +209,32 @@ export function AppSidebar({
           />
         </div>
 
-        <div className="space-y-1">
-          <Label htmlFor="feedrate">Feedrate</Label>
-          <Input
-            id="feedrate"
-            type="text"
-            inputMode="numeric"
-            value={formValues.feedrate}
-            onChange={(event) =>
-              onUpdateNumericField("feedrate", event.target.value, { allowDecimal: false })
-            }
-          />
-        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <Label htmlFor="feedrate">Feedrate</Label>
+            <Input
+              id="feedrate"
+              type="text"
+              inputMode="numeric"
+              value={formValues.feedrate}
+              onChange={(event) =>
+                onUpdateNumericField("feedrate", event.target.value, { allowDecimal: false })
+              }
+            />
+          </div>
 
-        <div className="space-y-1">
-          <Label htmlFor="rpm">RPM</Label>
-          <Input
-            id="rpm"
-            type="text"
-            inputMode="numeric"
-            value={formValues.rpm}
-            onChange={(event) =>
-              onUpdateNumericField("rpm", event.target.value, { allowDecimal: false })
-            }
-          />
+          <div className="space-y-1">
+            <Label htmlFor="rpm">RPM</Label>
+            <Input
+              id="rpm"
+              type="text"
+              inputMode="numeric"
+              value={formValues.rpm}
+              onChange={(event) =>
+                onUpdateNumericField("rpm", event.target.value, { allowDecimal: false })
+              }
+            />
+          </div>
         </div>
 
         <div className="space-y-1">
@@ -294,39 +256,6 @@ export function AppSidebar({
             inputMode="decimal"
             value={formValues.maxSimDistance}
             onChange={(event) => onUpdateNumericField("maxSimDistance", event.target.value)}
-          />
-        </div>
-
-        <div className="space-y-1">
-          <Label htmlFor="chunk-padding-x">Chunk padding X</Label>
-          <Input
-            id="chunk-padding-x"
-            type="text"
-            inputMode="decimal"
-            value={formValues.chunkPaddingX}
-            onChange={(event) => onUpdateNumericField("chunkPaddingX", event.target.value)}
-          />
-        </div>
-
-        <div className="space-y-1">
-          <Label htmlFor="chunk-padding-y">Chunk padding Y</Label>
-          <Input
-            id="chunk-padding-y"
-            type="text"
-            inputMode="decimal"
-            value={formValues.chunkPaddingY}
-            onChange={(event) => onUpdateNumericField("chunkPaddingY", event.target.value)}
-          />
-        </div>
-
-        <div className="space-y-1">
-          <Label htmlFor="chunk-padding-z">Chunk padding Z</Label>
-          <Input
-            id="chunk-padding-z"
-            type="text"
-            inputMode="decimal"
-            value={formValues.chunkPaddingZ}
-            onChange={(event) => onUpdateNumericField("chunkPaddingZ", event.target.value)}
           />
         </div>
 

@@ -76,6 +76,9 @@ const MILLED_STOCK_MESH_COLOR = 0xfb923c;
 const ACTIVE_DEBUG_MESH_COLOR = 0x22c55e;
 const SIMULATION_PLAYBACK_INTERVAL_MS = 150;
 const SIMULATION_FRAME_BATCH_SIZE = 10;
+const CHUNK_PADDING_X = 5;
+const CHUNK_PADDING_Y = 5;
+const CHUNK_PADDING_Z = 1;
 const SIMULATION_PREFETCH_TRIGGER_FRAME_COUNT = Math.max(
   1,
   Math.ceil(SIMULATION_FRAME_BATCH_SIZE / 2),
@@ -110,7 +113,6 @@ function isFormValues(value: unknown): value is FormValues {
   return (
     typeof form.toolDiameter === "string" &&
     typeof form.cuttingHeight === "string" &&
-    typeof form.maxDepthOfCut === "string" &&
     typeof form.zStepHeight === "string" &&
     typeof form.feedrate === "string" &&
     typeof form.rpm === "string" &&
@@ -120,9 +122,6 @@ function isFormValues(value: unknown): value is FormValues {
     typeof form.stepover === "string" &&
     typeof form.stockToLeave === "string" &&
     typeof form.maxSimDistance === "string" &&
-    typeof form.chunkPaddingX === "string" &&
-    typeof form.chunkPaddingY === "string" &&
-    typeof form.chunkPaddingZ === "string" &&
     (form.side === "outside" || form.side === "inside")
   );
 }
@@ -332,7 +331,7 @@ function App() {
   const preserveMeshCacheMessageRef = useRef(false);
   const hasInitializedSidebarSettingsRef = useRef(false);
   const [faceSelectionMode, setFaceSelectionMode] = useState(false);
-  const [selectedOperation, setSelectedOperation] = useState<OperationType>("profile");
+  const [selectedOperation, setSelectedOperation] = useState<OperationType>("pocket");
   const [selectedMeshFace, setSelectedMeshFace] = useState<MeshFaceSelection | null>(null);
   const [generatedOperation, setGeneratedOperation] =
     useState<GeneratedOperationResponse | null>(null);
@@ -371,7 +370,6 @@ function App() {
   const [formValues, setFormValues] = useState<FormValues>({
     toolDiameter: "12",
     cuttingHeight: "30",
-    maxDepthOfCut: "1.5",
     zStepHeight: "20",
     feedrate: "500",
     rpm: "12000",
@@ -381,9 +379,6 @@ function App() {
     stepover: "25",
     stockToLeave: "0",
     maxSimDistance: "40",
-    chunkPaddingX: "5",
-    chunkPaddingY: "5",
-    chunkPaddingZ: "1",
     side: "outside",
   });
 
@@ -1077,7 +1072,6 @@ function App() {
     try {
       const toolDiameter = parsePositiveNumber(formValues.toolDiameter, "Tool diameter");
       const cuttingHeight = parsePositiveNumber(formValues.cuttingHeight, "Cutting height");
-      const maxDepthOfCut = parsePositiveNumber(formValues.maxDepthOfCut, "Max depth of cut");
       const zStepHeight = parsePositiveNumber(formValues.zStepHeight, "Z step height");
       const feedrate = parsePositiveNumber(formValues.feedrate, "Feedrate");
       const rpm = parsePositiveNumber(formValues.rpm, "RPM");
@@ -1086,9 +1080,6 @@ function App() {
       const clearancePlaneHeight = Number(formValues.clearancePlaneHeight);
       const stockToLeave = parseNonNegativeNumber(formValues.stockToLeave, "Stock to leave");
       const maxSimDistance = parsePositiveNumber(formValues.maxSimDistance, "Max sim distance");
-      const chunkPaddingX = parseNonNegativeNumber(formValues.chunkPaddingX, "Chunk padding X");
-      const chunkPaddingY = parseNonNegativeNumber(formValues.chunkPaddingY, "Chunk padding Y");
-      const chunkPaddingZ = parseNonNegativeNumber(formValues.chunkPaddingZ, "Chunk padding Z");
 
       if (!Number.isFinite(zMin)) {
         throw new Error("Z min is required.");
@@ -1113,7 +1104,6 @@ function App() {
         tool: {
           diameter: toolDiameter,
           cuttingHeight,
-          maxDepthOfCut,
         },
         feedrate,
         rpm: Math.round(rpm),
@@ -1168,9 +1158,9 @@ function App() {
       simulationRequest.append("mesh", meshFile, meshFile.name);
       simulationRequest.append("operation", JSON.stringify(operation));
       simulationRequest.append("max_sim_distance", String(maxSimDistance));
-      simulationRequest.append("chunk_padding_x", String(chunkPaddingX));
-      simulationRequest.append("chunk_padding_y", String(chunkPaddingY));
-      simulationRequest.append("chunk_padding_z", String(chunkPaddingZ));
+      simulationRequest.append("chunk_padding_x", String(CHUNK_PADDING_X));
+      simulationRequest.append("chunk_padding_y", String(CHUNK_PADDING_Y));
+      simulationRequest.append("chunk_padding_z", String(CHUNK_PADDING_Z));
 
       setGeneratedOperation(operation);
       setRequestMessage("Running chunked swept milling simulation...");

@@ -11,7 +11,6 @@ from shapely.geometry import LineString, LinearRing
 class Tool(CamelBaseModel):
     diameter: float
     cutting_height: float
-    max_depth_of_cut: float
     num_flutes: float = 2
 
 

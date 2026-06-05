@@ -1,18 +1,30 @@
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path as FilePath
-from threading import Lock
+from threading import Event, Lock, Thread
 from uuid import uuid4
 
 from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import ValidationError
 
-from models import SweptSimulationFrameResponse, SweptSimulationFramesResponse, SweptSimulationResponse, ToolpathOperation
-from pocketing import ClosedPocketingEngine
-from profiling import ClosedProfilingEngine
-from swept_volume_simulation import SimulatedChunk, SimulatedMeshFrame, simulate_swept_milling_frames
+from app.schemas.models import (
+    SweptSimulationFrameResponse,
+    SweptSimulationFramesResponse,
+    SweptSimulationResponse,
+    SweptSimulationStartResponse,
+    SweptSimulationStatusResponse,
+    ToolpathOperation,
+)
+from app.services.toolpath.pocketing import ClosedPocketingEngine
+from app.services.toolpath.profiling import ClosedProfilingEngine
+from app.services.simulation.swept_volume import (
+    SimulatedChunk,
+    SimulatedMeshFrame,
+    SimulationCancelledError,
+    simulate_swept_milling_frames,
+)
 
 app = FastAPI(title="Time Tracker API", version="0.2.0")
 
@@ -35,8 +47,21 @@ class BufferedSimulationResult:
     frames: list[SimulatedMeshFrame]
 
 
+@dataclass
+class SimulationTask:
+    status: str = "queued"
+    progress_current: int = 0
+    progress_total: int = 1
+    message: str | None = None
+    error_detail: str | None = None
+    result: SweptSimulationResponse | None = None
+    cancel_event: Event = field(default_factory=Event)
+
+
 SIMULATION_FRAME_BUFFER: dict[str, BufferedSimulationResult] = {}
 SIMULATION_FRAME_BUFFER_LOCK = Lock()
+SIMULATION_TASKS: dict[str, SimulationTask] = {}
+SIMULATION_TASKS_LOCK = Lock()
 
 
 def _log_frontend_paths(endpoint: str, operation: ToolpathOperation) -> None:
@@ -106,11 +131,140 @@ def _get_buffered_frame(simulation: BufferedSimulationResult, frame_index: int) 
     return simulation.frames[frame_index]
 
 
-
 def _get_buffered_chunk(simulation: BufferedSimulationResult, chunk_index: int) -> SimulatedChunk:
     if chunk_index < 0 or chunk_index >= len(simulation.chunks):
         raise HTTPException(status_code=404, detail="Simulation chunk not found.")
     return simulation.chunks[chunk_index]
+
+
+def _get_simulation_task(task_id: str) -> SimulationTask:
+    task = SIMULATION_TASKS.get(task_id)
+    if task is None:
+        raise HTTPException(status_code=404, detail="Simulation task not found.")
+    return task
+
+
+def _build_status_response(task_id: str, task: SimulationTask) -> SweptSimulationStatusResponse:
+    progress_total = max(task.progress_total, 1)
+    progress_percent = min(100.0, max(0.0, (task.progress_current / progress_total) * 100.0))
+    if task.status == "completed":
+        progress_percent = 100.0
+
+    return SweptSimulationStatusResponse(
+        task_id=task_id,
+        status=task.status,
+        progress_percent=progress_percent,
+        message=task.message,
+        error_detail=task.error_detail,
+        result=task.result,
+    )
+
+
+def _update_simulation_task(
+    task_id: str,
+    *,
+    status: str | None = None,
+    progress_current: int | None = None,
+    progress_total: int | None = None,
+    message: str | None = None,
+    error_detail: str | None = None,
+    result: SweptSimulationResponse | None = None,
+) -> None:
+    with SIMULATION_TASKS_LOCK:
+        task = _get_simulation_task(task_id)
+        if status is not None:
+            task.status = status
+        if progress_current is not None:
+            task.progress_current = progress_current
+        if progress_total is not None:
+            task.progress_total = max(progress_total, 1)
+        if message is not None:
+            task.message = message
+        if error_detail is not None:
+            task.error_detail = error_detail
+        if result is not None:
+            task.result = result
+
+
+def _run_swept_simulation_task(
+    task_id: str,
+    mesh_bytes: bytes,
+    parsed_operation: ToolpathOperation,
+    max_sim_distance: float,
+    chunk_padding_x: float,
+    chunk_padding_y: float,
+    chunk_padding_z: float,
+) -> None:
+    def should_cancel() -> bool:
+        with SIMULATION_TASKS_LOCK:
+            task = _get_simulation_task(task_id)
+            return task.cancel_event.is_set()
+
+    def progress_callback(current: int, total: int, message: str) -> None:
+        with SIMULATION_TASKS_LOCK:
+            task = _get_simulation_task(task_id)
+            if task.cancel_event.is_set():
+                task.status = "cancelling"
+                task.message = "Cancelling simulation..."
+                return
+
+            task.status = "running"
+            task.progress_current = current
+            task.progress_total = max(total, 1)
+            task.message = message
+
+    try:
+        _update_simulation_task(task_id, status="running", message="Preparing simulation...")
+        tool_mesh_bytes, simulation_chunks, frame_meshes = simulate_swept_milling_frames(
+            mesh_bytes,
+            parsed_operation,
+            max_sim_distance=max_sim_distance,
+            chunk_padding=(chunk_padding_x, chunk_padding_y, chunk_padding_z),
+            progress_callback=progress_callback,
+            should_cancel=should_cancel,
+        )
+        simulation_id = str(uuid4())
+
+        with SIMULATION_FRAME_BUFFER_LOCK:
+            SIMULATION_FRAME_BUFFER[simulation_id] = BufferedSimulationResult(
+                tool_mesh_bytes=tool_mesh_bytes,
+                chunks=simulation_chunks,
+                frames=frame_meshes,
+            )
+
+        final_frame_index = len(frame_meshes) - 1
+        final_frame = frame_meshes[final_frame_index]
+        result = SweptSimulationResponse(
+            active_mesh_url=_frame_active_mesh_url(simulation_id, final_frame_index),
+            cached_mesh_url=_chunk_cached_mesh_url(simulation_id, final_frame.chunk_index),
+            simulation_id=simulation_id,
+            frame_count=len(frame_meshes),
+            chunk_count=len(simulation_chunks),
+            chunk_index=final_frame.chunk_index,
+            tool_mesh_url=_tool_mesh_url(simulation_id),
+            tool_position=final_frame.tool_position,
+        )
+        _update_simulation_task(
+            task_id,
+            status="completed",
+            progress_current=1,
+            progress_total=1,
+            message="Simulation completed.",
+            result=result,
+        )
+    except SimulationCancelledError:
+        _update_simulation_task(
+            task_id,
+            status="cancelled",
+            message="Simulation cancelled.",
+            error_detail=None,
+        )
+    except ValueError as exc:
+        _update_simulation_task(task_id, status="error", message="Simulation failed.", error_detail=str(exc))
+    except RuntimeError as exc:
+        _update_simulation_task(task_id, status="error", message="Simulation failed.", error_detail=str(exc))
+    except Exception as exc:  # pragma: no cover
+        _update_simulation_task(task_id, status="error", message="Simulation failed.", error_detail=str(exc))
 
 
 @app.get("/test")
@@ -139,7 +293,7 @@ async def pocket_closed(engine: ClosedPocketingEngine):
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@app.post("/simulate/swept", response_model=SweptSimulationResponse)
+@app.post("/simulate/swept", response_model=SweptSimulationStartResponse)
 async def simulate_swept(
     mesh: UploadFile = File(...),
     operation: str = Form(...),
@@ -163,38 +317,43 @@ async def simulate_swept(
     if chunk_padding_x < 0 or chunk_padding_y < 0 or chunk_padding_z < 0:
         raise HTTPException(status_code=400, detail="Chunk padding values must be non-negative.")
 
-    try:
-        tool_mesh_bytes, simulation_chunks, frame_meshes = simulate_swept_milling_frames(
+    task_id = str(uuid4())
+    with SIMULATION_TASKS_LOCK:
+        SIMULATION_TASKS[task_id] = SimulationTask(message="Queued simulation...")
+
+    Thread(
+        target=_run_swept_simulation_task,
+        args=(
+            task_id,
             mesh_bytes,
             parsed_operation,
-            max_sim_distance=max_sim_distance,
-            chunk_padding=(chunk_padding_x, chunk_padding_y, chunk_padding_z),
-        )
-        simulation_id = str(uuid4())
+            max_sim_distance,
+            chunk_padding_x,
+            chunk_padding_y,
+            chunk_padding_z,
+        ),
+        daemon=True,
+    ).start()
 
-        with SIMULATION_FRAME_BUFFER_LOCK:
-            SIMULATION_FRAME_BUFFER[simulation_id] = BufferedSimulationResult(
-                tool_mesh_bytes=tool_mesh_bytes,
-                chunks=simulation_chunks,
-                frames=frame_meshes,
-            )
+    return SweptSimulationStartResponse(task_id=task_id)
 
-        final_frame_index = len(frame_meshes) - 1
-        final_frame = frame_meshes[final_frame_index]
-        return SweptSimulationResponse(
-            active_mesh_url=_frame_active_mesh_url(simulation_id, final_frame_index),
-            cached_mesh_url=_chunk_cached_mesh_url(simulation_id, final_frame.chunk_index),
-            simulation_id=simulation_id,
-            frame_count=len(frame_meshes),
-            chunk_count=len(simulation_chunks),
-            chunk_index=final_frame.chunk_index,
-            tool_mesh_url=_tool_mesh_url(simulation_id),
-            tool_position=final_frame.tool_position,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except RuntimeError as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+@app.get("/simulate/swept/{task_id}/status", response_model=SweptSimulationStatusResponse)
+def simulate_swept_status(task_id: str):
+    with SIMULATION_TASKS_LOCK:
+        task = _get_simulation_task(task_id)
+        return _build_status_response(task_id, task)
+
+
+@app.delete("/simulate/swept/{task_id}", response_model=SweptSimulationStatusResponse)
+def cancel_simulate_swept(task_id: str):
+    with SIMULATION_TASKS_LOCK:
+        task = _get_simulation_task(task_id)
+        if task.status not in {"completed", "cancelled", "error"}:
+            task.cancel_event.set()
+            task.status = "cancelling"
+            task.message = "Cancelling simulation..."
+        return _build_status_response(task_id, task)
 
 
 @app.get(

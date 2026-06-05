@@ -3,7 +3,7 @@ from typing import Literal
 from devtools import debug as d
 import numpy as np
 import uuid
-from base import CamelBaseModel
+from app.schemas.base import CamelBaseModel
 from pydantic import Field
 from shapely.geometry import LineString, LinearRing
 
@@ -75,6 +75,19 @@ class SweptSimulationFrameResponse(CamelBaseModel):
 class SweptSimulationFramesResponse(CamelBaseModel):
     start_index: int
     frames: list[SweptSimulationFrameResponse]
+
+
+class SweptSimulationStartResponse(CamelBaseModel):
+    task_id: str
+
+
+class SweptSimulationStatusResponse(CamelBaseModel):
+    task_id: str
+    status: Literal["queued", "running", "cancelling", "completed", "cancelled", "error"]
+    progress_percent: float
+    message: str | None = None
+    error_detail: str | None = None
+    result: SweptSimulationResponse | None = None
 
 
 if __name__ == "__main__":

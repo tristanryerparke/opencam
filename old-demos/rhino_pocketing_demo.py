@@ -5,8 +5,8 @@ import rhino3dm
 import trimesh
 from shapely.geometry import Polygon
 
-from models import ClosedPolyline, Point2D, Tool, ToolpathOperation
-from pocketing import ClosedPocketingEngine
+from app.schemas.models import ClosedPolyline, Point2D, Tool, ToolpathOperation
+from app.services.toolpath.pocketing import ClosedPocketingEngine
 from rhino_renderer import ConduitAction
 from rhino_renderer import ConduitGeometry
 from rhino_renderer import FileClient
@@ -17,7 +17,7 @@ from rhino_renderer.action import RGBColor
 from rhino_renderer import encode_geometry_to_string
 from rhino_renderer import encode_polyline_from_points
 from rhino_renderer import reset_rhino_environment
-from swept_volume_simulation import decode_mesh_data_url, simulate_swept_milling
+from app.services.simulation.swept_volume import decode_mesh_data_url, simulate_swept_milling
 
 
 GROUP_ID = "opencam-rhino-outer-profile-demo"

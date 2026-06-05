@@ -3,14 +3,15 @@ import io
 import math
 import struct
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
 import trimesh
 from manifold3d import Error, Manifold, Mesh64, OpType
 
-from models import CutterLocationData, ToolpathOperation
-from planar_region_2d_reduction import simplify_mesh_data_2d
+from app.schemas.models import CutterLocationData, ToolpathOperation
+from app.services.mesh.planar_region_2d_reduction import simplify_mesh_data_2d
 
 TOOL_SEGMENTS = 16
 SIM_STEPDISTANCE = 2
@@ -32,6 +33,10 @@ class SimulatedMeshFrame:
     active_mesh_bytes: bytes
     tool_position: CutterLocationData
     chunk_index: int
+
+
+class SimulationCancelledError(RuntimeError):
+    pass
 
 
 def decode_mesh_data_url(mesh_data_url: str) -> bytes:
@@ -779,12 +784,17 @@ def simulate_manifold_by_moves(
     positions: list[np.ndarray],
     *,
     context_prefix: str,
+    should_cancel: Callable[[], bool] | None = None,
+    on_segment_complete: Callable[[], None] | None = None,
 ) -> tuple[Manifold, float, int]:
     current = manifold
     subtraction_seconds = 0.0
     applied_segments = 0
 
     for step in range(1, len(positions)):
+        if should_cancel and should_cancel():
+            raise SimulationCancelledError("Simulation generation cancelled.")
+
         pos_a = positions[step - 1]
         pos_b = positions[step]
         translation = pos_b - pos_a
@@ -808,6 +818,8 @@ def simulate_manifold_by_moves(
         )
         subtraction_seconds += time.perf_counter() - subtraction_start
         applied_segments += 1
+        if on_segment_complete:
+            on_segment_complete()
 
     return current, subtraction_seconds, applied_segments
 
@@ -841,6 +853,8 @@ def simulate_swept_milling_frames(
     *,
     max_sim_distance: float = 30.0,
     chunk_padding: tuple[float, float, float] = DEFAULT_CHUNK_PADDING,
+    progress_callback: Callable[[int, int, str], None] | None = None,
+    should_cancel: Callable[[], bool] | None = None,
 ) -> tuple[bytes, list[SimulatedChunk], list[SimulatedMeshFrame]]:
     stock_min, stock_max = load_stl_bounds(load_stl_bytes(mesh_input))
     stock_vertices, stock_faces = build_box_mesh(stock_min, stock_max)
@@ -866,6 +880,31 @@ def simulate_swept_milling_frames(
     )
     position_chunks, chunk_seed_position_count = build_position_chunks(contact_position_sequences, max_sim_distance)
     filtered_position_count = sum(len(sequence) for sequence in contact_position_sequences)
+    subdivided_position_chunks = [
+        subdivide_tool_positions(chunk_positions, SIM_STEPDISTANCE)
+        for chunk_positions in position_chunks
+    ]
+    total_stock_segments = sum(max(len(chunk_positions) - 1, 0) for chunk_positions in position_chunks)
+    total_animation_segments = sum(
+        max(len(chunk_subdivided_positions) - 1, 0)
+        for chunk_subdivided_positions in subdivided_position_chunks
+    )
+    total_progress_steps = max(2 + (len(position_chunks) * 2) + total_stock_segments + total_animation_segments, 1)
+    progress_step = 0
+
+    def report_progress(message: str) -> None:
+        if progress_callback:
+            progress_callback(progress_step, total_progress_steps, message)
+
+    def advance_progress(message: str) -> None:
+        nonlocal progress_step
+        progress_step = min(progress_step + 1, total_progress_steps)
+        report_progress(message)
+
+    if should_cancel and should_cancel():
+        raise SimulationCancelledError("Simulation generation cancelled.")
+
+    report_progress("Preparing simulation...")
     frames: list[SimulatedMeshFrame] = []
     chunks: list[SimulatedChunk] = []
 
@@ -894,6 +933,7 @@ def simulate_swept_milling_frames(
     animation_subtraction_seconds = 0.0
 
     if not position_chunks:
+        advance_progress("Extracting initial stock mesh...")
         simplified_stock_bytes = manifold_to_simplified_glb(
             current_stock,
             context="extracting initial stock mesh",
@@ -915,11 +955,15 @@ def simulate_swept_milling_frames(
                 chunk_index=0,
             )
         )
+        advance_progress("Simulation frames ready.")
         return tool_mesh_bytes, chunks, frames
 
     initial_non_contact_frame: SimulatedMeshFrame | None = None
 
     for chunk_index, chunk_positions in enumerate(position_chunks):
+        if should_cancel and should_cancel():
+            raise SimulationCancelledError("Simulation generation cancelled.")
+
         chunk_start_stock = current_stock
         chunk_bounds_min, chunk_bounds_max = toolpath_chunk_bounds(
             tool_vertices,
@@ -946,17 +990,24 @@ def simulate_swept_milling_frames(
             chunk_cached,
             context=f"extracting cached mesh for chunk {chunk_index}",
         )
+        advance_progress(
+            f"Processing chunk {chunk_index + 1} of {len(position_chunks)}..."
+        )
         chunk_final_stock, chunk_stock_subtraction_seconds, chunk_fast_segment_count = simulate_manifold_by_moves(
             chunk_start_stock,
             tool_vertices,
             chunk_positions,
             context_prefix=f"chunk {chunk_index} stock",
+            should_cancel=should_cancel,
+            on_segment_complete=lambda: advance_progress(
+                f"Processing chunk {chunk_index + 1} of {len(position_chunks)}..."
+            ),
         )
         stock_subtraction_seconds += chunk_stock_subtraction_seconds
 
         chunk_frame_start_index = len(frames)
         chunk_local_current = chunk_interest
-        chunk_subdivided_positions = subdivide_tool_positions(chunk_positions, SIM_STEPDISTANCE)
+        chunk_subdivided_positions = subdivided_position_chunks[chunk_index]
         if initial_non_contact_frame is None and chunk_subdivided_positions:
             initial_non_contact_frame = SimulatedMeshFrame(
                 active_mesh_bytes=manifold_to_simplified_glb(
@@ -977,6 +1028,9 @@ def simulate_swept_milling_frames(
         )
 
         for step in range(1, len(chunk_subdivided_positions)):
+            if should_cancel and should_cancel():
+                raise SimulationCancelledError("Simulation generation cancelled.")
+
             pos_a = chunk_subdivided_positions[step - 1]
             pos_b = chunk_subdivided_positions[step]
             translation = pos_b - pos_a
@@ -1006,6 +1060,9 @@ def simulate_swept_milling_frames(
             subtraction_elapsed = time.perf_counter() - subtraction_start
             animation_subtraction_seconds += subtraction_elapsed
 
+            advance_progress(
+                f"Rendering chunk {chunk_index + 1} of {len(position_chunks)}..."
+            )
             buffered_distance += segment_length
             is_final_segment = step == len(chunk_subdivided_positions) - 1
             should_buffer_frame = buffered_distance >= SIM_STEPDISTANCE or is_final_segment
@@ -1047,6 +1104,9 @@ def simulate_swept_milling_frames(
             )
         )
 
+        advance_progress(
+            f"Finished chunk {chunk_index + 1} of {len(position_chunks)}."
+        )
         current_stock = chunk_final_stock
         if SIMPLIFY_AFTER_EACH_CHUNK and chunk_index < len(position_chunks) - 1:
             current_stock = simplify_manifold_for_boolean(
@@ -1055,6 +1115,7 @@ def simulate_swept_milling_frames(
             )
 
     frames = build_animation_frames(frames, operation, initial_non_contact_frame)
+    advance_progress("Finalizing simulation frames...")
 
     print(f"[simulate/swept] Total stock subtraction time: {stock_subtraction_seconds:.3f}s")
     print(f"[simulate/swept] Total animation subtraction time: {animation_subtraction_seconds:.3f}s")

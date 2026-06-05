@@ -6,7 +6,7 @@ import time
 
 import trimesh
 
-from mesh_reduction import simplify_mesh
+from app.services.mesh.mesh_reduction import simplify_mesh
 
 
 def main() -> int:

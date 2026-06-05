@@ -1,7 +1,7 @@
 import math
 
-from base import CamelBaseModel
-from models import CutterLocationData, Path, Tool
+from app.schemas.base import CamelBaseModel
+from app.schemas.models import CutterLocationData, Path, Tool
 
 
 class BaseOperation(CamelBaseModel):

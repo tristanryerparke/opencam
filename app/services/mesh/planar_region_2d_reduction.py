@@ -3,7 +3,7 @@ import trimesh
 from shapely.geometry import Polygon
 from trimesh.creation import triangulate_polygon
 
-from mesh_reduction import build_planar_regions, ensure_triangle_faces
+from app.services.mesh.mesh_reduction import build_planar_regions, ensure_triangle_faces
 
 
 def plane_basis(normal):

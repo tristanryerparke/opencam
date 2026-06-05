@@ -43,6 +43,7 @@ export type PolylineViewerProps = {
   simulationStep?: number;
   simulationToolMeshUrl?: string | null;
   simulationToolPosition?: PolylinePoint | null;
+  simulationToolRotation?: number | null;
   showOriginalMesh?: boolean;
   onMeshFaceSelect?: (selection: MeshFaceSelection) => void;
 };

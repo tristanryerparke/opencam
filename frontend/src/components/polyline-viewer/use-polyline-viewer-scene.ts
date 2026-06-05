@@ -73,6 +73,7 @@ export function usePolylineViewerScene(
     simulationStep = 0,
     simulationToolMeshUrl = null,
     simulationToolPosition = null,
+    simulationToolRotation = null,
     showOriginalMesh = true,
     onMeshFaceSelect,
   }: PolylineViewerSceneProps,
@@ -110,6 +111,7 @@ export function usePolylineViewerScene(
   const simulationSamplesRef = useRef(simulationSamples);
   const simulationStepRef = useRef(simulationStep);
   const simulationToolPositionRef = useRef<PolylinePoint | null>(simulationToolPosition);
+  const simulationToolRotationPropRef = useRef<number | null>(simulationToolRotation);
   const showOriginalMeshRef = useRef(showOriginalMesh);
   const hasUserInteractedRef = useRef(false);
 
@@ -137,6 +139,10 @@ export function usePolylineViewerScene(
   useEffect(() => {
     simulationToolPositionRef.current = simulationToolPosition;
   }, [simulationToolPosition]);
+
+  useEffect(() => {
+    simulationToolRotationPropRef.current = simulationToolRotation;
+  }, [simulationToolRotation]);
 
   useEffect(() => {
     showOriginalMeshRef.current = showOriginalMesh;
@@ -334,6 +340,7 @@ export function usePolylineViewerScene(
     const step = simulationStepRef.current;
     const toolPosition = simulationToolPositionRef.current;
     const hasLoadedToolMesh = simulationToolPreviewLoadedGeometryRef.current != null;
+    const explicitToolRotation = simulationToolRotationPropRef.current;
 
     const updateToolRotation = (
       currentPosition: PolylinePoint,
@@ -399,11 +406,16 @@ export function usePolylineViewerScene(
         return;
       }
 
-      updateToolRotation(
-        toolPosition,
-        previousSample ? [previousSample.x, previousSample.y, previousSample.z] : null,
-        nextSample ? [nextSample.x, nextSample.y, nextSample.z] : null,
-      );
+      if (explicitToolRotation != null) {
+        simulationToolRotationRef.current = explicitToolRotation;
+        previewMesh.rotation.set(0, 0, simulationToolRotationRef.current);
+      } else {
+        updateToolRotation(
+          toolPosition,
+          previousSample ? [previousSample.x, previousSample.y, previousSample.z] : null,
+          nextSample ? [nextSample.x, nextSample.y, nextSample.z] : null,
+        );
+      }
       previewMesh.visible = true;
       previewMesh.updateMatrixWorld(true);
       return;
@@ -584,7 +596,7 @@ export function usePolylineViewerScene(
 
   useEffect(() => {
     updateToolPreview();
-  }, [simulationToolPosition, showOriginalMesh, updateToolPreview]);
+  }, [simulationToolPosition, simulationToolRotation, showOriginalMesh, updateToolPreview]);
 
   const renderSelectionHighlight = useCallback((selection: MeshFaceSelection | null) => {
     const mesh = meshRef.current;
@@ -660,9 +672,9 @@ export function usePolylineViewerScene(
       return;
     }
 
-    meshGroup.visible = faceSelectionMode || showOriginalMesh || !simulationTool;
+    meshGroup.visible = true;
     renderSelectionHighlight(selectedMeshFaceRef.current);
-  }, [faceSelectionMode, renderSelectionHighlight, showOriginalMesh, simulationTool]);
+  }, [faceSelectionMode, renderSelectionHighlight, showOriginalMesh]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -965,8 +977,7 @@ export function usePolylineViewerScene(
 
         clearSimulationResources();
         commitPrimaryMesh(meshGroup, result);
-        meshGroup.visible =
-          faceSelectionModeRef.current || showOriginalMeshRef.current || !simulationToolRef.current;
+        meshGroup.visible = true;
 
         if (!hasUserInteractedRef.current && result.bounds) {
           const bounds = getSceneBounds(currentPolylinesRef.current, result.bounds);

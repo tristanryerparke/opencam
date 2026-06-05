@@ -20,7 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { getBackendUrl } from "@/hooks/useBackendConnection";
-import { type ToolpathOperation } from "@/simulation/toolpath";
+import { sampleToolpathLocations, type ToolpathOperation } from "@/simulation/toolpath";
 
 type GeneratedPathResponse = ToolpathOperation["paths"][number];
 type GeneratedOperationResponse = ToolpathOperation;
@@ -40,6 +40,19 @@ type SweptSimulationResponse = {
   chunkIndex: number;
   toolMeshUrl: string;
   toolPosition: ToolPositionResponse;
+};
+
+type SweptSimulationStartResponse = {
+  taskId: string;
+};
+
+type SweptSimulationStatusResponse = {
+  taskId: string;
+  status: "queued" | "running" | "cancelling" | "completed" | "cancelled" | "error";
+  progressPercent: number;
+  message?: string | null;
+  errorDetail?: string | null;
+  result?: SweptSimulationResponse | null;
 };
 
 type SweptSimulationFrameResponse = {
@@ -146,8 +159,9 @@ const ORIGINAL_MESH_COLOR = 0x94a3b8;
 const ORIGINAL_MESH_EDGE_COLOR = 0x334155;
 const MILLED_STOCK_MESH_COLOR = 0xfb923c;
 const ACTIVE_DEBUG_MESH_COLOR = 0xf97316;
-const SIMULATION_PLAYBACK_INTERVAL_MS = 30;
+const SIMULATION_PLAYBACK_INTERVAL_MS = 15;
 const SIMULATION_FRAME_BATCH_SIZE = 10;
+const SIMULATION_SAMPLE_SPACING = 2;
 const CHUNK_PADDING_X = 5;
 const CHUNK_PADDING_Y = 5;
 const CHUNK_PADDING_Z = 1;
@@ -412,6 +426,8 @@ function App() {
   const [simulationToolMeshUrl, setSimulationToolMeshUrl] = useState<string | null>(null);
   const [simulationToolPosition, setSimulationToolPosition] = useState<PolylinePoint | null>(null);
   const [simulationId, setSimulationId] = useState<string | null>(null);
+  const [simulationTaskId, setSimulationTaskId] = useState<string | null>(null);
+  const [simulationProgressPercent, setSimulationProgressPercent] = useState(0);
   const [simulationFrameCount, setSimulationFrameCount] = useState(0);
   const [simulationChunkCount, setSimulationChunkCount] = useState(0);
   const [simulationFrameIndex, setSimulationFrameIndex] = useState(0);
@@ -670,6 +686,8 @@ function App() {
     setSimulationToolMeshUrl(null);
     setSimulationToolPosition(null);
     setSimulationId(null);
+    setSimulationTaskId(null);
+    setSimulationProgressPercent(0);
     setSimulationFrameCount(0);
     setSimulationChunkCount(0);
     setSimulationFrameIndex(0);
@@ -677,6 +695,36 @@ function App() {
   }
 
   const generatedPaths: GeneratedPathResponse[] = generatedOperation?.paths ?? [];
+  const simulationSamples = useMemo(
+    () => sampleToolpathLocations(generatedPaths, SIMULATION_SAMPLE_SPACING),
+    [generatedPaths],
+  );
+  const simulationToolRotation = useMemo(() => {
+    if (!simulationId || showOriginalMesh || simulationSamples.length === 0) {
+      return null;
+    }
+
+    const sampleIndex = Math.min(Math.max(simulationFrameIndex, 0), simulationSamples.length - 1);
+    const sample = simulationSamples[sampleIndex] ?? null;
+    const previousSample = sampleIndex > 0 ? simulationSamples[sampleIndex - 1] : null;
+    const nextSample = sampleIndex + 1 < simulationSamples.length ? simulationSamples[sampleIndex + 1] : null;
+
+    if (!sample) {
+      return null;
+    }
+
+    for (const [dx, dy] of [
+      previousSample ? [sample.x - previousSample.x, sample.y - previousSample.y] : null,
+      nextSample ? [nextSample.x - sample.x, nextSample.y - sample.y] : null,
+    ].filter((value): value is [number, number] => value !== null)) {
+      if (Math.hypot(dx, dy) <= POSITION_EPSILON) {
+        continue;
+      }
+      return Math.atan2(dy, dx);
+    }
+
+    return null;
+  }, [showOriginalMesh, simulationFrameIndex, simulationId, simulationSamples]);
   const primaryMeshUrl = showOriginalMesh || !simulationCachedMeshUrl ? meshUrl : simulationCachedMeshUrl;
   const secondaryMeshUrl = showOriginalMesh ? null : simulationActiveMeshUrl;
 
@@ -988,6 +1036,59 @@ function App() {
     [applySimulationFrame, fetchSimulationFrame, prefetchSimulationFrames, simulationChunkCount],
   );
 
+  const applyCompletedSimulation = useCallback(
+    async (simulation: SweptSimulationResponse) => {
+      const finalFrameIndex = Math.max(simulation.frameCount - 1, 0);
+      const finalFrame: SweptSimulationFrameResponse = {
+        activeMeshUrl: await prefetchMeshObjectUrl(simulation.activeMeshUrl),
+        cachedMeshUrl: simulation.cachedMeshUrl,
+        chunkIndex: simulation.chunkIndex,
+        toolPosition: simulation.toolPosition,
+      };
+
+      simulationFrameCacheRef.current.set(finalFrameIndex, finalFrame);
+      simulationChunkMeshCacheRef.current.set(
+        simulation.chunkIndex,
+        await prefetchMeshObjectUrl(simulation.cachedMeshUrl),
+      );
+      loadedSimulationFrameRef.current = {
+        simulationId: simulation.simulationId,
+        frameIndex: finalFrameIndex,
+      };
+      setSimulationToolMeshUrl(resolveBackendAssetUrl(simulation.toolMeshUrl));
+      setSimulationToolPosition(toolPositionToPoint(simulation.toolPosition));
+      setSimulationId(simulation.simulationId);
+      setSimulationFrameCount(simulation.frameCount);
+      setSimulationChunkCount(simulation.chunkCount);
+      setSimulationFrameIndex(finalFrameIndex);
+      setIsSimulationPlaying(false);
+      setSimulationActiveMeshUrl(finalFrame.activeMeshUrl);
+      setSimulationCachedMeshUrl(
+        simulationChunkMeshCacheRef.current.get(simulation.chunkIndex) ?? null,
+      );
+      if (simulation.frameCount > 0) {
+        const initialPrefetchCount = Math.min(SIMULATION_FRAME_BATCH_SIZE, simulation.frameCount);
+        updateSimulationPrefetchTrigger(simulation.simulationId, initialPrefetchCount - 1);
+        void fetchSimulationFrameBatch(
+          simulation.simulationId,
+          0,
+          initialPrefetchCount,
+          simulation.frameCount,
+        ).catch((error: unknown) => {
+          console.error("Failed to prefetch initial simulation frames", error);
+          updateSimulationPrefetchTrigger(simulation.simulationId, null);
+        });
+      }
+      setShowOriginalMesh(false);
+      prefetchAdjacentChunkMeshes(
+        simulation.simulationId,
+        simulation.chunkIndex,
+        simulation.chunkCount,
+      );
+    },
+    [fetchSimulationFrameBatch, prefetchAdjacentChunkMeshes, updateSimulationPrefetchTrigger],
+  );
+
   useEffect(() => {
     if (!simulationId || simulationFrameCount === 0) {
       return undefined;
@@ -1108,6 +1209,98 @@ function App() {
   function handleSimulationPause() {
     setIsSimulationPlaying(false);
   }
+
+  useEffect(() => {
+    if (!simulationTaskId || requestState !== "submitting") {
+      return undefined;
+    }
+
+    let cancelled = false;
+    let timeoutId: number | null = null;
+
+    const pollStatus = async () => {
+      try {
+        const response = await fetch(`${getBackendUrl()}/simulate/swept/${simulationTaskId}/status`);
+        if (!response.ok) {
+          const contentType = response.headers.get("content-type") ?? "";
+          if (contentType.includes("application/json")) {
+            const payload = (await response.json()) as { detail?: string };
+            throw new Error(payload.detail ?? "Failed to load simulation status.");
+          }
+
+          const detail = await response.text();
+          throw new Error(detail || "Failed to load simulation status.");
+        }
+
+        const status = (await response.json()) as SweptSimulationStatusResponse;
+        if (cancelled) {
+          return;
+        }
+
+        setSimulationProgressPercent(status.progressPercent);
+        setRequestMessage(
+          `${status.message ?? "Running chunked swept milling simulation..."} (${Math.round(status.progressPercent)}%)`,
+        );
+
+        if (status.status === "completed") {
+          if (!status.result) {
+            throw new Error("Simulation completed without a result.");
+          }
+
+          setSimulationTaskId(null);
+          setSimulationProgressPercent(100);
+          await applyCompletedSimulation(status.result);
+          setRequestState("success");
+          setRequestMessage(`${operationLabel} toolpaths generated and chunked swept simulation completed.`);
+          return;
+        }
+
+        if (status.status === "cancelled") {
+          setSimulationTaskId(null);
+          setSimulationProgressPercent(0);
+          setSimulationActiveMeshUrl(null);
+          setSimulationCachedMeshUrl(null);
+          resetSimulationPlaybackState();
+          setShowOriginalMesh(true);
+          setRequestState("idle");
+          setRequestMessage("Simulation generation cancelled.");
+          return;
+        }
+
+        if (status.status === "error") {
+          throw new Error(status.errorDetail ?? status.message ?? "Swept simulation failed.");
+        }
+
+        timeoutId = window.setTimeout(() => {
+          void pollStatus();
+        }, 500);
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+
+        setSimulationTaskId(null);
+        setSimulationProgressPercent(0);
+        setSimulationActiveMeshUrl(null);
+        setSimulationCachedMeshUrl(null);
+        resetSimulationPlaybackState();
+        setShowOriginalMesh(true);
+        setRequestState("error");
+        setRequestMessage(
+          error instanceof Error ? error.message : "Failed to generate toolpath.",
+        );
+      }
+    };
+
+    void pollStatus();
+
+    return () => {
+      cancelled = true;
+      if (timeoutId != null) {
+        window.clearTimeout(timeoutId);
+      }
+    };
+  }, [applyCompletedSimulation, operationLabel, requestState, simulationTaskId]);
 
   async function handleGenerateOperation() {
     if (!selectedMeshFace) {
@@ -1232,7 +1425,7 @@ function App() {
       simulationRequest.append("chunk_padding_z", String(CHUNK_PADDING_Z));
 
       setGeneratedOperation(operation);
-      setRequestMessage("Running chunked swept milling simulation...");
+      setRequestMessage("Starting chunked swept milling simulation...");
 
       const simulationResponse = await fetch(`${getBackendUrl()}/simulate/swept`, {
         method: "POST",
@@ -1250,56 +1443,10 @@ function App() {
         throw new Error(detail || "Swept simulation failed.");
       }
 
-      const simulation = (await simulationResponse.json()) as SweptSimulationResponse;
-      const finalFrameIndex = Math.max(simulation.frameCount - 1, 0);
-      const finalFrame: SweptSimulationFrameResponse = {
-        activeMeshUrl: await prefetchMeshObjectUrl(simulation.activeMeshUrl),
-        cachedMeshUrl: simulation.cachedMeshUrl,
-        chunkIndex: simulation.chunkIndex,
-        toolPosition: simulation.toolPosition,
-      };
-
-      simulationFrameCacheRef.current.set(finalFrameIndex, finalFrame);
-      simulationChunkMeshCacheRef.current.set(
-        simulation.chunkIndex,
-        await prefetchMeshObjectUrl(simulation.cachedMeshUrl),
-      );
-      loadedSimulationFrameRef.current = {
-        simulationId: simulation.simulationId,
-        frameIndex: finalFrameIndex,
-      };
-      setSimulationToolMeshUrl(resolveBackendAssetUrl(simulation.toolMeshUrl));
-      setSimulationToolPosition(toolPositionToPoint(simulation.toolPosition));
-      setSimulationId(simulation.simulationId);
-      setSimulationFrameCount(simulation.frameCount);
-      setSimulationChunkCount(simulation.chunkCount);
-      setSimulationFrameIndex(finalFrameIndex);
-      setIsSimulationPlaying(false);
-      setSimulationActiveMeshUrl(finalFrame.activeMeshUrl);
-      setSimulationCachedMeshUrl(
-        simulationChunkMeshCacheRef.current.get(simulation.chunkIndex) ?? null,
-      );
-      if (simulation.frameCount > 0) {
-        const initialPrefetchCount = Math.min(SIMULATION_FRAME_BATCH_SIZE, simulation.frameCount);
-        updateSimulationPrefetchTrigger(simulation.simulationId, initialPrefetchCount - 1);
-        void fetchSimulationFrameBatch(
-          simulation.simulationId,
-          0,
-          initialPrefetchCount,
-          simulation.frameCount,
-        ).catch((error: unknown) => {
-          console.error("Failed to prefetch initial simulation frames", error);
-          updateSimulationPrefetchTrigger(simulation.simulationId, null);
-        });
-      }
-      setShowOriginalMesh(false);
-      setRequestState("success");
-      prefetchAdjacentChunkMeshes(
-        simulation.simulationId,
-        simulation.chunkIndex,
-        simulation.chunkCount,
-      );
-      setRequestMessage(`${operationLabel} toolpaths generated and chunked swept simulation completed.`);
+      const simulationStart = (await simulationResponse.json()) as SweptSimulationStartResponse;
+      setSimulationTaskId(simulationStart.taskId);
+      setSimulationProgressPercent(0);
+      setRequestMessage("Preparing simulation... (0%)");
     } catch (error) {
       setGeneratedOperation(null);
       setSimulationActiveMeshUrl(null);
@@ -1309,6 +1456,24 @@ function App() {
       setRequestState("error");
       setRequestMessage(
         error instanceof Error ? error.message : "Failed to generate toolpath.",
+      );
+    }
+  }
+
+  async function handleCancelGeneration() {
+    if (!simulationTaskId) {
+      return;
+    }
+
+    try {
+      await fetch(`${getBackendUrl()}/simulate/swept/${simulationTaskId}`, {
+        method: "DELETE",
+      });
+      setRequestMessage(`Cancelling simulation... (${Math.round(simulationProgressPercent)}%)`);
+    } catch (error) {
+      setRequestState("error");
+      setRequestMessage(
+        error instanceof Error ? error.message : "Failed to cancel simulation generation.",
       );
     }
   }
@@ -1383,6 +1548,8 @@ function App() {
               }))
             }
             onGenerateOperation={handleGenerateOperation}
+            canCancelGeneration={requestState === "submitting" && simulationTaskId !== null}
+            onCancelGeneration={handleCancelGeneration}
           />
 
           <main className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
@@ -1398,6 +1565,7 @@ function App() {
               selectedMeshFace={selectedMeshFace}
               simulationToolMeshUrl={simulationToolMeshUrl}
               simulationToolPosition={simulationToolPosition}
+              simulationToolRotation={simulationToolRotation}
               showOriginalMesh={showOriginalMesh}
               onMeshFaceSelect={handleMeshFaceSelect}
               className="h-full min-h-0 flex-1 rounded-none border-0 shadow-none"

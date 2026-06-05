@@ -15,8 +15,8 @@ from pathlib import Path
 import numpy as np
 from manifold3d import Error, Manifold, Mesh64
 
-from mesh_reduction import QEMProfile, format_qem_profile, simplify_mesh_data
-from planar_region_2d_reduction import simplify_mesh_data_2d
+from app.services.mesh.mesh_reduction import QEMProfile, format_qem_profile, simplify_mesh_data
+from app.services.mesh.planar_region_2d_reduction import simplify_mesh_data_2d
 
 
 ROOT = Path(__file__).resolve().parent

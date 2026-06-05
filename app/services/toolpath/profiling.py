@@ -1,9 +1,9 @@
 from typing import Literal
 
-from op import BaseOperation
 from shapely.geometry import Polygon
 
-from models import ClosedPolyline, CutterLocationData, Path
+from app.schemas.models import ClosedPolyline, CutterLocationData, Path
+from app.services.toolpath.base import BaseOperation
 
 
 class ClosedProfilingEngine(BaseOperation):

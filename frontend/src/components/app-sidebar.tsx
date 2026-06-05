@@ -56,6 +56,8 @@ type AppSidebarProps = {
   ) => void;
   onSideChange: (side: ProfilingSide) => void;
   onGenerateOperation: () => void;
+  canCancelGeneration: boolean;
+  onCancelGeneration: () => void;
 };
 
 const SELECT_CLASSNAME =
@@ -82,6 +84,8 @@ export function AppSidebar({
   onUpdateNumericField,
   onSideChange,
   onGenerateOperation,
+  canCancelGeneration,
+  onCancelGeneration,
 }: AppSidebarProps) {
   return (
     <Sidebar>
@@ -287,14 +291,26 @@ export function AppSidebar({
           </div>
         ) : null}
 
-        <Button
-          type="button"
-          className="w-full"
-          disabled={!canGenerate || requestState === "submitting"}
-          onClick={onGenerateOperation}
-        >
-          {generateButtonLabel}
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            className="flex-1"
+            disabled={!canGenerate || requestState === "submitting"}
+            onClick={onGenerateOperation}
+          >
+            {generateButtonLabel}
+          </Button>
+
+          {canCancelGeneration ? (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onCancelGeneration}
+            >
+              Cancel
+            </Button>
+          ) : null}
+        </div>
 
         {requestMessage ? (
           <p className="text-xs leading-5 text-sidebar-foreground/65">{requestMessage}</p>

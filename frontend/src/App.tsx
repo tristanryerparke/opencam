@@ -75,10 +75,10 @@ const ORIGINAL_MESH_EDGE_COLOR = 0x334155;
 const MILLED_STOCK_MESH_COLOR = 0xfb923c;
 const ACTIVE_DEBUG_MESH_COLOR = 0x22c55e;
 const SIMULATION_PLAYBACK_INTERVAL_MS = 150;
-const SIMULATION_PREFETCH_FRAME_COUNT = 40;
+const SIMULATION_FRAME_BATCH_SIZE = 10;
 const SIMULATION_PREFETCH_TRIGGER_FRAME_COUNT = Math.max(
   1,
-  Math.ceil(SIMULATION_PREFETCH_FRAME_COUNT / 2),
+  Math.ceil(SIMULATION_FRAME_BATCH_SIZE / 2),
 );
 
 function isCachedMeshPayload(value: unknown): value is CachedMeshPayload {
@@ -369,10 +369,10 @@ function App() {
   const [requestMessage, setRequestMessage] = useState<string>("");
   const [showOriginalMesh, setShowOriginalMesh] = useState(true);
   const [formValues, setFormValues] = useState<FormValues>({
-    toolDiameter: "6.35",
-    cuttingHeight: "12",
+    toolDiameter: "12",
+    cuttingHeight: "30",
     maxDepthOfCut: "1.5",
-    zStepHeight: "1.5",
+    zStepHeight: "20",
     feedrate: "500",
     rpm: "12000",
     zMin: "",
@@ -380,7 +380,7 @@ function App() {
     clearancePlaneHeight: "25.4",
     stepover: "25",
     stockToLeave: "0",
-    maxSimDistance: "30",
+    maxSimDistance: "40",
     chunkPaddingX: "5",
     chunkPaddingY: "5",
     chunkPaddingZ: "1",
@@ -842,15 +842,13 @@ function App() {
         return cachedFrame;
       }
 
-      const endFrameIndex = Math.min(
-        frameIndex + SIMULATION_PREFETCH_FRAME_COUNT,
-        frameCount - 1,
-      );
+      const batchCount = Math.min(SIMULATION_FRAME_BATCH_SIZE, frameCount - frameIndex);
+      const endFrameIndex = frameIndex + batchCount - 1;
 
       await fetchSimulationFrameBatch(
         nextSimulationId,
         frameIndex,
-        SIMULATION_PREFETCH_FRAME_COUNT + 1,
+        batchCount,
         frameCount,
       );
 
@@ -889,7 +887,7 @@ function App() {
       }
 
       const prefetchCount = Math.min(
-        SIMULATION_PREFETCH_FRAME_COUNT,
+        SIMULATION_FRAME_BATCH_SIZE,
         frameCount - prefetchStartFrameIndex,
       );
       const nextBufferedUntilFrameIndex = prefetchStartFrameIndex + prefetchCount - 1;
@@ -1223,7 +1221,7 @@ function App() {
         simulationChunkMeshCacheRef.current.get(simulation.chunkIndex) ?? null,
       );
       if (simulation.frameCount > 0) {
-        const initialPrefetchCount = Math.min(SIMULATION_PREFETCH_FRAME_COUNT, simulation.frameCount);
+        const initialPrefetchCount = Math.min(SIMULATION_FRAME_BATCH_SIZE, simulation.frameCount);
         updateSimulationPrefetchTrigger(simulation.simulationId, initialPrefetchCount - 1);
         void fetchSimulationFrameBatch(
           simulation.simulationId,

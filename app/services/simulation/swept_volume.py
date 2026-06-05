@@ -1023,8 +1023,7 @@ def simulate_swept_milling_frames(
         print(
             f"[simulate/swept] Chunk {chunk_index + 1}/{len(position_chunks)}: "
             f"positions={len(chunk_positions)} fast_segments={chunk_fast_segment_count} "
-            f"subdivided={len(chunk_subdivided_positions)} "
-            f"bounds_min={chunk_bounds_min.tolist()} bounds_max={chunk_bounds_max.tolist()}"
+            f"subdivided={len(chunk_subdivided_positions)}"
         )
 
         for step in range(1, len(chunk_subdivided_positions)):

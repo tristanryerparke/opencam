@@ -194767,5 +194767,375 @@
         ]
       }
     ]
+  },
+  {
+    "timestamp": "2026-06-06T11:26:29.367841",
+    "endpoint": "/pocket/closed",
+    "paths": [
+      {
+        "id": "610e7835-bd29-4143-89ba-275feaea7503",
+        "name": "Approach from clearance plane",
+        "kind": "clearance",
+        "locations": [
+          {
+            "x": 102.05892944335938,
+            "y": 0.6394099575604889,
+            "z": 25.4,
+            "comment": "start at clearance plane",
+            "metadata": null
+          },
+          {
+            "x": 102.05892944335938,
+            "y": 0.6394099575604889,
+            "z": 9.525,
+            "comment": "move to operation start",
+            "metadata": null
+          }
+        ]
+      },
+      {
+        "id": "3f855344-d8bd-4ac3-b927-f075cac583f2",
+        "name": "Pocket path L1 B1",
+        "kind": "cut",
+        "locations": [
+          {
+            "x": 102.05892944335938,
+            "y": 0.6394099575604889,
+            "z": 9.525,
+            "comment": null,
+            "metadata": null
+          },
+          {
+            "x": 103.3068118458515,
+            "y": -5.599999618530276,
+            "z": 9.525,
+            "comment": null,
+            "metadata": null
+          },
+          {
+            "x": 100.81104704086725,
+            "y": -5.599999618530276,
+            "z": 9.525,
+            "comment": null,
+            "metadata": null
+          },
+          {
+            "x": 102.05892944335938,
+            "y": 0.6394099575604889,
+            "z": 9.525,
+            "comment": null,
+            "metadata": null
+          },
+          {
+            "x": 109.89375342495698,
+            "y": -10.999999618530275,
+            "z": 9.525,
+            "comment": null,
+            "metadata": null
+          },
+          {
+            "x": 94.22410546176177,
+            "y": -10.999999618530275,
+            "z": 9.525,
+            "comment": null,
+            "metadata": null
+          },
+          {
+            "x": 102.05892944335938,
+            "y": 28.174104992720732,
+            "z": 9.525,
+            "comment": null,
+            "metadata": null
+          },
+          {
+            "x": 109.89375342495698,
+            "y": -10.999999618530275,
+            "z": 9.525,
+            "comment": null,
+            "metadata": null
+          }
+        ]
+      },
+      {
+        "id": "82c2dd97-593d-476d-9525-5cfe010c028d",
+        "name": "Clearance transition",
+        "kind": "clearance",
+        "locations": [
+          {
+            "x": 109.89375342495698,
+            "y": -10.999999618530275,
+            "z": 9.525,
+            "comment": "leave current cut",
+            "metadata": null
+          },
+          {
+            "x": 109.89375342495698,
+            "y": -10.999999618530275,
+            "z": 25.4,
+            "comment": "move up to clearance plane",
+            "metadata": null
+          },
+          {
+            "x": 102.05892944335938,
+            "y": 75.56058799924821,
+            "z": 25.4,
+            "comment": "move in clearance plane",
+            "metadata": null
+          },
+          {
+            "x": 102.05892944335938,
+            "y": 75.56058799924821,
+            "z": 9.525,
+            "comment": "move to next cut",
+            "metadata": null
+          }
+        ]
+      },
+      {
+        "id": "3435f120-d3ec-4ede-a66d-9abdb0572546",
+        "name": "Pocket path L1 B2",
+        "kind": "cut",
+        "locations": [
+          {
+            "x": 102.05892944335938,
+            "y": 75.56058799924821,
+            "z": 9.525,
+            "comment": null,
+            "metadata": null
+          },
+          {
+            "x": 100.81104689859339,
+            "y": 81.7999984741211,
+            "z": 9.525,
+            "comment": null,
+            "metadata": null
+          },
+          {
+            "x": 103.30681198812536,
+            "y": 81.7999984741211,
+            "z": 9.525,
+            "comment": null,
+            "metadata": null
+          },
+          {
+            "x": 102.05892944335938,
+            "y": 75.56058799924821,
+            "z": 9.525,
+            "comment": null,
+            "metadata": null
+          },
+          {
+            "x": 94.22410535828986,
+            "y": 87.19999847412109,
+            "z": 9.525,
+            "comment": null,
+            "metadata": null
+          },
+          {
+            "x": 109.89375352842889,
+            "y": 87.19999847412109,
+            "z": 9.525,
+            "comment": null,
+            "metadata": null
+          },
+          {
+            "x": 102.05892944335938,
+            "y": 48.025892168838666,
+            "z": 9.525,
+            "comment": null,
+            "metadata": null
+          },
+          {
+            "x": 94.22410535828986,
+            "y": 87.19999847412109,
+            "z": 9.525,
+            "comment": null,
+            "metadata": null
+          },
+          {
+            "x": 87.63716381798633,
+            "y": 92.5999984741211,
+            "z": 9.525,
+            "comment": null,
+            "metadata": null
+          },
+          {
+            "x": 116.48069506873242,
+            "y": 92.5999984741211,
+            "z": 9.525,
+            "comment": null,
+            "metadata": null
+          },
+          {
+            "x": 105.9337004327294,
+            "y": 39.865044302095185,
+            "z": 9.525,
+            "comment": null,
+            "metadata": null
+          },
+          {
+            "x": 105.85737661880825,
+            "y": 39.42755700107324,
+            "z": 9.525,
+            "comment": null,
+            "metadata": null
+          },
+          {
+            "x": 105.80272648104437,
+            "y": 38.98683733329187,
+            "z": 9.525,
+            "comment": null,
+            "metadata": null
+          },
+          {
+            "x": 105.76988308271527,
+            "y": 38.54395837204723,
+            "z": 9.525,
+            "comment": null,
+            "metadata": null
+          },
+          {
+            "x": 105.75892639160156,
+            "y": 38.099998448127536,
+            "z": 9.525,
+            "comment": null,
+            "metadata": null
+          },
+          {
+            "x": 105.76988308527973,
+            "y": 37.65603852427114,
+            "z": 9.525,
+            "comment": null,
+            "metadata": null
+          },
+          {
+            "x": 105.80272648616706,
+            "y": 37.213159563216216,
+            "z": 9.525,
+            "comment": null,
+            "metadata": null
+          },
+          {
+            "x": 105.8573766264767,
+            "y": 36.77243989575052,
+            "z": 9.525,
+            "comment": null,
+            "metadata": null
+          },
+          {
+            "x": 105.9337004429249,
+            "y": 36.33495259516945,
+            "z": 9.525,
+            "comment": null,
+            "metadata": null
+          },
+          {
+            "x": 116.48069500406247,
+            "y": -16.399999618530273,
+            "z": 9.525,
+            "comment": null,
+            "metadata": null
+          },
+          {
+            "x": 87.63716388265628,
+            "y": -16.399999618530273,
+            "z": 9.525,
+            "comment": null,
+            "metadata": null
+          },
+          {
+            "x": 98.18415844379385,
+            "y": 36.33495259516945,
+            "z": 9.525,
+            "comment": null,
+            "metadata": null
+          },
+          {
+            "x": 98.26048226024206,
+            "y": 36.77243989575052,
+            "z": 9.525,
+            "comment": null,
+            "metadata": null
+          },
+          {
+            "x": 98.31513240055169,
+            "y": 37.213159563216216,
+            "z": 9.525,
+            "comment": null,
+            "metadata": null
+          },
+          {
+            "x": 98.34797580143902,
+            "y": 37.65603852427114,
+            "z": 9.525,
+            "comment": null,
+            "metadata": null
+          },
+          {
+            "x": 98.35893249511719,
+            "y": 38.099998448127536,
+            "z": 9.525,
+            "comment": null,
+            "metadata": null
+          },
+          {
+            "x": 98.34797580400348,
+            "y": 38.54395837204723,
+            "z": 9.525,
+            "comment": null,
+            "metadata": null
+          },
+          {
+            "x": 98.31513240567438,
+            "y": 38.98683733329187,
+            "z": 9.525,
+            "comment": null,
+            "metadata": null
+          },
+          {
+            "x": 98.2604822679105,
+            "y": 39.42755700107324,
+            "z": 9.525,
+            "comment": null,
+            "metadata": null
+          },
+          {
+            "x": 98.18415845398935,
+            "y": 39.865044302095185,
+            "z": 9.525,
+            "comment": null,
+            "metadata": null
+          },
+          {
+            "x": 87.63716381798633,
+            "y": 92.5999984741211,
+            "z": 9.525,
+            "comment": null,
+            "metadata": null
+          }
+        ]
+      },
+      {
+        "id": "bbcc2b42-ff70-4b8e-9c77-8ffbb8e30280",
+        "name": "Return to clearance plane",
+        "kind": "clearance",
+        "locations": [
+          {
+            "x": 87.63716381798633,
+            "y": 92.5999984741211,
+            "z": 9.525,
+            "comment": "leave operation end",
+            "metadata": null
+          },
+          {
+            "x": 87.63716381798633,
+            "y": 92.5999984741211,
+            "z": 25.4,
+            "comment": "return to clearance plane",
+            "metadata": null
+          }
+        ]
+      }
+    ]
   }
 ]

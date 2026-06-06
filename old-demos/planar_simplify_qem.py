@@ -6,7 +6,7 @@ import time
 
 import trimesh
 
-from app.services.mesh.mesh_reduction import simplify_mesh
+from opencam.services.mesh.mesh_reduction import simplify_mesh
 
 
 def main() -> int:

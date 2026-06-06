@@ -9,7 +9,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import ValidationError
 
-from app.schemas.models import (
+from opencam.schemas.models import (
     SweptSimulationFrameResponse,
     SweptSimulationFramesResponse,
     SweptSimulationResponse,
@@ -17,16 +17,16 @@ from app.schemas.models import (
     SweptSimulationStatusResponse,
     ToolpathOperation,
 )
-from app.services.toolpath.pocketing import ClosedPocketingEngine
-from app.services.toolpath.profiling import ClosedProfilingEngine
-from app.services.simulation.swept_volume import (
+from opencam.services.toolpath.pocketing import ClosedPocketingEngine
+from opencam.services.toolpath.profiling import ClosedProfilingEngine
+from opencam.services.simulation.swept_volume import (
     SimulatedChunk,
     SimulatedMeshFrame,
     SimulationCancelledError,
     simulate_swept_milling_frames,
 )
 
-app = FastAPI(title="Time Tracker API", version="0.2.0")
+app = FastAPI(title="OpenCAM API", version="0.2.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -36,7 +36,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-FRONTEND_PATH_LOG_FILE = FilePath(__file__).resolve().parents[1] / "frontend-paths.json"
+FRONTEND_PATH_LOG_FILE = FilePath(__file__).resolve().parents[2] / "frontend-paths.json"
 FRONTEND_PATH_LOG_LOCK = Lock()
 
 
@@ -269,7 +269,7 @@ def _run_swept_simulation_task(
 
 @app.get("/test")
 async def root():
-    return {"message": "hello from web-app-template"}
+    return {"message": "hello from opencam"}
 
 
 @app.get("/ping")

@@ -3,7 +3,7 @@ from typing import Literal
 from devtools import debug as d
 import numpy as np
 import uuid
-from app.schemas.base import CamelBaseModel
+from opencam.schemas.base import CamelBaseModel
 from pydantic import Field
 from shapely.geometry import LineString, LinearRing
 
@@ -31,6 +31,7 @@ class CutterLocationData(CamelBaseModel):
     y: float
     z: float
     comment: str | None = None
+    metadata: dict | None = None
 
     def as_numpy(self):
         return np.array([self.x, self.y, self.z])

@@ -8,12 +8,12 @@ from pathlib import Path
 import numpy as np
 import trimesh
 
-from app.schemas.models import Path as Toolpath
-from app.schemas.models import Tool
-from app.schemas.models import ToolpathOperation
-from app.services.simulation.swept_volume import combine_glb_meshes
-from app.services.simulation.swept_volume import load_tool_positions
-from app.services.simulation.swept_volume import simulate_swept_milling_frames
+from opencam.schemas.models import Path as Toolpath
+from opencam.schemas.models import Tool
+from opencam.schemas.models import ToolpathOperation
+from opencam.services.simulation.swept_volume import combine_glb_meshes
+from opencam.services.simulation.swept_volume import load_tool_positions
+from opencam.services.simulation.swept_volume import simulate_swept_milling_frames
 
 ROOT = Path(__file__).resolve().parent
 STOCK_STL_PATH = ROOT / "assets" / "2.5D_Part.stl"

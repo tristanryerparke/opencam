@@ -5,8 +5,8 @@ from dataclasses import dataclass, field
 from shapely.geometry import GeometryCollection, MultiPolygon, Polygon
 from shapely.geometry.base import BaseGeometry
 
-from app.schemas.models import ClosedPolyline, CutterLocationData, Path
-from app.services.toolpath.base import BaseOperation
+from opencam.schemas.models import ClosedPolyline, CutterLocationData, Path
+from opencam.services.toolpath.base import BaseOperation
 
 
 @dataclass

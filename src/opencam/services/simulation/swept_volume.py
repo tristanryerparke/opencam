@@ -10,8 +10,8 @@ import numpy as np
 import trimesh
 from manifold3d import Error, Manifold, Mesh64, OpType
 
-from app.schemas.models import CutterLocationData, ToolpathOperation
-from app.services.mesh.planar_region_2d_reduction import simplify_mesh_data_2d
+from opencam.schemas.models import CutterLocationData, ToolpathOperation
+from opencam.services.mesh.planar_region_2d_reduction import simplify_mesh_data_2d
 
 TOOL_SEGMENTS = 16
 SIM_STEPDISTANCE = 2

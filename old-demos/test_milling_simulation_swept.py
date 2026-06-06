@@ -25,7 +25,7 @@ from pathlib import Path
 
 import numpy as np
 
-from app.services.mesh.mesh_reduction import simplify_mesh_data
+from opencam.services.mesh.mesh_reduction import simplify_mesh_data
 
 try:
     from manifold3d import Error, Manifold, Mesh64

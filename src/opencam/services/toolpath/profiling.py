@@ -2,8 +2,8 @@ from typing import Literal
 
 from shapely.geometry import Polygon
 
-from app.schemas.models import ClosedPolyline, CutterLocationData, Path
-from app.services.toolpath.base import BaseOperation
+from opencam.schemas.models import ClosedPolyline, CutterLocationData, Path
+from opencam.services.toolpath.base import BaseOperation
 
 
 class ClosedProfilingEngine(BaseOperation):

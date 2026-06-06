@@ -19,6 +19,8 @@ SIMPLIFY_AFTER_EACH_CHUNK = False
 DEFAULT_CHUNK_PADDING = (5.0, 5.0, 1.0)
 DEFAULT_PLANAR_ANGLE_DEGREES = 0.01
 DEFAULT_MIN_REGION_FACES = 3
+STOCK_FACE_COLOR_RGBA = np.array([251, 146, 60, 255], dtype=np.uint8)
+CUT_FACE_COLOR_RGBA = np.array([156, 163, 175, 255], dtype=np.uint8)
 
 
 @dataclass
@@ -159,10 +161,24 @@ def ensure_no_manifold_error(manifold: Manifold, *, context: str) -> Manifold:
     return manifold
 
 
-def mesh_to_manifold(vertices: np.ndarray, faces: np.ndarray, *, context: str) -> Manifold:
+def mesh_to_manifold(
+    vertices: np.ndarray,
+    faces: np.ndarray,
+    *,
+    context: str,
+    original_id: int | None = None,
+) -> Manifold:
+    mesh_kwargs: dict[str, np.ndarray] = {}
+    if original_id is not None:
+        mesh_kwargs = {
+            "run_index": np.array([0], dtype=np.uint64),
+            "run_original_id": np.array([original_id], dtype=np.uint32),
+        }
+
     mesh = Mesh64(
         np.ascontiguousarray(vertices, dtype=np.float64),
         np.ascontiguousarray(ensure_triangle_faces(faces), dtype=np.uint64),
+        **mesh_kwargs,
     )
     return ensure_no_manifold_error(Manifold(mesh), context=context)
 
@@ -184,6 +200,40 @@ def manifold_to_mesh(manifold: Manifold, *, context: str) -> tuple[np.ndarray, n
     vertices = np.asarray(mesh.vert_properties, dtype=np.float64)
     faces = ensure_triangle_faces(np.asarray(mesh.tri_verts, dtype=np.int32))
     return vertices[:, :3], faces
+
+
+def face_original_ids_from_mesh(mesh: Mesh64, face_count: int) -> np.ndarray:
+    face_original_ids = np.full(face_count, -1, dtype=np.int64)
+    run_index = np.asarray(mesh.run_index, dtype=np.int64)
+    run_original_id = np.asarray(mesh.run_original_id, dtype=np.int64)
+
+    if len(run_index) < 2 or len(run_original_id) == 0:
+        return face_original_ids
+
+    for original_id, run_start, run_end in zip(
+        run_original_id,
+        run_index[:-1],
+        run_index[1:],
+        strict=False,
+    ):
+        start_face = max(int(run_start // 3), 0)
+        end_face = min(int(math.ceil(run_end / 3)), face_count)
+        if start_face < end_face:
+            face_original_ids[start_face:end_face] = int(original_id)
+
+    return face_original_ids
+
+
+def manifold_to_labeled_mesh(
+    manifold: Manifold,
+    *,
+    context: str,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    mesh = ensure_no_manifold_error(manifold, context=context).to_mesh64()
+    vertices = np.asarray(mesh.vert_properties, dtype=np.float64)
+    faces = ensure_triangle_faces(np.asarray(mesh.tri_verts, dtype=np.int32))
+    face_original_ids = face_original_ids_from_mesh(mesh, len(faces))
+    return vertices[:, :3], faces, face_original_ids
 
 
 def rotation_matrix_about_z_to_face_xy_direction(direction: np.ndarray) -> np.ndarray:
@@ -473,6 +523,56 @@ def simplify_planar_mesh(vertices: np.ndarray, faces: np.ndarray) -> tuple[np.nd
     return simplified_vertices, simplified_faces
 
 
+def simplify_labeled_mesh(
+    vertices: np.ndarray,
+    faces: np.ndarray,
+    face_is_cut: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    vertex_array = np.asarray(vertices, dtype=np.float64)[:, :3]
+    face_array = ensure_triangle_faces(faces)
+    cut_array = np.asarray(face_is_cut, dtype=np.bool_)
+
+    if len(face_array) != len(cut_array):
+        raise ValueError(
+            f"Expected one cut-surface flag per face, got {len(cut_array)} flags for {len(face_array)} faces."
+        )
+
+    if len(face_array) == 0:
+        return vertex_array, face_array, cut_array
+
+    vertex_parts: list[np.ndarray] = []
+    face_parts: list[np.ndarray] = []
+    label_parts: list[np.ndarray] = []
+    vertex_offset = 0
+
+    for is_cut_surface in (False, True):
+        group_faces = face_array[cut_array == is_cut_surface]
+        if len(group_faces) == 0:
+            continue
+
+        reduced_vertices, reduced_faces = simplify_planar_mesh(vertex_array, group_faces)
+        if len(reduced_faces) == 0:
+            continue
+
+        vertex_parts.append(reduced_vertices)
+        face_parts.append(reduced_faces + vertex_offset)
+        label_parts.append(np.full(len(reduced_faces), is_cut_surface, dtype=np.bool_))
+        vertex_offset += len(reduced_vertices)
+
+    if not face_parts:
+        return (
+            np.zeros((0, 3), dtype=np.float64),
+            np.zeros((0, 3), dtype=np.int32),
+            np.zeros((0,), dtype=np.bool_),
+        )
+
+    return (
+        np.vstack(vertex_parts),
+        ensure_triangle_faces(np.vstack(face_parts)),
+        np.concatenate(label_parts),
+    )
+
+
 def simplify_manifold_for_boolean(manifold: Manifold, *, context: str) -> Manifold:
     simplification_start = time.perf_counter()
     before_vertices = manifold.num_vert()
@@ -569,12 +669,52 @@ def write_binary_stl(vertices: np.ndarray, faces: np.ndarray) -> bytes:
     return buffer.getvalue()
 
 
-def write_glb(vertices: np.ndarray, faces: np.ndarray) -> bytes:
+def write_glb(
+    vertices: np.ndarray,
+    faces: np.ndarray,
+    *,
+    face_is_cut: np.ndarray | None = None,
+) -> bytes:
+    vertex_array = np.asarray(vertices, dtype=np.float64)[:, :3]
+    face_array = ensure_triangle_faces(faces)
+
+    if face_is_cut is None:
+        mesh = trimesh.Trimesh(
+            vertices=vertex_array,
+            faces=face_array,
+            process=False,
+        )
+        return mesh.export(file_type="glb")
+
+    cut_array = np.asarray(face_is_cut, dtype=np.bool_)
+    if len(cut_array) != len(face_array):
+        raise ValueError(
+            f"Expected one cut-surface flag per face, got {len(cut_array)} flags for {len(face_array)} faces."
+        )
+
+    if len(face_array) == 0:
+        mesh = trimesh.Trimesh(
+            vertices=np.zeros((0, 3), dtype=np.float64),
+            faces=np.zeros((0, 3), dtype=np.int32),
+            process=False,
+        )
+        return mesh.export(file_type="glb")
+
+    face_colors = np.where(
+        cut_array[:, None],
+        CUT_FACE_COLOR_RGBA[None, :],
+        STOCK_FACE_COLOR_RGBA[None, :],
+    ).astype(np.uint8)
+    expanded_vertices = vertex_array[face_array.reshape(-1)]
+    expanded_faces = np.arange(len(face_array) * 3, dtype=np.int64).reshape(-1, 3)
+    vertex_colors = np.repeat(face_colors, 3, axis=0)
+
     mesh = trimesh.Trimesh(
-        vertices=np.asarray(vertices, dtype=np.float64)[:, :3],
-        faces=ensure_triangle_faces(faces),
+        vertices=expanded_vertices,
+        faces=expanded_faces,
         process=False,
     )
+    mesh.visual.vertex_colors = vertex_colors
     return mesh.export(file_type="glb")
 
 
@@ -824,10 +964,25 @@ def simulate_manifold_by_moves(
     return current, subtraction_seconds, applied_segments
 
 
-def manifold_to_simplified_glb(manifold: Manifold, *, context: str) -> bytes:
-    vertices, faces = manifold_to_mesh(manifold, context=context)
-    reduced_vertices, reduced_faces = simplify_planar_mesh(vertices, faces)
-    return write_glb(reduced_vertices, reduced_faces)
+def manifold_to_simplified_glb(
+    manifold: Manifold,
+    *,
+    context: str,
+    stock_like_original_ids: set[int] | None = None,
+) -> bytes:
+    if stock_like_original_ids is None:
+        vertices, faces = manifold_to_mesh(manifold, context=context)
+        reduced_vertices, reduced_faces = simplify_planar_mesh(vertices, faces)
+        return write_glb(reduced_vertices, reduced_faces)
+
+    vertices, faces, face_original_ids = manifold_to_labeled_mesh(manifold, context=context)
+    face_is_cut = ~np.isin(face_original_ids, list(stock_like_original_ids))
+    reduced_vertices, reduced_faces, reduced_face_is_cut = simplify_labeled_mesh(
+        vertices,
+        faces,
+        face_is_cut,
+    )
+    return write_glb(reduced_vertices, reduced_faces, face_is_cut=reduced_face_is_cut)
 
 
 def combine_glb_meshes(mesh_bytes_list: list[bytes]) -> trimesh.Trimesh:
@@ -856,9 +1011,18 @@ def simulate_swept_milling_frames(
     progress_callback: Callable[[int, int, str], None] | None = None,
     should_cancel: Callable[[], bool] | None = None,
 ) -> tuple[bytes, list[SimulatedChunk], list[SimulatedMeshFrame]]:
+    stock_original_id = Manifold.reserve_ids(1)
+    chunk_boundary_original_id = Manifold.reserve_ids(1)
+    stock_like_original_ids = {stock_original_id, chunk_boundary_original_id}
+
     stock_min, stock_max = load_stl_bounds(load_stl_bytes(mesh_input))
     stock_vertices, stock_faces = build_box_mesh(stock_min, stock_max)
-    current_stock = mesh_to_manifold(stock_vertices, stock_faces, context="stock mesh import")
+    current_stock = mesh_to_manifold(
+        stock_vertices,
+        stock_faces,
+        context="stock mesh import",
+        original_id=stock_original_id,
+    )
 
     tool_vertices, tool_faces = build_cylinder_mesh(
         operation.tool.diameter,
@@ -937,6 +1101,7 @@ def simulate_swept_milling_frames(
         simplified_stock_bytes = manifold_to_simplified_glb(
             current_stock,
             context="extracting initial stock mesh",
+            stock_like_original_ids=stock_like_original_ids,
         )
         chunks.append(
             SimulatedChunk(
@@ -975,6 +1140,7 @@ def simulate_swept_milling_frames(
             chunk_box_vertices,
             chunk_box_faces,
             context=f"chunk {chunk_index} bounds",
+            original_id=chunk_boundary_original_id,
         )
 
         chunk_interest = boolean_manifolds(
@@ -989,6 +1155,7 @@ def simulate_swept_milling_frames(
         chunk_cached_mesh_bytes = manifold_to_simplified_glb(
             chunk_cached,
             context=f"extracting cached mesh for chunk {chunk_index}",
+            stock_like_original_ids=stock_like_original_ids,
         )
         advance_progress(
             f"Processing chunk {chunk_index + 1} of {len(position_chunks)}..."
@@ -1013,6 +1180,7 @@ def simulate_swept_milling_frames(
                 active_mesh_bytes=manifold_to_simplified_glb(
                     chunk_interest,
                     context=f"extracting initial active mesh for chunk {chunk_index}",
+                    stock_like_original_ids=stock_like_original_ids,
                 ),
                 tool_position=position_to_location(chunk_subdivided_positions[0]),
                 chunk_index=chunk_index,
@@ -1074,6 +1242,7 @@ def simulate_swept_milling_frames(
                     active_mesh_bytes=manifold_to_simplified_glb(
                         chunk_local_current,
                         context=f"extracting active mesh for chunk {chunk_index} segment {step}",
+                        stock_like_original_ids=stock_like_original_ids,
                     ),
                     tool_position=position_to_location(pos_b),
                     chunk_index=chunk_index,
@@ -1088,6 +1257,7 @@ def simulate_swept_milling_frames(
                     active_mesh_bytes=manifold_to_simplified_glb(
                         chunk_local_current,
                         context=f"extracting fallback active mesh for chunk {chunk_index}",
+                        stock_like_original_ids=stock_like_original_ids,
                     ),
                     tool_position=position_to_location(fallback_position),
                     chunk_index=chunk_index,

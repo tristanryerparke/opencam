@@ -244,8 +244,10 @@ export function usePolylineViewerScene(
       depthMesh.frustumCulled = false;
       targetGroup.add(depthMesh);
 
+      const hasVertexColors = renderGeometry.hasAttribute("color");
       const meshMaterial = new THREE.MeshStandardMaterial({
-        color,
+        color: hasVertexColors ? 0xffffff : color,
+        vertexColors: hasVertexColors,
         roughness: 0.72,
         metalness: 0.02,
         depthWrite: false,

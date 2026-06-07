@@ -1,3 +1,4 @@
+import io
 import json
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -8,6 +9,9 @@ from uuid import uuid4
 from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import ValidationError
+import numpy as np
+import rhino3dm
+import trimesh
 
 from opencam.schemas.models import (
     SweptSimulationFrameResponse,
@@ -107,6 +111,64 @@ def _frame_active_mesh_url(simulation_id: str, frame_index: int) -> str:
 
 def _chunk_cached_mesh_url(simulation_id: str, chunk_index: int) -> str:
     return f"/simulate/swept/{simulation_id}/chunks/{chunk_index}/cached-mesh.glb"
+
+
+def _load_trimesh_from_bytes(mesh_bytes: bytes, file_type: str) -> trimesh.Trimesh:
+    loaded = trimesh.load(io.BytesIO(mesh_bytes), file_type=file_type, force="mesh")
+    if loaded is None or getattr(loaded, "is_empty", False):
+        raise ValueError("Mesh asset is empty or unreadable.")
+    if not isinstance(loaded, trimesh.Trimesh):
+        loaded = trimesh.util.concatenate(tuple(loaded.dump()))
+    if len(loaded.vertices) == 0 or len(loaded.faces) == 0:
+        raise ValueError("Mesh asset contains no faces.")
+    return loaded
+
+
+def _rhino_mesh_payload_from_bytes(mesh_bytes: bytes, file_type: str = "glb") -> dict:
+    mesh = _load_trimesh_from_bytes(mesh_bytes, file_type=file_type)
+    vertices = np.asarray(mesh.vertices, dtype=np.float64)
+    faces = np.asarray(mesh.faces, dtype=np.int64)
+
+    vertex_colors = None
+    visual = getattr(mesh, "visual", None)
+    if visual is not None and hasattr(visual, "vertex_colors"):
+        candidate_colors = np.asarray(visual.vertex_colors, dtype=np.uint8)
+        if (
+            candidate_colors.ndim == 2
+            and candidate_colors.shape[0] == len(vertices)
+            and candidate_colors.shape[1] >= 3
+        ):
+            vertex_colors = candidate_colors[:, :3]
+
+    rhino_mesh = rhino3dm.Mesh()
+    for vertex_index, (x, y, z) in enumerate(vertices[:, :3]):
+        rhino_mesh.Vertices.Add(float(x), float(y), float(z))
+        if vertex_colors is not None:
+            red, green, blue = vertex_colors[vertex_index]
+            rhino_mesh.VertexColors.Add(int(red), int(green), int(blue))
+
+    for face in faces:
+        if len(face) == 3:
+            rhino_mesh.Faces.AddFace(int(face[0]), int(face[1]), int(face[2]))
+        elif len(face) == 4:
+            rhino_mesh.Faces.AddFace(int(face[0]), int(face[1]), int(face[2]), int(face[3]))
+
+    if rhino_mesh.Faces.Count == 0:
+        raise ValueError("Converted Rhino mesh contains no faces.")
+
+    rhino_mesh.Normals.ComputeNormals()
+    rhino_mesh.Compact()
+    if not rhino_mesh.IsValid:
+        raise ValueError("Converted Rhino mesh is invalid.")
+    return rhino_mesh.Encode()
+
+
+def _rhino_mesh_response(mesh_bytes: bytes) -> Response:
+    payload = _rhino_mesh_payload_from_bytes(mesh_bytes, file_type="glb")
+    return Response(
+        content=json.dumps(payload, separators=(",", ":")),
+        media_type="application/json",
+    )
 
 
 def _frame_response(simulation_id: str, frame_index: int, frame: SimulatedMeshFrame) -> SweptSimulationFrameResponse:
@@ -401,6 +463,17 @@ def simulate_swept_tool_mesh(simulation_id: str):
     return Response(content=simulation.tool_mesh_bytes, media_type="model/gltf-binary")
 
 
+@app.get("/simulate/swept/{simulation_id}/tool-mesh.rhino.json")
+def simulate_swept_tool_mesh_rhino_json(simulation_id: str):
+    with SIMULATION_FRAME_BUFFER_LOCK:
+        simulation = _get_buffered_simulation(simulation_id)
+
+    try:
+        return _rhino_mesh_response(simulation.tool_mesh_bytes)
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 @app.get("/simulate/swept/{simulation_id}/frames/{frame_index}/active-mesh.glb")
 def simulate_swept_frame_active_mesh(simulation_id: str, frame_index: int):
     with SIMULATION_FRAME_BUFFER_LOCK:
@@ -410,6 +483,18 @@ def simulate_swept_frame_active_mesh(simulation_id: str, frame_index: int):
     return Response(content=frame.active_mesh_bytes, media_type="model/gltf-binary")
 
 
+@app.get("/simulate/swept/{simulation_id}/frames/{frame_index}/active-mesh.rhino.json")
+def simulate_swept_frame_active_mesh_rhino_json(simulation_id: str, frame_index: int):
+    with SIMULATION_FRAME_BUFFER_LOCK:
+        simulation = _get_buffered_simulation(simulation_id)
+        frame = _get_buffered_frame(simulation, frame_index)
+
+    try:
+        return _rhino_mesh_response(frame.active_mesh_bytes)
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
 @app.get("/simulate/swept/{simulation_id}/chunks/{chunk_index}/cached-mesh.glb")
 def simulate_swept_chunk_cached_mesh(simulation_id: str, chunk_index: int):
     with SIMULATION_FRAME_BUFFER_LOCK:
@@ -417,3 +502,15 @@ def simulate_swept_chunk_cached_mesh(simulation_id: str, chunk_index: int):
         chunk = _get_buffered_chunk(simulation, chunk_index)
 
     return Response(content=chunk.cached_mesh_bytes, media_type="model/gltf-binary")
+
+
+@app.get("/simulate/swept/{simulation_id}/chunks/{chunk_index}/cached-mesh.rhino.json")
+def simulate_swept_chunk_cached_mesh_rhino_json(simulation_id: str, chunk_index: int):
+    with SIMULATION_FRAME_BUFFER_LOCK:
+        simulation = _get_buffered_simulation(simulation_id)
+        chunk = _get_buffered_chunk(simulation, chunk_index)
+
+    try:
+        return _rhino_mesh_response(chunk.cached_mesh_bytes)
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc

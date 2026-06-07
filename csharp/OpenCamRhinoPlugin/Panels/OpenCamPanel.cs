@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Text.Json;
 using Eto.Forms;
 using Rhino;
+using Rhino.Geometry;
 using Rhino.UI;
 using OpenCamRhinoPlugin.Bridge;
 using OpenCamRhinoPlugin.Display;
@@ -21,6 +22,7 @@ public sealed class OpenCamPanel : Panel, IPanel
     private readonly WebView _webView;
     private readonly RhinoSelectionService _selectionService = new();
     private readonly ToolpathPreviewConduit _toolpathPreview = new();
+    private readonly SimulationPreviewConduit _simulationPreview = new();
     private readonly OpenCamPreset _preset = OpenCamPreset.Default;
 
     private SelectedStock? _selectedStock;
@@ -57,6 +59,7 @@ public sealed class OpenCamPanel : Panel, IPanel
     public void PanelClosing(uint documentSerialNumber, bool onCloseDocument)
     {
         _toolpathPreview.Clear();
+        _simulationPreview.Clear();
     }
 
     private void OnDocumentLoading(object? sender, WebViewLoadingEventArgs e)
@@ -144,6 +147,7 @@ public sealed class OpenCamPanel : Panel, IPanel
                     break;
                 case "clearPreview":
                     _toolpathPreview.Clear();
+                    _simulationPreview.Clear();
                     RhinoDoc.ActiveDoc?.Views.Redraw();
                     PostReply(message, new { cleared = true });
                     break;
@@ -188,6 +192,7 @@ public sealed class OpenCamPanel : Panel, IPanel
 
         _selectedStock = stock;
         _operationJson = null;
+        _simulationPreview.Clear();
         PostReply(message, new
         {
             stock.ObjectId,
@@ -217,6 +222,7 @@ public sealed class OpenCamPanel : Panel, IPanel
 
         _selectedBoundary = boundary;
         _operationJson = null;
+        _simulationPreview.Clear();
         PostReply(message, new
         {
             boundary.ObjectId,
@@ -245,6 +251,7 @@ public sealed class OpenCamPanel : Panel, IPanel
 
             RhinoApp.InvokeOnUiThread((Action)(() =>
             {
+                _simulationPreview.Clear();
                 _toolpathPreview.LoadOperationJson(operationJson);
                 RhinoDoc.ActiveDoc?.Views.Redraw();
             }));
@@ -296,8 +303,98 @@ public sealed class OpenCamPanel : Panel, IPanel
         {
             var statusJson = await client.GetSimulationStatusAsync(taskId, cancellationToken).ConfigureAwait(false);
             using var statusDocument = JsonDocument.Parse(statusJson);
-            return statusDocument.RootElement.Clone();
+            var status = statusDocument.RootElement.Clone();
+            var rhinoPreviewLoaded = await TryLoadCompletedSimulationPreviewAsync(client, status, cancellationToken).ConfigureAwait(false);
+            return new
+            {
+                status,
+                rhinoPreviewLoaded,
+            };
         });
+    }
+
+    private async Task<bool> TryLoadCompletedSimulationPreviewAsync(
+        OpenCamBackendClient client,
+        JsonElement status,
+        CancellationToken cancellationToken)
+    {
+        if (!status.TryGetProperty("status", out var statusValue)
+            || !string.Equals(statusValue.GetString(), "completed", StringComparison.OrdinalIgnoreCase)
+            || !status.TryGetProperty("result", out var result)
+            || result.ValueKind != JsonValueKind.Object)
+        {
+            return false;
+        }
+
+        var activeMeshUrl = ReadString(result, "activeMeshUrl");
+        var cachedMeshUrl = ReadString(result, "cachedMeshUrl");
+        var toolMeshUrl = ReadString(result, "toolMeshUrl");
+        if (string.IsNullOrWhiteSpace(activeMeshUrl) || string.IsNullOrWhiteSpace(cachedMeshUrl))
+        {
+            return false;
+        }
+
+        var activeMeshJson = await client.GetRhinoMeshJsonAsync(ToRhinoMeshJsonUrl(activeMeshUrl), cancellationToken).ConfigureAwait(false);
+        var cachedMeshJson = await client.GetRhinoMeshJsonAsync(ToRhinoMeshJsonUrl(cachedMeshUrl), cancellationToken).ConfigureAwait(false);
+        string? toolMeshJson = null;
+        if (!string.IsNullOrWhiteSpace(toolMeshUrl))
+        {
+            toolMeshJson = await client.GetRhinoMeshJsonAsync(ToRhinoMeshJsonUrl(toolMeshUrl), cancellationToken).ConfigureAwait(false);
+        }
+
+        var toolPosition = Point3d.Origin;
+        if (result.TryGetProperty("toolPosition", out var toolPositionElement))
+        {
+            toolPosition = ReadPoint3d(toolPositionElement);
+        }
+
+        RhinoApp.InvokeOnUiThread((Action)(() =>
+        {
+            var activeMesh = DecodeRhinoMeshJson(activeMeshJson, "active simulation mesh");
+            var cachedMesh = DecodeRhinoMeshJson(cachedMeshJson, "cached simulation mesh");
+            var toolMesh = string.IsNullOrWhiteSpace(toolMeshJson)
+                ? null
+                : DecodeRhinoMeshJson(toolMeshJson, "tool mesh");
+            _simulationPreview.LoadFrame(cachedMesh, activeMesh, toolMesh, toolPosition);
+            RhinoDoc.ActiveDoc?.Views.Redraw();
+        }));
+
+        return true;
+    }
+
+    private static string ToRhinoMeshJsonUrl(string meshUrl)
+    {
+        return meshUrl.EndsWith(".glb", StringComparison.OrdinalIgnoreCase)
+            ? meshUrl[..^4] + ".rhino.json"
+            : meshUrl;
+    }
+
+    private static Mesh DecodeRhinoMeshJson(string json, string label)
+    {
+        var commonObject = Rhino.Runtime.CommonObject.FromJSON(json);
+        if (commonObject is Mesh mesh && mesh.IsValid)
+        {
+            if (mesh.Normals.Count == 0)
+            {
+                mesh.Normals.ComputeNormals();
+            }
+            mesh.Compact();
+            return mesh;
+        }
+
+        throw new InvalidOperationException($"Backend returned invalid {label}.");
+    }
+
+    private static Point3d ReadPoint3d(JsonElement element)
+    {
+        if (!element.TryGetProperty("x", out var x)
+            || !element.TryGetProperty("y", out var y)
+            || !element.TryGetProperty("z", out var z))
+        {
+            return Point3d.Origin;
+        }
+
+        return new Point3d(x.GetDouble(), y.GetDouble(), z.GetDouble());
     }
 
     private void RunBackendTask(WebBridgeMessage message, Func<OpenCamBackendClient, CancellationToken, Task<object?>> action)

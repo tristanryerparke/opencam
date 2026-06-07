@@ -63,6 +63,13 @@ public sealed class OpenCamBackendClient
         return await ReadTextResponse(response, cancellationToken).ConfigureAwait(false);
     }
 
+    public async Task<string> GetRhinoMeshJsonAsync(string relativeUrl, CancellationToken cancellationToken = default)
+    {
+        var normalizedUrl = relativeUrl.TrimStart('/');
+        using var response = await SharedHttpClient.GetAsync(new Uri(_baseUri, normalizedUrl), cancellationToken).ConfigureAwait(false);
+        return await ReadTextResponse(response, cancellationToken).ConfigureAwait(false);
+    }
+
     private static async Task<JsonDocument> ReadJsonResponse(HttpResponseMessage response, CancellationToken cancellationToken)
     {
         var text = await ReadTextResponse(response, cancellationToken).ConfigureAwait(false);

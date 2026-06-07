@@ -4,7 +4,7 @@ public sealed class OpenCamPreset
 {
     public double ToolDiameter { get; init; } = 12.0;
     public double CuttingHeight { get; init; } = 30.0;
-    public double ZStepHeight { get; init; } = 2.0;
+    public double ZStepHeight { get; init; } = 6.0;
     public double Stepover { get; init; } = 50.0;
     public double StockToLeave { get; init; } = 0.0;
     public double Feedrate { get; init; } = 1000.0;

@@ -40,6 +40,12 @@ htmlcov/
 /frontend/dist-ssr
 /frontend/*.local
 
+# C# / Rhino plugin
+/csharp/**/bin/
+/csharp/**/obj/
+/csharp/**/web-ui/node_modules/
+/csharp/**/web-ui/dist/
+
 # Logs
 /frontend/logs
 /frontend/*.log

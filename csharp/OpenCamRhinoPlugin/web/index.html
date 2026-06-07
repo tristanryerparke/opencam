@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OpenCAM Rhino</title>
+  <style>
+    :root{color-scheme:light dark;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#0f172a;color:#e2e8f0}*{box-sizing:border-box}body{margin:0}main{display:flex;flex-direction:column;gap:12px;min-height:100vh;padding:14px}header{border-bottom:1px solid #334155;padding-bottom:10px}h1,h2,p{margin:0}h1{font-size:18px}h2{margin-bottom:8px;font-size:14px}p{color:#94a3b8;font-size:12px}.card{border:1px solid #334155;border-radius:10px;background:#111827;padding:12px}label{display:block;margin-bottom:6px;color:#cbd5e1;font-size:12px;font-weight:600}.row{display:flex;gap:8px}input{min-width:0;flex:1;border:1px solid #475569;border-radius:7px;background:#020617;color:#e2e8f0;padding:8px}button{border:1px solid #475569;border-radius:7px;background:#1d4ed8;color:white;cursor:pointer;font-weight:600;padding:8px 10px}button:disabled{cursor:not-allowed;opacity:.45}.steps{display:grid;gap:8px}.status-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.status{border:1px solid #334155;border-radius:8px;background:#1f2937;color:#94a3b8;padding:8px;text-align:center}.status.ok{border-color:#15803d;background:#052e16;color:#86efac}#log{display:flex;flex-direction:column;gap:6px;max-height:320px;overflow:auto}.log-entry{border-left:3px solid #64748b;background:#020617;color:#cbd5e1;font-size:12px;padding:7px 8px}.log-entry.reply{border-left-color:#22c55e}.log-entry.error{border-left-color:#ef4444}pre{white-space:pre-wrap;word-break:break-word;margin:6px 0 0;color:#93c5fd;font-size:11px}
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <script type="module">
+    const pending = new Map();
+    const logs = [];
+    const app = document.querySelector('#app');
+    const state = { backendUrl: 'http://localhost:8000', hasStock: false, hasBoundary: false, hasOperation: false, taskId: '' };
+    window.__openCamBridge = { receive(reply) {
+      addLog(reply.ok ? 'reply' : 'error', `${reply.type}: ${reply.ok ? 'ok' : reply.error || 'failed'}`);
+      if (reply.type === 'selectStock' && reply.ok) state.hasStock = true;
+      if (reply.type === 'selectPocketBoundary' && reply.ok) state.hasBoundary = true;
+      if (reply.type === 'generateToolpath' && reply.ok) state.hasOperation = true;
+      if (reply.type === 'startSimulation' && reply.ok && reply.data?.taskId) state.taskId = reply.data.taskId;
+      if (reply.id && pending.has(reply.id)) { const request = pending.get(reply.id); pending.delete(reply.id); reply.ok ? request.resolve(reply) : request.reject(new Error(reply.error || 'Rhino bridge request failed')); }
+      render();
+    }};
+    function sendToRhino(type, payload = {}) { const id = crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`; const message = { id, type, payload: { backendUrl: state.backendUrl, ...payload } }; window.location.href = `rhino://message?${encodeURIComponent(JSON.stringify(message))}`; return new Promise((resolve, reject) => { pending.set(id, { resolve, reject }); setTimeout(() => { if (pending.has(id)) { pending.delete(id); reject(new Error(`${type} timed out`)); } }, 600000); }); }
+    function addLog(kind, message, data) { logs.unshift({ time: new Date().toLocaleTimeString(), kind, message, data }); if (logs.length > 80) logs.pop(); }
+    async function run(type, payload) { try { addLog('info', `sending ${type}`); render(); const reply = await sendToRhino(type, payload); if (reply.data !== undefined) addLog('reply', `${type} data`, reply.data); } catch (error) { addLog('error', error instanceof Error ? error.message : String(error)); } finally { render(); } }
+    function escapeHtml(value) { return String(value).replace(/[&<>"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch] || ch)); }
+    function renderLogs() { return logs.map(entry => `<div class="log-entry ${entry.kind}"><div>[${escapeHtml(entry.time)}] ${escapeHtml(entry.message)}</div>${entry.data === undefined ? '' : `<pre>${escapeHtml(JSON.stringify(entry.data, null, 2))}</pre>`}</div>`).join(''); }
+    function render() { app.innerHTML = `<main><header><div><h1>OpenCAM Rhino</h1><p>C# plugin + docked TypeScript UI</p></div></header><section class="card"><label for="backend-url">Backend URL</label><div class="row"><input id="backend-url" value="${escapeHtml(state.backendUrl)}" /><button id="test-backend">Test</button></div></section><section class="card steps"><button id="select-stock">1. Select stock</button><button id="select-boundary" ${state.hasStock ? '' : 'disabled'}>2. Select pocket area</button><button id="generate" ${state.hasStock && state.hasBoundary ? '' : 'disabled'}>3. Generate toolpath</button><button id="start-sim" ${state.hasOperation ? '' : 'disabled'}>4. Start simulation</button><button id="poll-sim" ${state.taskId ? '' : 'disabled'}>Poll simulation</button><button id="clear-preview">Clear preview</button></section><section class="status-grid"><div class="status ${state.hasStock ? 'ok' : ''}">Stock</div><div class="status ${state.hasBoundary ? 'ok' : ''}">Pocket</div><div class="status ${state.hasOperation ? 'ok' : ''}">Toolpath</div><div class="status ${state.taskId ? 'ok' : ''}">Simulation</div></section><section class="card"><h2>Log</h2><div id="log">${renderLogs()}</div></section></main>`; document.querySelector('#backend-url')?.addEventListener('input', event => { state.backendUrl = event.currentTarget.value; }); document.querySelector('#test-backend')?.addEventListener('click', () => run('testBackend')); document.querySelector('#select-stock')?.addEventListener('click', () => run('selectStock')); document.querySelector('#select-boundary')?.addEventListener('click', () => run('selectPocketBoundary')); document.querySelector('#generate')?.addEventListener('click', () => run('generateToolpath')); document.querySelector('#start-sim')?.addEventListener('click', () => run('startSimulation')); document.querySelector('#poll-sim')?.addEventListener('click', () => run('pollSimulation', { taskId: state.taskId })); document.querySelector('#clear-preview')?.addEventListener('click', () => run('clearPreview')); }
+    render();
+    run('ping');
+  </script>
+</body>
+</html>

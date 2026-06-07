@@ -74,6 +74,33 @@ The panel defaults to:
 http://localhost:8000
 ```
 
+## macOS install helper
+
+From the repository root:
+
+```bash
+scripts/install-opencam-rhino-plugin-mac.sh
+```
+
+This builds the plugin and copies the full build output to:
+
+```text
+~/Library/Application Support/McNeel/Rhinoceros/MacPlugIns/OpenCamRhinoPlugin.rhp
+```
+
+Useful variants:
+
+```bash
+scripts/install-opencam-rhino-plugin-mac.sh -c Release
+scripts/install-opencam-rhino-plugin-mac.sh --no-build
+```
+
+After installing, restart Rhino if it was already open, then run:
+
+```text
+OpenCam
+```
+
 ## Build note
 
-The project is set up as a Rhino 8 `net7.0` plugin prototype using the `RhinoCommon` NuGet package. Rhino installation/build packaging details may need local adjustment depending on Mac/Windows Rhino SDK setup.
+The project is set up as a Rhino 8 `net8.0` plugin prototype using the `RhinoCommon` NuGet package. Rhino installation/build packaging details may need local adjustment depending on Mac/Windows Rhino SDK setup.

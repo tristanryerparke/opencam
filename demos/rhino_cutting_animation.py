@@ -32,15 +32,12 @@ from opencam.services.simulation.swept_volume import SimulatedMeshFrame
 from opencam.services.simulation.swept_volume import load_stl_bounds
 from opencam.services.simulation.swept_volume import simulate_swept_milling_frames
 from rhino_renderer.action import ConduitAction
-from rhino_renderer.action import ConduitGeometry
 from rhino_renderer.action import MeshObjectStyle
-from rhino_renderer.action import MultiConduitAction
 from rhino_renderer.action import ObjectStyle
 from rhino_renderer.action import RGBColor
 from rhino_renderer.file_client import FileClient
 from rhino_renderer.file_client import current_document_path
 from rhino_renderer.file_client import reset_rhino_environment
-from rhino_renderer.geometry_codec import encode_polyline_from_points
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MESH_PATH = REPO_ROOT / "assets" / "2.5D_Part.stl"
@@ -454,55 +451,35 @@ def frontend_style_toolpath_polylines(
     return polylines
 
 
-def send_toolpath_polylines(
-    client: FileClient,
+def animation_toolpaths_payload(
     operation: ToolpathOperation,
     *,
     z_lift: float = 0.0,
-) -> int:
-    polylines = frontend_style_toolpath_polylines(operation, z_lift=z_lift)
-    client.run_action(ConduitAction(group_id=TOOLPATH_GROUP_ID, action="delete"), expire_seconds=300)
-
-    if not polylines:
-        return 0
-
-    object_ids: list[str] = []
-    geometries: list[ConduitGeometry] = []
-    for index, polyline in enumerate(polylines):
-        object_id = f"toolpath-{index}-{polyline['id']}"
-        object_ids.append(object_id)
-        geometries.append(
-            ConduitGeometry(
-                type="polyline",
-                geometry_string=encode_polyline_from_points(polyline["points"]),
-                style=ObjectStyle(
+) -> list[dict[str, object]]:
+    payload: list[dict[str, object]] = []
+    for index, polyline in enumerate(frontend_style_toolpath_polylines(operation, z_lift=z_lift)):
+        payload.append(
+            {
+                "object_id": f"toolpath-{index}-{polyline['id']}",
+                "points": polyline["points"],
+                "style": ObjectStyle(
                     color=polyline["color"],
                     opacity=1.0,
                     line_width=float(polyline["line_width"]),
                 ),
-            )
+            }
         )
-
-    client.run_action(
-        MultiConduitAction(
-            group_id=TOOLPATH_GROUP_ID,
-            action="upsert",
-            object_ids=object_ids,
-            geometries=geometries,
-        ),
-        expire_seconds=300,
-    )
-    return len(polylines)
+    return payload
 
 
-def build_rhino_animation_frames(
+def build_rhino_chunked_animation_payload(
     tool_mesh_bytes: bytes,
     chunk_mesh_bytes: dict[int, bytes],
     frames: list[SimulatedMeshFrame],
     frame_indices: Iterable[int],
     *,
     include_tool: bool,
-) -> list[list[dict[str, object]]]:
+) -> tuple[list[dict[str, object]], dict[str, object] | None, list[dict[str, object]]]:
     cached_style = MeshObjectStyle(
         # Frontend GLB simulation meshes carry per-vertex stock/cut colors:
         # stock #fb923c and cut surfaces #9ca3af.
@@ -533,51 +510,60 @@ def build_rhino_animation_frames(
         sharp_edge_angle_degrees=35.0,
     )
 
-    cached_rhino_meshes: dict[int, rhino3dm.Mesh] = {}
-    for chunk_index, mesh_bytes in chunk_mesh_bytes.items():
+    selected_indices = list(frame_indices)
+    used_chunk_indices = sorted({frames[frame_index].chunk_index for frame_index in selected_indices})
+    cached_mesh_entries: list[dict[str, object]] = []
+    for chunk_index in used_chunk_indices:
+        mesh_bytes = chunk_mesh_bytes.get(chunk_index)
+        if mesh_bytes is None:
+            continue
         mesh = rhino_mesh_from_bytes(mesh_bytes, file_type="glb")
         if mesh is not None:
-            cached_rhino_meshes[chunk_index] = mesh
-
-    base_tool_mesh = rhino_mesh_from_bytes(tool_mesh_bytes, file_type="glb") if include_tool else None
-
-    animation_frames: list[list[dict[str, object]]] = []
-    for frame_index in frame_indices:
-        frame = frames[frame_index]
-        frame_entries: list[dict[str, object]] = []
-
-        cached_mesh = cached_rhino_meshes.get(frame.chunk_index)
-        if cached_mesh is not None:
-            frame_entries.append(
+            cached_mesh_entries.append(
                 {
-                    "object_id": f"cached-chunk-{frame.chunk_index}",
-                    "mesh": cached_mesh,
+                    "chunk_index": chunk_index,
+                    "object_id": f"cached-chunk-{chunk_index}",
+                    "mesh": mesh,
                     "style": cached_style,
                 }
             )
 
+    tool_base_mesh = rhino_mesh_from_bytes(tool_mesh_bytes, file_type="glb") if include_tool else None
+    tool_base_entry = (
+        {
+            "object_id": "tool-base",
+            "mesh": tool_base_mesh,
+            "style": tool_style,
+        }
+        if tool_base_mesh is not None
+        else None
+    )
+
+    chunked_frames: list[dict[str, object]] = []
+    for frame_index in selected_indices:
+        frame = frames[frame_index]
         active_mesh = rhino_mesh_from_bytes(frame.active_mesh_bytes, file_type="glb")
+        frame_entry: dict[str, object] = {
+            "chunk_index": frame.chunk_index,
+        }
         if active_mesh is not None:
-            frame_entries.append(
-                {
-                    "object_id": f"active-frame-{frame_index}",
-                    "mesh": active_mesh,
-                    "style": active_style,
-                }
-            )
+            frame_entry["active_mesh"] = {
+                "object_id": f"active-frame-{frame_index}",
+                "mesh": active_mesh,
+                "style": active_style,
+            }
+        if include_tool:
+            frame_entry["tool_transform"] = {
+                "translation": [
+                    float(frame.tool_position.x),
+                    float(frame.tool_position.y),
+                    float(frame.tool_position.z),
+                ],
+                "rotation_z": tool_rotation_for_frame(frames, frame_index),
+            }
+        chunked_frames.append(frame_entry)
 
-        if base_tool_mesh is not None:
-            frame_entries.append(
-                {
-                    "object_id": f"tool-frame-{frame_index}",
-                    "mesh": transformed_tool_mesh(base_tool_mesh, frames, frame_index),
-                    "style": tool_style,
-                }
-            )
-
-        animation_frames.append(frame_entries)
-
-    return animation_frames
+    return cached_mesh_entries, tool_base_entry, chunked_frames
 
 
 def main() -> None:
@@ -625,21 +611,25 @@ def main() -> None:
     )
 
     chunk_mesh_bytes = {chunk_index: chunk.cached_mesh_bytes for chunk_index, chunk in enumerate(chunks)}
-    animation_frames = build_rhino_animation_frames(
+    cached_meshes, tool_base_mesh, chunked_frames = build_rhino_chunked_animation_payload(
         tool_mesh_bytes,
         chunk_mesh_bytes,
         frames,
         frame_indices,
         include_tool=not args.no_tool,
     )
-    toolpath_polyline_count = 0 if args.no_toolpaths else len(
-        frontend_style_toolpath_polylines(operation, z_lift=args.toolpath_z_lift)
+    animation_toolpaths = [] if args.no_toolpaths else animation_toolpaths_payload(
+        operation,
+        z_lift=args.toolpath_z_lift,
     )
+    toolpath_polyline_count = len(animation_toolpaths)
     if args.dry_run:
-        mesh_count = sum(len(frame) for frame in animation_frames)
+        active_mesh_count = sum(1 for frame in chunked_frames if frame.get("active_mesh") is not None)
+        tool_mesh_count = 1 if tool_base_mesh is not None else 0
         print(
-            f"Dry run complete: built {len(animation_frames)} Rhino frame(s) "
-            f"with {mesh_count} mesh instance(s) and {toolpath_polyline_count} toolpath polyline(s)."
+            f"Dry run complete: built {len(chunked_frames)} Rhino frame(s), "
+            f"{len(cached_meshes)} cached chunk mesh(es), {active_mesh_count} active mesh(es), "
+            f"{tool_mesh_count} shared tool mesh(es), and {toolpath_polyline_count} toolpath polyline(s)."
         )
         return
 
@@ -654,16 +644,11 @@ def main() -> None:
         reset_rhino_environment()
 
     client = FileClient(file_path=file_path, timeout_seconds=args.timeout, group_ids=["opencam-rhino"])
+    client.run_action(ConduitAction(group_id=TOOLPATH_GROUP_ID, action="delete"), expire_seconds=300)
     if args.no_toolpaths:
-        client.run_action(ConduitAction(group_id=TOOLPATH_GROUP_ID, action="delete"), expire_seconds=300)
-        print("Deleted existing Rhino toolpath polylines.")
+        print("Toolpath display disabled; deleted any legacy standalone Rhino toolpath polylines.")
     else:
-        sent_toolpath_count = send_toolpath_polylines(
-            client,
-            operation,
-            z_lift=args.toolpath_z_lift,
-        )
-        print(f"Sent {sent_toolpath_count} frontend-style toolpath polyline(s) to Rhino.")
+        print(f"Prepared {toolpath_polyline_count} frontend-style toolpath polyline(s) as part of the animation.")
 
     if args.delete_all_animations:
         delete_result = client.delete_all_animations(expire_seconds=600)
@@ -672,11 +657,14 @@ def main() -> None:
         delete_result = client.delete_animation(args.animation_id, expire_seconds=600)
         print(delete_result.output or f"Deleted existing animation {args.animation_id}.")
 
-    print(f"Sending animation to Rhino document: {file_path}")
-    result = client.send_animation(
+    print(f"Sending chunk-aware animation to Rhino document: {file_path}")
+    result = client.send_chunked_animation(
         animation_id=args.animation_id,
         name=args.animation_name,
-        frames=animation_frames,
+        cached_meshes=cached_meshes,
+        tool_base_mesh=tool_base_mesh,
+        frames=chunked_frames,
+        toolpaths=animation_toolpaths,
         expire_seconds=600,
     )
     print(result.output or f"Sent animation {args.animation_id}.")

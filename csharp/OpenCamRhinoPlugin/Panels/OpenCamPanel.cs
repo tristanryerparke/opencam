@@ -1,5 +1,7 @@
+using System.IO;
 using System.Reflection;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Eto.Forms;
 using Rhino;
 using Rhino.Geometry;
@@ -17,6 +19,12 @@ public sealed class OpenCamPanel : Panel, IPanel
     {
         WriteIndented = false,
     };
+    private static readonly Regex StylesheetHrefRegex = new(
+        "<link\\b[^>]*rel=\"stylesheet\"[^>]*href=\"(?<href>[^\"]+)\"[^>]*>",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex ScriptSrcRegex = new(
+        "<script\\b[^>]*src=\"(?<src>[^\"]+)\"[^>]*>\\s*</script>",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     private readonly uint _documentSerialNumber;
     private readonly WebView _webView;
@@ -34,14 +42,11 @@ public sealed class OpenCamPanel : Panel, IPanel
         _documentSerialNumber = documentSerialNumber;
         _webView = new WebView();
         _webView.DocumentLoading += OnDocumentLoading;
-        _webView.DocumentLoaded += (_, _) => PostEvent("rhinoReady", new
-        {
-            documentSerialNumber = _documentSerialNumber,
-            rhinoVersion = RhinoApp.Version.ToString(),
-        });
+        _webView.DocumentLoaded += OnDocumentLoaded;
 
+        LogUi("Panel created", new { documentSerialNumber = _documentSerialNumber });
         TrySetBrowserContextMenuEnabled(_webView, false);
-        _webView.Url = ResolvePanelUrl();
+        LoadFrontend();
         Content = _webView;
     }
 
@@ -49,6 +54,7 @@ public sealed class OpenCamPanel : Panel, IPanel
 
     public void PanelShown(uint documentSerialNumber, ShowPanelReason reason)
     {
+        LogUi("Panel shown", new { documentSerialNumber, reason = reason.ToString() });
         PostEvent("panelShown", new { documentSerialNumber });
     }
 
@@ -58,14 +64,35 @@ public sealed class OpenCamPanel : Panel, IPanel
 
     public void PanelClosing(uint documentSerialNumber, bool onCloseDocument)
     {
+        LogUi("Panel closing", new { documentSerialNumber, onCloseDocument });
         _toolpathPreview.Clear();
         _simulationPreview.Clear();
+    }
+
+    private void OnDocumentLoaded(object? sender, WebViewLoadedEventArgs e)
+    {
+        LogUi("WebView document loaded", new
+        {
+            documentSerialNumber = _documentSerialNumber,
+            uri = e.Uri?.ToString(),
+            ready = true,
+        });
+
+        PostEvent("rhinoReady", new
+        {
+            documentSerialNumber = _documentSerialNumber,
+            rhinoVersion = RhinoApp.Version.ToString(),
+        });
     }
 
     private void OnDocumentLoading(object? sender, WebViewLoadingEventArgs e)
     {
         if (!string.Equals(e.Uri.Scheme, "rhino", StringComparison.OrdinalIgnoreCase))
         {
+            if (e.Uri != null)
+            {
+                LogUi("WebView loading", new { uri = e.Uri.ToString() });
+            }
             return;
         }
 
@@ -113,6 +140,20 @@ public sealed class OpenCamPanel : Panel, IPanel
         {
             switch (message.Type)
             {
+                case "uiDebug":
+                    LogUi("Frontend debug", message.Payload.ValueKind == JsonValueKind.Undefined ? null : message.Payload);
+                    if (!string.IsNullOrWhiteSpace(message.Id))
+                    {
+                        PostReply(message, new { logged = true });
+                    }
+                    break;
+                case "uiError":
+                    LogUiError("Frontend error", message.Payload.ValueKind == JsonValueKind.Undefined ? null : message.Payload);
+                    if (!string.IsNullOrWhiteSpace(message.Id))
+                    {
+                        PostReply(message, new { logged = true });
+                    }
+                    break;
                 case "ping":
                     PostReply(message, new
                     {
@@ -399,7 +440,7 @@ public sealed class OpenCamPanel : Panel, IPanel
 
     private void RunBackendTask(WebBridgeMessage message, Func<OpenCamBackendClient, CancellationToken, Task<object?>> action)
     {
-        var backendUrl = ReadString(message.Payload, "backendUrl") ?? "http://localhost:8000";
+        var backendUrl = ReadString(message.Payload, "backendUrl") ?? "http://127.0.0.1:9090";
         _ = Task.Run(async () =>
         {
             try
@@ -469,18 +510,51 @@ public sealed class OpenCamPanel : Panel, IPanel
         ExecuteJavaScript("window.__openCamBridge && window.__openCamBridge.receive(" + json + ");");
     }
 
+    private static void LogUi(string message, object? data = null)
+    {
+        var suffix = data == null ? string.Empty : " :: " + SerializeForLog(data);
+        RhinoApp.WriteLine($"[OpenCAM:UI] {message}{suffix}");
+    }
+
+    private static void LogUiError(string message, object? data = null)
+    {
+        var suffix = data == null ? string.Empty : " :: " + SerializeForLog(data);
+        RhinoApp.WriteLine($"[OpenCAM:UI:ERROR] {message}{suffix}");
+    }
+
+    private static string SerializeForLog(object data)
+    {
+        try
+        {
+            return data is JsonElement element
+                ? element.GetRawText()
+                : JsonSerializer.Serialize(data, JsonOptions);
+        }
+        catch (Exception ex)
+        {
+            return "<unserializable: " + ex.Message + ">";
+        }
+    }
+
     private void ExecuteJavaScript(string script)
     {
         Application.Instance.AsyncInvoke(() =>
         {
-            var asyncMethod = _webView.GetType().GetMethod("ExecuteScriptAsync", new[] { typeof(string) });
-            if (asyncMethod != null)
+            try
             {
-                asyncMethod.Invoke(_webView, new object[] { script });
-                return;
-            }
+                var asyncMethod = _webView.GetType().GetMethod("ExecuteScriptAsync", new[] { typeof(string) });
+                if (asyncMethod != null)
+                {
+                    asyncMethod.Invoke(_webView, new object[] { script });
+                    return;
+                }
 
-            _webView.ExecuteScript(script);
+                _webView.ExecuteScript(script);
+            }
+            catch (Exception ex)
+            {
+                LogUiError("ExecuteJavaScript failed", new { ex.Message, ex.StackTrace });
+            }
         });
     }
 
@@ -493,15 +567,159 @@ public sealed class OpenCamPanel : Panel, IPanel
         }
     }
 
-    private static Uri ResolvePanelUrl()
+    private void LoadFrontend()
     {
+        var indexPath = ResolvePanelIndexPath();
+        LogUi("Resolving frontend", new { indexPath, exists = File.Exists(indexPath) });
+
+        if (!File.Exists(indexPath))
+        {
 #if DEBUG
-        return new Uri("http://localhost:5174/");
+            var fallbackUrl = "http://localhost:5174/";
+            LogUi("Frontend bundle missing, falling back to dev server", new { fallbackUrl });
+            _webView.Url = new Uri(fallbackUrl);
+            return;
 #else
+            throw new FileNotFoundException("OpenCAM frontend bundle not found.", indexPath);
+#endif
+        }
+
+        var html = File.ReadAllText(indexPath);
+        html = InlineFrontendAssets(html, indexPath);
+
+        var bootstrapJson = JsonSerializer.Serialize(new
+        {
+            mode = "panel",
+            backendUrl = "http://127.0.0.1:9090",
+        }, JsonOptions);
+        var bootstrapScript = BuildBootstrapScript(bootstrapJson);
+        var htmlWithBootstrap = html.Contains("</head>", StringComparison.OrdinalIgnoreCase)
+            ? html.Replace("</head>", bootstrapScript + "</head>", StringComparison.OrdinalIgnoreCase)
+            : bootstrapScript + html;
+
+        LogUi("Loading bundled frontend", new
+        {
+            indexPath,
+            htmlLength = html.Length,
+            injectedHtmlLength = htmlWithBootstrap.Length,
+        });
+
+        _webView.LoadHtml(htmlWithBootstrap, new Uri(indexPath));
+    }
+
+    private string InlineFrontendAssets(string html, string indexPath)
+    {
+        var indexDirectory = Path.GetDirectoryName(indexPath) ?? AppContext.BaseDirectory;
+        var inlinedStylesheetCount = 0;
+        var inlinedScriptCount = 0;
+
+        html = StylesheetHrefRegex.Replace(html, match =>
+        {
+            var href = match.Groups["href"].Value;
+            var assetPath = ResolveFrontendAssetPath(indexDirectory, href);
+            if (!File.Exists(assetPath))
+            {
+                LogUiError("Stylesheet asset missing", new { href, assetPath });
+                return match.Value;
+            }
+
+            inlinedStylesheetCount += 1;
+            return "<style data-opencam-inline=\"" + Path.GetFileName(assetPath) + "\">\n"
+                + File.ReadAllText(assetPath)
+                + "\n</style>";
+        });
+
+        html = ScriptSrcRegex.Replace(html, match =>
+        {
+            var src = match.Groups["src"].Value;
+            var assetPath = ResolveFrontendAssetPath(indexDirectory, src);
+            if (!File.Exists(assetPath))
+            {
+                LogUiError("Script asset missing", new { src, assetPath });
+                return match.Value;
+            }
+
+            var originalTag = match.Value;
+            var typeAttribute = originalTag.Contains("type=\"module\"", StringComparison.OrdinalIgnoreCase)
+                ? " type=\"module\""
+                : string.Empty;
+
+            inlinedScriptCount += 1;
+            return "<script" + typeAttribute + ">\n"
+                + File.ReadAllText(assetPath)
+                + "\n</script>";
+        });
+
+        LogUi("Inlined frontend assets", new
+        {
+            indexDirectory,
+            inlinedStylesheetCount,
+            inlinedScriptCount,
+        });
+
+        return html;
+    }
+
+    private static string ResolveFrontendAssetPath(string indexDirectory, string relativePath)
+    {
+        var normalizedRelativePath = relativePath.Replace('/', Path.DirectorySeparatorChar)
+            .TrimStart(Path.DirectorySeparatorChar);
+        if (normalizedRelativePath.StartsWith("." + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+        {
+            normalizedRelativePath = normalizedRelativePath[(2)..];
+        }
+
+        return Path.GetFullPath(Path.Combine(indexDirectory, normalizedRelativePath));
+    }
+
+    private static string BuildBootstrapScript(string bootstrapJson)
+    {
+        return "<script>\n"
+            + "window.__OPENCAM_BOOTSTRAP__ = " + bootstrapJson + ";\n"
+            + "window.__openCamRhinoDebug = function(level, message, data) {\n"
+            + "  try {\n"
+            + "    var payload = {\n"
+            + "      type: level === 'error' ? 'uiError' : 'uiDebug',\n"
+            + "      payload: {\n"
+            + "        level: level || 'info',\n"
+            + "        message: message || '',\n"
+            + "        data: data ?? null,\n"
+            + "        href: window.location.href,\n"
+            + "        readyState: document.readyState\n"
+            + "      }\n"
+            + "    };\n"
+            + "    window.location.href = 'rhino://message?' + encodeURIComponent(JSON.stringify(payload));\n"
+            + "  } catch (_) {}\n"
+            + "};\n"
+            + "window.__openCamRhinoDebug('info', 'bootstrap injected', window.__OPENCAM_BOOTSTRAP__);\n"
+            + "window.addEventListener('DOMContentLoaded', function() {\n"
+            + "  window.__openCamRhinoDebug('info', 'dom content loaded');\n"
+            + "});\n"
+            + "window.addEventListener('load', function() {\n"
+            + "  window.__openCamRhinoDebug('info', 'window load fired');\n"
+            + "});\n"
+            + "window.addEventListener('error', function(event) {\n"
+            + "  window.__openCamRhinoDebug('error', 'window error', {\n"
+            + "    message: event.message,\n"
+            + "    source: event.filename,\n"
+            + "    line: event.lineno,\n"
+            + "    column: event.colno,\n"
+            + "    error: event.error ? String(event.error.stack || event.error.message || event.error) : null\n"
+            + "  });\n"
+            + "});\n"
+            + "window.addEventListener('unhandledrejection', function(event) {\n"
+            + "  var reason = event.reason;\n"
+            + "  window.__openCamRhinoDebug('error', 'unhandled rejection', {\n"
+            + "    reason: reason ? String(reason.stack || reason.message || reason) : null\n"
+            + "  });\n"
+            + "});\n"
+            + "</script>\n";
+    }
+
+    private static string ResolvePanelIndexPath()
+    {
         var pluginDir = Path.GetDirectoryName(typeof(OpenCamPanel).Assembly.Location)
             ?? AppContext.BaseDirectory;
-        var indexPath = Path.Combine(pluginDir, "web", "index.html");
-        return new Uri(indexPath);
-#endif
+        return Path.Combine(pluginDir, "web", "index.html");
     }
 }

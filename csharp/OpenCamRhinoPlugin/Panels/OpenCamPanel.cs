@@ -48,6 +48,7 @@ public sealed class OpenCamPanel : Panel, IPanel
     {
         _documentSerialNumber = documentSerialNumber;
         _webView = new WebView();
+        TrySetBackgroundColor(_webView, SystemColors.ControlBackground);
         _webView.DocumentLoading += OnDocumentLoading;
         _webView.DocumentLoaded += OnDocumentLoaded;
         RhinoApp.AppSettingsChanged += OnRhinoAppSettingsChanged;
@@ -182,6 +183,9 @@ public sealed class OpenCamPanel : Panel, IPanel
                         hasOperation = _operationJson != null,
                     });
                     break;
+                case "openSetupModal":
+                    OpenSetupModal(message);
+                    break;
                 case "selectStock":
                     SelectStock(message);
                     break;
@@ -230,6 +234,120 @@ public sealed class OpenCamPanel : Panel, IPanel
                 Ok = false,
                 Error = ex.Message,
             });
+        }
+    }
+
+    private void OpenSetupModal(WebBridgeMessage message)
+    {
+        if (!string.IsNullOrWhiteSpace(message.Id))
+        {
+            PostReply(message, new { opening = true });
+        }
+
+        Application.Instance.AsyncInvoke(() =>
+        {
+            try
+            {
+                ShowSetupModal();
+            }
+            catch (Exception ex)
+            {
+                LogUiError("Failed to open setup modal", new { ex.Message, ex.StackTrace });
+            }
+        });
+    }
+
+    private void ShowSetupModal()
+    {
+        var backgroundColor = SystemColors.ControlBackground;
+        var dialog = new Dialog<bool>
+        {
+            Title = "OpenCAM Setup",
+            ClientSize = new Size(520, 360),
+            Resizable = true,
+        };
+
+        TrySetBackgroundColor(dialog, backgroundColor);
+
+        var webView = new WebView
+        {
+            Visible = false,
+        };
+        TrySetBackgroundColor(webView, backgroundColor);
+        TrySetBrowserContextMenuEnabled(webView, false);
+        webView.DocumentLoading += (_, e) => OnSetupModalDocumentLoading(dialog, e);
+        webView.DocumentLoaded += (_, e) =>
+        {
+            LogUi("Setup modal WebView document loaded", new
+            {
+                documentSerialNumber = _documentSerialNumber,
+                uri = e.Uri?.ToString(),
+                ready = true,
+            });
+            SyncRhinoThemeToWebView(webView);
+            webView.Visible = true;
+        };
+
+        var content = new Panel
+        {
+            BackgroundColor = backgroundColor,
+            Content = webView,
+        };
+
+        LoadFrontend(webView, "setupModal", "/setup");
+        dialog.Content = content;
+        dialog.ShowModal(RhinoEtoApp.MainWindow);
+    }
+
+    private void OnSetupModalDocumentLoading(Dialog<bool> dialog, WebViewLoadingEventArgs e)
+    {
+        if (!string.Equals(e.Uri.Scheme, "rhino", StringComparison.OrdinalIgnoreCase))
+        {
+            if (e.Uri != null)
+            {
+                LogUi("Setup modal WebView loading", new { uri = e.Uri.ToString() });
+            }
+            return;
+        }
+
+        e.Cancel = true;
+        var payload = Uri.UnescapeDataString(e.Uri.Query.TrimStart('?'));
+        if (string.IsNullOrWhiteSpace(payload))
+        {
+            return;
+        }
+
+        WebBridgeMessage? message;
+        try
+        {
+            message = JsonSerializer.Deserialize<WebBridgeMessage>(payload, JsonOptions);
+        }
+        catch (JsonException ex)
+        {
+            LogUiError("Invalid setup modal bridge message", new { ex.Message });
+            return;
+        }
+
+        if (message == null || string.IsNullOrWhiteSpace(message.Type))
+        {
+            LogUiError("Invalid setup modal bridge message", new { error = "Bridge message is missing a type." });
+            return;
+        }
+
+        switch (message.Type)
+        {
+            case "closeModal":
+                dialog.Close(string.Equals(ReadString(message.Payload, "result"), "ok", StringComparison.OrdinalIgnoreCase));
+                break;
+            case "uiDebug":
+                LogUi("Setup modal frontend debug", message.Payload.ValueKind == JsonValueKind.Undefined ? null : message.Payload);
+                break;
+            case "uiError":
+                LogUiError("Setup modal frontend error", message.Payload.ValueKind == JsonValueKind.Undefined ? null : message.Payload);
+                break;
+            default:
+                LogUi("Unsupported setup modal bridge message", new { message.Type });
+                break;
         }
     }
 
@@ -530,14 +648,18 @@ public sealed class OpenCamPanel : Panel, IPanel
 
     private void SyncRhinoThemeToWebView()
     {
+        SyncRhinoThemeToWebView(_webView);
+    }
+
+    private void SyncRhinoThemeToWebView(WebView webView)
+    {
         try
         {
-            var systemBackground = SystemColors.ControlBackground;
-            var isDark = RelativeLuminance(systemBackground) < 0.5;
+            var isDark = IsRhinoDarkTheme();
             var script = "window.__setRhinoTheme && window.__setRhinoTheme({"
                 + $"isDark:{(isDark ? "true" : "false")}"
                 + "});";
-            ExecuteJavaScript(script);
+            ExecuteJavaScript(webView, script);
             LogUi("Synced Rhino theme", new
             {
                 isDark,
@@ -547,6 +669,11 @@ public sealed class OpenCamPanel : Panel, IPanel
         {
             LogUiError("SyncRhinoThemeToWebView failed", new { ex.Message, ex.StackTrace });
         }
+    }
+
+    private static bool IsRhinoDarkTheme()
+    {
+        return RelativeLuminance(SystemColors.ControlBackground) < 0.5;
     }
 
     private static double RelativeLuminance(Color color)
@@ -582,18 +709,23 @@ public sealed class OpenCamPanel : Panel, IPanel
 
     private void ExecuteJavaScript(string script)
     {
+        ExecuteJavaScript(_webView, script);
+    }
+
+    private void ExecuteJavaScript(WebView webView, string script)
+    {
         Application.Instance.AsyncInvoke(() =>
         {
             try
             {
-                var asyncMethod = _webView.GetType().GetMethod("ExecuteScriptAsync", new[] { typeof(string) });
+                var asyncMethod = webView.GetType().GetMethod("ExecuteScriptAsync", new[] { typeof(string) });
                 if (asyncMethod != null)
                 {
-                    asyncMethod.Invoke(_webView, new object[] { script });
+                    asyncMethod.Invoke(webView, new object[] { script });
                     return;
                 }
 
-                _webView.ExecuteScript(script);
+                webView.ExecuteScript(script);
             }
             catch (Exception ex)
             {
@@ -604,10 +736,55 @@ public sealed class OpenCamPanel : Panel, IPanel
 
     private static void TrySetBrowserContextMenuEnabled(WebView webView, bool enabled)
     {
-        var property = webView.GetType().GetProperty("BrowserContextMenuEnabled", BindingFlags.Instance | BindingFlags.Public);
+        var property = FindInstanceProperty(webView.GetType(), "BrowserContextMenuEnabled");
         if (property?.CanWrite == true)
         {
             property.SetValue(webView, enabled);
+        }
+    }
+
+    private static void TrySetBackgroundColor(object target, Color color)
+    {
+        try
+        {
+            TrySetColorProperty(target, "BackgroundColor", color);
+            var handler = GetInstancePropertyValue(target, "Handler");
+            if (handler != null)
+            {
+                TrySetColorProperty(handler, "BackgroundColor", color);
+                var control = GetInstancePropertyValue(handler, "Control");
+                if (control != null)
+                {
+                    TrySetColorProperty(control, "BackgroundColor", color);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            LogUi("Setting background color unavailable", new
+            {
+                targetType = target.GetType().FullName,
+                ex.Message,
+            });
+        }
+    }
+
+    private static bool TrySetColorProperty(object target, string propertyName, Color value)
+    {
+        try
+        {
+            var property = FindInstanceProperty(target.GetType(), propertyName);
+            if (property?.CanWrite != true || property.PropertyType != typeof(Color))
+            {
+                return false;
+            }
+
+            property.SetValue(target, value);
+            return true;
+        }
+        catch
+        {
+            return false;
         }
     }
 
@@ -664,13 +841,13 @@ public sealed class OpenCamPanel : Panel, IPanel
 
     private static object? GetInstancePropertyValue(object target, string propertyName)
     {
-        var property = target.GetType().GetProperty(propertyName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        var property = FindInstanceProperty(target.GetType(), propertyName);
         return property?.GetValue(target);
     }
 
     private static bool TrySetBooleanProperty(object target, string propertyName, bool value)
     {
-        var property = target.GetType().GetProperty(propertyName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        var property = FindInstanceProperty(target.GetType(), propertyName);
         if (property?.CanWrite != true || property.PropertyType != typeof(bool))
         {
             return false;
@@ -680,13 +857,36 @@ public sealed class OpenCamPanel : Panel, IPanel
         return true;
     }
 
+    private static PropertyInfo? FindInstanceProperty(Type targetType, string propertyName)
+    {
+        for (var type = targetType; type != null; type = type.BaseType)
+        {
+            var property = type
+                .GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly)
+                .FirstOrDefault(candidate =>
+                    candidate.Name == propertyName
+                    && candidate.GetIndexParameters().Length == 0);
+            if (property != null)
+            {
+                return property;
+            }
+        }
+
+        return null;
+    }
+
     private void LoadFrontend()
+    {
+        LoadFrontend(_webView, "panel", "/");
+    }
+
+    private void LoadFrontend(WebView webView, string mode, string route)
     {
         var indexPath = ResolvePanelIndexPath();
         var bundledFrontendExists = File.Exists(indexPath);
-        LogUi("Resolving frontend", new { indexPath, exists = bundledFrontendExists });
+        LogUi("Resolving frontend", new { indexPath, exists = bundledFrontendExists, mode, route });
 
-        if (TryLoadDevFrontend())
+        if (TryLoadDevFrontend(webView, route))
         {
             return;
         }
@@ -699,8 +899,8 @@ public sealed class OpenCamPanel : Panel, IPanel
         var indexDirectory = Path.GetDirectoryName(indexPath) ?? AppContext.BaseDirectory;
         var html = File.ReadAllText(indexPath);
         html = InlineFrontendAssets(html, indexDirectory);
-        var htmlWithBootstrap = InjectBootstrap(html);
-        var launchPath = WriteBundledLaunchHtml(indexDirectory, htmlWithBootstrap);
+        var htmlWithBootstrap = InjectBootstrap(html, mode, route);
+        var launchPath = WriteBundledLaunchHtml(indexDirectory, htmlWithBootstrap, route);
 
         LogUi("Loading bundled frontend", new
         {
@@ -709,40 +909,47 @@ public sealed class OpenCamPanel : Panel, IPanel
             launchPath,
             htmlLength = html.Length,
             injectedHtmlLength = htmlWithBootstrap.Length,
+            mode,
+            route,
         });
 
-        _webView.Url = new Uri(launchPath);
+        webView.Url = new Uri(launchPath);
     }
 
-    private bool TryLoadDevFrontend()
+    private bool TryLoadDevFrontend(WebView webView, string route)
     {
+        var routePath = string.IsNullOrWhiteSpace(route) || route == "/"
+            ? string.Empty
+            : route.TrimStart('/');
+        var frontendUri = new Uri(DevFrontendUri, routePath);
+
         try
         {
             using var httpClient = new HttpClient
             {
                 Timeout = TimeSpan.FromMilliseconds(750),
             };
-            using var request = new HttpRequestMessage(HttpMethod.Get, DevFrontendUri);
+            using var request = new HttpRequestMessage(HttpMethod.Get, frontendUri);
             using var response = httpClient.Send(request);
             if (!response.IsSuccessStatusCode)
             {
                 LogUi("Dev frontend unavailable", new
                 {
-                    url = DevFrontendUri.ToString(),
+                    url = frontendUri.ToString(),
                     statusCode = (int)response.StatusCode,
                 });
                 return false;
             }
 
-            LogUi("Loading dev frontend", new { url = DevFrontendUri.ToString() });
-            _webView.Url = DevFrontendUri;
+            LogUi("Loading dev frontend", new { url = frontendUri.ToString() });
+            webView.Url = frontendUri;
             return true;
         }
         catch (Exception ex)
         {
             LogUi("Dev frontend unavailable", new
             {
-                url = DevFrontendUri.ToString(),
+                url = frontendUri.ToString(),
                 error = ex.Message,
             });
             return false;
@@ -826,11 +1033,13 @@ public sealed class OpenCamPanel : Panel, IPanel
         return html;
     }
 
-    private string InjectBootstrap(string html)
+    private string InjectBootstrap(string html, string mode, string route)
     {
         var bootstrapJson = JsonSerializer.Serialize(new
         {
-            mode = "panel",
+            mode,
+            route,
+            isDark = IsRhinoDarkTheme(),
             backendUrl = "http://127.0.0.1:9090",
         }, JsonOptions);
         var bootstrapScript = BuildBootstrapScript(bootstrapJson);
@@ -860,6 +1069,7 @@ public sealed class OpenCamPanel : Panel, IPanel
     {
         return "<script>\n"
             + "window.__OPENCAM_BOOTSTRAP__ = " + bootstrapJson + ";\n"
+            + "document.documentElement.classList.toggle('dark', !!window.__OPENCAM_BOOTSTRAP__.isDark);\n"
             + "window.__openCamRhinoDebug = function(level, message, data) {\n"
             + "  try {\n"
             + "    var payload = {\n"
@@ -897,9 +1107,12 @@ public sealed class OpenCamPanel : Panel, IPanel
             + "</script>\n";
     }
 
-    private static string WriteBundledLaunchHtml(string indexDirectory, string html)
+    private static string WriteBundledLaunchHtml(string indexDirectory, string html, string route)
     {
-        var launchPath = Path.Combine(indexDirectory, "index.opencam.html");
+        var routeName = string.IsNullOrWhiteSpace(route) || route == "/"
+            ? string.Empty
+            : "." + Regex.Replace(route.Trim('/'), "[^a-zA-Z0-9_-]+", "-");
+        var launchPath = Path.Combine(indexDirectory, $"index.opencam{routeName}.html");
         File.WriteAllText(launchPath, html);
         return launchPath;
     }

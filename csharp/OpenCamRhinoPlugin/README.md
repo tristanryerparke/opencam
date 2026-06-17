@@ -1,66 +1,29 @@
 # OpenCAM Rhino Plugin
 
-C#-only Rhino 8 plugin prototype. It hosts a bundled TypeScript/Vite web UI in an `Eto.Forms.WebView` dockable Rhino panel and talks to the OpenCAM FastAPI backend directly over HTTP.
+C#-only Rhino 8 plugin prototype. It uses Rhino's built-in Eto forms for the dockable panel and setup dialog, and talks to the OpenCAM FastAPI backend directly over HTTP.
 
-This intentionally does **not** depend on `rhino-python-renderer`, Redis, or the RhinoCode pipe.
+This intentionally does **not** depend on `rhino-python-renderer`, Redis, the RhinoCode pipe, WebView, or any JavaScript frontend bundle.
 
 ## Current scope
 
 Implemented:
 
 - Rhino command: `OpenCam`
-- per-document dockable panel via `Rhino.UI.Panels.RegisterPanel`
-- `Eto.Forms.WebView` host
-- JS -> C# bridge via `rhino://message?...`
-- C# -> JS replies via WebView script execution
-- stock selection from Rhino mesh/Brep
-- Brep-to-mesh conversion and in-memory ASCII STL export
-- closed pocket boundary selection from closed curve or Brep face
-- preset `/pocket/closed` request generation
-- direct HTTP calls to OpenCAM backend
-- C# conduit preview for generated toolpath curves
-- `/simulate/swept` task start and status polling hooks
+- per-document dockable Eto panel via `Rhino.UI.Panels.RegisterPanel`
+- native Eto version of the basic panel UI from the former JS frontend:
+  - `Setup` button
+  - `Operation` button
+  - backend status indicator placeholder
+  - empty panel body
+- native Eto setup dialog placeholder
 
 Not implemented yet:
 
-- fetching/decoding/displaying simulation GLB or Rhino JSON mesh assets
+- full operation workflow wiring in the Eto UI
+- simulation controls in the Eto UI
 - lazy simulation frame cache in C#
 - arbitrary machining plane transforms
 - hole/island pocket regions
-- Rhino-side parameter editing UI
-
-## Development UI
-
-The Rhino panel now prefers the built root frontend bundle from:
-
-```text
-csharp/OpenCamRhinoPlugin/web/
-```
-
-Build it from the repository root frontend:
-
-```bash
-cd frontend
-npm install
-npm run build
-```
-
-That build writes directly into the plugin `web/` folder with relative asset URLs so Rhino can load it without a dev server.
-
-If the built bundle is missing in a Debug build, the panel falls back to:
-
-```text
-http://127.0.0.1:5174/
-```
-
-Run that fallback dev server with:
-
-```bash
-cd frontend
-npm run dev
-```
-
-The plugin project copies `web/**` to the output directory.
 
 ## Backend
 

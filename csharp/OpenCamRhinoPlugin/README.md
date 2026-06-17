@@ -31,31 +31,33 @@ Not implemented yet:
 
 ## Development UI
 
-In Debug builds, the panel loads Vite from:
-
-```text
-http://localhost:5174/
-```
-
-Run:
-
-```bash
-cd csharp/OpenCamRhinoPlugin/web-ui
-npm install
-npm run dev
-```
-
-For production-style local files:
-
-```bash
-cd csharp/OpenCamRhinoPlugin/web-ui
-npm run build
-```
-
-The build output is written to:
+The Rhino panel now prefers the built root frontend bundle from:
 
 ```text
 csharp/OpenCamRhinoPlugin/web/
+```
+
+Build it from the repository root frontend:
+
+```bash
+cd frontend
+npm install
+npm run build
+```
+
+That build writes directly into the plugin `web/` folder with relative asset URLs so Rhino can load it without a dev server.
+
+If the built bundle is missing in a Debug build, the panel falls back to:
+
+```text
+http://127.0.0.1:5174/
+```
+
+Run that fallback dev server with:
+
+```bash
+cd frontend
+npm run dev
 ```
 
 The plugin project copies `web/**` to the output directory.
@@ -65,13 +67,19 @@ The plugin project copies `web/**` to the output directory.
 Start the OpenCAM API separately, for example:
 
 ```bash
-uvicorn src.server.main:app --reload
+python main.py
+```
+
+or:
+
+```bash
+uvicorn src.server.main:app --reload --port 9090
 ```
 
 The panel defaults to:
 
 ```text
-http://localhost:8000
+http://127.0.0.1:9090
 ```
 
 ## macOS install helper

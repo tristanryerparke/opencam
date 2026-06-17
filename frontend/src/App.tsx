@@ -19,6 +19,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { getOpenCamBootstrap, sendRhinoUiDebug } from "@/bootstrap";
 import { getBackendUrl } from "@/hooks/useBackendConnection";
 import { sampleToolpathLocations, type ToolpathOperation } from "@/simulation/toolpath";
 
@@ -469,6 +470,13 @@ function App() {
     maxSimDistance: "40",
     side: "outside",
   });
+
+  useEffect(() => {
+    sendRhinoUiDebug("info", "App mounted", {
+      bootstrap: getOpenCamBootstrap(),
+      backendUrl: getBackendUrl(),
+    });
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -1209,6 +1217,20 @@ function App() {
   function handleSimulationPause() {
     setIsSimulationPlaying(false);
   }
+
+  useEffect(() => {
+    sendRhinoUiDebug("info", "UI request state changed", {
+      requestState,
+      requestMessage,
+      selectedOperation,
+      hasMesh: Boolean(meshUrl),
+      hasFaceSelection: Boolean(selectedMeshFace),
+      hasGeneratedOperation: Boolean(generatedOperation),
+      simulationTaskId,
+      simulationId,
+      showOriginalMesh,
+    });
+  }, [generatedOperation, meshUrl, requestMessage, requestState, selectedMeshFace, selectedOperation, showOriginalMesh, simulationId, simulationTaskId]);
 
   useEffect(() => {
     if (!simulationTaskId || requestState !== "submitting") {

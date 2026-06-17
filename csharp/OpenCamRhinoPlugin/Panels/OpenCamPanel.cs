@@ -1,7 +1,9 @@
 using System.IO;
+using System.Net.Http;
 using System.Reflection;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Eto.Drawing;
 using Eto.Forms;
 using Rhino;
 using Rhino.Geometry;
@@ -25,6 +27,7 @@ public sealed class OpenCamPanel : Panel, IPanel
     private static readonly Regex ScriptSrcRegex = new(
         "<script\\b[^>]*src=\"(?<src>[^\"]+)\"[^>]*>\\s*</script>",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Uri DevFrontendUri = new("http://localhost:5174/");
 
     private readonly uint _documentSerialNumber;
     private readonly WebView _webView;
@@ -43,6 +46,7 @@ public sealed class OpenCamPanel : Panel, IPanel
         _webView = new WebView();
         _webView.DocumentLoading += OnDocumentLoading;
         _webView.DocumentLoaded += OnDocumentLoaded;
+        RhinoApp.AppSettingsChanged += OnRhinoAppSettingsChanged;
 
         LogUi("Panel created", new { documentSerialNumber = _documentSerialNumber });
         TrySetBrowserContextMenuEnabled(_webView, false);
@@ -65,6 +69,7 @@ public sealed class OpenCamPanel : Panel, IPanel
     public void PanelClosing(uint documentSerialNumber, bool onCloseDocument)
     {
         LogUi("Panel closing", new { documentSerialNumber, onCloseDocument });
+        RhinoApp.AppSettingsChanged -= OnRhinoAppSettingsChanged;
         _toolpathPreview.Clear();
         _simulationPreview.Clear();
     }
@@ -83,6 +88,12 @@ public sealed class OpenCamPanel : Panel, IPanel
             documentSerialNumber = _documentSerialNumber,
             rhinoVersion = RhinoApp.Version.ToString(),
         });
+        SyncRhinoThemeToWebView();
+    }
+
+    private void OnRhinoAppSettingsChanged(object? sender, EventArgs e)
+    {
+        SyncRhinoThemeToWebView();
     }
 
     private void OnDocumentLoading(object? sender, WebViewLoadingEventArgs e)
@@ -510,6 +521,32 @@ public sealed class OpenCamPanel : Panel, IPanel
         ExecuteJavaScript("window.__openCamBridge && window.__openCamBridge.receive(" + json + ");");
     }
 
+    private void SyncRhinoThemeToWebView()
+    {
+        try
+        {
+            var systemBackground = SystemColors.ControlBackground;
+            var isDark = RelativeLuminance(systemBackground) < 0.5;
+            var script = "window.__setRhinoTheme && window.__setRhinoTheme({"
+                + $"isDark:{(isDark ? "true" : "false")}"
+                + "});";
+            ExecuteJavaScript(script);
+            LogUi("Synced Rhino theme", new
+            {
+                isDark,
+            });
+        }
+        catch (Exception ex)
+        {
+            LogUiError("SyncRhinoThemeToWebView failed", new { ex.Message, ex.StackTrace });
+        }
+    }
+
+    private static double RelativeLuminance(Color color)
+    {
+        return (0.2126 * color.Rb + 0.7152 * color.Gb + 0.0722 * color.Bb) / 255.0;
+    }
+
     private static void LogUi(string message, object? data = null)
     {
         var suffix = data == null ? string.Empty : " :: " + SerializeForLog(data);
@@ -570,18 +607,17 @@ public sealed class OpenCamPanel : Panel, IPanel
     private void LoadFrontend()
     {
         var indexPath = ResolvePanelIndexPath();
-        LogUi("Resolving frontend", new { indexPath, exists = File.Exists(indexPath) });
+        var bundledFrontendExists = File.Exists(indexPath);
+        LogUi("Resolving frontend", new { indexPath, exists = bundledFrontendExists });
 
-        if (!File.Exists(indexPath))
+        if (TryLoadDevFrontend())
         {
-#if DEBUG
-            var fallbackUrl = "http://localhost:5174/";
-            LogUi("Frontend bundle missing, falling back to dev server", new { fallbackUrl });
-            _webView.Url = new Uri(fallbackUrl);
             return;
-#else
+        }
+
+        if (!bundledFrontendExists)
+        {
             throw new FileNotFoundException("OpenCAM frontend bundle not found.", indexPath);
-#endif
         }
 
         var html = File.ReadAllText(indexPath);
@@ -605,6 +641,41 @@ public sealed class OpenCamPanel : Panel, IPanel
         });
 
         _webView.LoadHtml(htmlWithBootstrap, new Uri(indexPath));
+    }
+
+    private bool TryLoadDevFrontend()
+    {
+        try
+        {
+            using var httpClient = new HttpClient
+            {
+                Timeout = TimeSpan.FromMilliseconds(750),
+            };
+            using var request = new HttpRequestMessage(HttpMethod.Get, DevFrontendUri);
+            using var response = httpClient.Send(request);
+            if (!response.IsSuccessStatusCode)
+            {
+                LogUi("Dev frontend unavailable", new
+                {
+                    url = DevFrontendUri.ToString(),
+                    statusCode = (int)response.StatusCode,
+                });
+                return false;
+            }
+
+            LogUi("Loading dev frontend", new { url = DevFrontendUri.ToString() });
+            _webView.Url = DevFrontendUri;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            LogUi("Dev frontend unavailable", new
+            {
+                url = DevFrontendUri.ToString(),
+                error = ex.Message,
+            });
+            return false;
+        }
     }
 
     private string InlineFrontendAssets(string html, string indexPath)
@@ -720,6 +791,6 @@ public sealed class OpenCamPanel : Panel, IPanel
     {
         var pluginDir = Path.GetDirectoryName(typeof(OpenCamPanel).Assembly.Location)
             ?? AppContext.BaseDirectory;
-        return Path.Combine(pluginDir, "web", "index.html");
+        return Path.Combine(pluginDir, "panel-web", "index.html");
     }
 }

@@ -1,85 +1,13 @@
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>OpenCAM Rhino</title>
-  <style>
-    :root{color-scheme:dark;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;--radius:.625rem;--background:transparent;--foreground:#fafafa;--card:#18181b;--card-foreground:#fafafa;--muted:#27272a;--muted-foreground:#a1a1aa;--accent:#27272a;--accent-foreground:#fafafa;--primary:#fafafa;--primary-foreground:#18181b;--border:rgba(255,255,255,.1);--input:rgba(255,255,255,.15);--ring:rgba(255,255,255,.35)}*{box-sizing:border-box}html,body,#app{height:100%}body{margin:0;background:transparent;color:var(--foreground)}button,input{font:inherit}.layout{display:flex;flex-direction:column;gap:12px;min-height:100%;padding:12px}.topbar,.panel-card{border:1px solid var(--border);border-radius:var(--radius);background:color-mix(in srgb,var(--card) 88%,transparent);color:var(--card-foreground);backdrop-filter:blur(10px)}.topbar{display:flex;flex-direction:column;gap:10px;padding:14px}.eyebrow{color:var(--muted-foreground);font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase}h1,h2,p{margin:0}h1{font-size:18px;font-weight:600}h2{font-size:14px;font-weight:600}.subtle,.muted,.helper,.inline-note{color:var(--muted-foreground)}.subtle,.muted,.helper{font-size:12px;line-height:1.45}.inline-note{font-size:11px;white-space:nowrap}.badge-row{display:flex;flex-wrap:wrap;gap:6px}.badge{border:1px solid var(--border);border-radius:999px;background:var(--muted);color:var(--muted-foreground);font-size:11px;font-weight:600;padding:4px 8px}.badge-ok{background:rgba(34,197,94,.16);border-color:rgba(34,197,94,.28);color:#86efac}.section-stack{display:flex;flex-direction:column;gap:12px;padding:14px}.section-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.field-stack{display:flex;flex-direction:column;gap:6px}label{font-size:12px;font-weight:500}.input{width:100%;border:1px solid var(--input);border-radius:calc(var(--radius) - 2px);background:transparent;color:var(--foreground);outline:none;padding:8px 10px}.input:focus{border-color:var(--ring);box-shadow:0 0 0 3px rgba(255,255,255,.08)}.action-row{display:flex;flex-direction:column;gap:8px}.button-grid{display:grid;gap:8px;grid-template-columns:repeat(2,minmax(0,1fr))}.button-grid .btn-ghost{grid-column:1 / -1}.btn{display:inline-flex;align-items:center;justify-content:center;border:1px solid transparent;border-radius:calc(var(--radius) - 2px);cursor:pointer;font-size:13px;font-weight:500;line-height:1;padding:10px 12px;transition:background-color 120ms ease,border-color 120ms ease,color 120ms ease,opacity 120ms ease}.btn:disabled{cursor:not-allowed;opacity:.5}.btn-block{width:100%}.btn-sm{min-height:32px;padding:8px 10px}.btn-primary{background:var(--primary);color:var(--primary-foreground)}.btn-primary:hover:not(:disabled){background:rgba(250,250,250,.9)}.btn-outline{background:transparent;border-color:var(--input);color:var(--foreground)}.btn-outline:hover:not(:disabled),.btn-ghost:hover:not(:disabled){background:var(--accent)}.btn-ghost{background:transparent;color:var(--muted-foreground)}.log-card{min-height:220px}.log-list{display:flex;flex-direction:column;gap:8px;max-height:320px;overflow:auto}.log-entry{border:1px solid var(--border);border-radius:calc(var(--radius) - 4px);background:rgba(9,9,11,.72);padding:8px 10px}.log-entry.reply{border-color:rgba(34,197,94,.22)}.log-entry.error{border-color:rgba(239,68,68,.3)}.log-title{font-size:12px;line-height:1.45}pre{margin:6px 0 0;color:#d4d4d8;font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono",monospace;font-size:11px;line-height:1.45;white-space:pre-wrap;word-break:break-word}
-  </style>
-</head>
-<body>
-  <div id="app"></div>
-  <script type="module">
-    const pending = new Map();
-    const logs = [];
-    const app = document.querySelector('#app');
-    const state = { backendUrl: 'http://localhost:8000', hasStock: false, hasBoundary: false, hasOperation: false, taskId: '', stockSummary: 'No stock selected.', boundarySummary: 'No pocket area selected.', operationSummary: 'Toolpath not generated.', simulationSummary: 'No simulation started.' };
-
-    window.__openCamBridge = { receive(reply) {
-      addLog(reply.ok ? 'reply' : 'error', `${reply.type}: ${reply.ok ? 'ok' : reply.error || 'failed'}`);
-      if (reply.type === 'selectStock' && reply.ok) {
-        state.hasStock = true; state.hasBoundary = false; state.hasOperation = false; state.taskId = '';
-        state.stockSummary = buildStockSummary(reply.data); state.boundarySummary = 'No pocket area selected.'; state.operationSummary = 'Toolpath not generated.'; state.simulationSummary = 'No simulation started.';
-      }
-      if (reply.type === 'selectPocketBoundary' && reply.ok) {
-        state.hasBoundary = true; state.hasOperation = false; state.taskId = '';
-        state.boundarySummary = buildBoundarySummary(reply.data); state.operationSummary = 'Toolpath not generated.'; state.simulationSummary = 'No simulation started.';
-      }
-      if (reply.type === 'generateToolpath' && reply.ok) {
-        state.hasOperation = true; state.taskId = '';
-        state.operationSummary = buildToolpathSummary(reply.data); state.simulationSummary = 'No simulation started.';
-      }
-      if (reply.type === 'startSimulation' && reply.ok) {
-        const taskId = readString(reply.data, 'taskId'); if (taskId) state.taskId = taskId;
-        state.simulationSummary = taskId ? `Simulation queued. Task ${taskId.slice(0, 8)}…` : 'Simulation queued.';
-      }
-      if (reply.type === 'pollSimulation' && reply.ok) {
-        const statusRoot = readObject(reply.data, 'status') || reply.data;
-        state.simulationSummary = buildSimulationSummary(statusRoot);
-      }
-      if (reply.id && pending.has(reply.id)) {
-        const request = pending.get(reply.id); pending.delete(reply.id); reply.ok ? request.resolve(reply) : request.reject(new Error(reply.error || 'Rhino bridge request failed'));
-      }
-      render();
-    }};
-
-    function sendToRhino(type, payload = {}) {
-      const id = crypto.randomUUID?.() || `${Date.now()}-${Math.random()}`;
-      const message = { id, type, payload: { backendUrl: state.backendUrl, ...payload } };
-      window.location.href = `rhino://message?${encodeURIComponent(JSON.stringify(message))}`;
-      return new Promise((resolve, reject) => {
-        pending.set(id, { resolve, reject });
-        setTimeout(() => { if (pending.has(id)) { pending.delete(id); reject(new Error(`${type} timed out`)); } }, 600000);
-      });
-    }
-
-    function readString(value, key) { if (!value || typeof value !== 'object') return ''; const candidate = value[key]; return typeof candidate === 'string' ? candidate : ''; }
-    function readNumber(value, key) { if (!value || typeof value !== 'object') return null; const candidate = value[key]; return typeof candidate === 'number' ? candidate : null; }
-    function readObject(value, key) { if (!value || typeof value !== 'object') return null; const candidate = value[key]; return candidate && typeof candidate === 'object' ? candidate : null; }
-    function trimNumber(value) { return Number.isInteger(value) ? String(value) : value.toFixed(3).replace(/\.0+$/, '').replace(/(\.\d*?)0+$/, '$1'); }
-    function capitalize(value) { return value ? value[0].toUpperCase() + value.slice(1) : value; }
-    function buildStockSummary(data) { const name = readString(data, 'name') || 'Rhino stock'; const faces = readNumber(data, 'faceCount'); return faces != null ? `${name} · ${faces.toLocaleString()} faces selected.` : `${name} selected.`; }
-    function buildBoundarySummary(data) { const sourceKind = readString(data, 'sourceKind') || 'boundary'; const pointCount = readNumber(data, 'pointCount'); const planeZ = readNumber(data, 'planeZ'); const sourceLabel = sourceKind === 'brep-face' ? 'Brep face' : 'Closed curve'; const zLabel = planeZ != null ? ` · Z ${trimNumber(planeZ)}` : ''; return pointCount != null ? `${sourceLabel} · ${pointCount} points${zLabel}.` : `${sourceLabel} selected${zLabel}.`; }
-    function buildToolpathSummary(data) { const curveCount = readNumber(data, 'previewCurveCount'); const pointCount = readNumber(data, 'previewPointCount'); return curveCount != null && pointCount != null ? `${curveCount} preview path${curveCount === 1 ? '' : 's'} · ${pointCount} points.` : 'Toolpath generated and previewed in Rhino.'; }
-    function buildSimulationSummary(data) { const status = readString(data, 'status') || 'unknown'; const progress = readNumber(data, 'progressPercent'); const message = readString(data, 'message'); const result = readObject(data, 'result'); if (status === 'completed' && result) { const frameCount = readNumber(result, 'frameCount'); const chunkCount = readNumber(result, 'chunkCount'); return `Simulation complete${frameCount != null ? ` · ${frameCount} frames` : ''}${chunkCount != null ? ` · ${chunkCount} chunks` : ''}.`; } const progressLabel = progress != null ? ` (${Math.round(progress)}%)` : ''; return `${capitalize(status)}${progressLabel}${message ? ` · ${message}` : ''}`; }
-    function addLog(kind, message, data) { logs.unshift({ time: new Date().toLocaleTimeString(), kind, message, data }); if (logs.length > 80) logs.pop(); }
-    async function run(type, payload) { try { addLog('info', `sending ${type}`); render(); const reply = await sendToRhino(type, payload); if (reply.data !== undefined) addLog('reply', `${type} data`, reply.data); } catch (error) { addLog('error', error instanceof Error ? error.message : String(error)); } finally { render(); } }
-    function escapeHtml(value) { return String(value).replace(/[&<>"]/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[ch] || ch)); }
-    function renderLogs() { return logs.map(entry => `<div class="log-entry ${entry.kind}"><div class="log-title">[${escapeHtml(entry.time)}] ${escapeHtml(entry.message)}</div>${entry.data === undefined ? '' : `<pre>${escapeHtml(JSON.stringify(entry.data, null, 2))}</pre>`}</div>`).join(''); }
-    function render() {
-      app.innerHTML = `<main class="layout"><header class="topbar"><div><div class="eyebrow">Rhino side panel</div><h1>OpenCAM Viewer</h1><p class="subtle">Minimal shadcn-style workflow for selection, toolpaths, and simulation fetch.</p></div><div class="badge-row"><span class="badge ${state.hasStock ? 'badge-ok' : ''}">Stock</span><span class="badge ${state.hasBoundary ? 'badge-ok' : ''}">Pocket</span><span class="badge ${state.hasOperation ? 'badge-ok' : ''}">Toolpath</span><span class="badge ${state.taskId ? 'badge-ok' : ''}">Sim</span></div></header><section class="panel-card section-stack"><div class="section-head"><div><h2>Backend</h2><p class="muted">Match the same API the browser frontend uses.</p></div><button class="btn btn-outline btn-sm" id="test-backend">Test</button></div><div class="field-stack"><label for="backend-url">Backend URL</label><input id="backend-url" class="input" value="${escapeHtml(state.backendUrl)}" /></div></section><section class="panel-card section-stack"><div class="section-head"><div><h2>Selection</h2><p class="muted">Use Rhino picks, then submit the same OpenCAM-style pocket request.</p></div><span class="inline-note">Preset pocket · Ø12 · z-step 6</span></div><div class="action-row"><button class="btn btn-outline btn-block" id="select-stock">Select stock</button><p class="helper">${escapeHtml(state.stockSummary)}</p></div><div class="action-row"><button class="btn btn-outline btn-block" id="select-boundary" ${state.hasStock ? '' : 'disabled'}>Select pocket area</button><p class="helper">${escapeHtml(state.boundarySummary)}</p></div></section><section class="panel-card section-stack"><div class="section-head"><div><h2>Operation</h2><p class="muted">Generate Rhino viewport toolpaths using the backend pocket engine.</p></div></div><div class="action-row"><button class="btn btn-primary btn-block" id="generate" ${state.hasStock && state.hasBoundary ? '' : 'disabled'}>Generate toolpath</button><p class="helper">${escapeHtml(state.operationSummary)}</p></div></section><section class="panel-card section-stack"><div class="section-head"><div><h2>Simulation</h2><p class="muted">Queue the swept simulation, then poll until the final Rhino meshes load.</p></div></div><div class="button-grid"><button class="btn btn-primary" id="start-sim" ${state.hasOperation ? '' : 'disabled'}>Start simulation</button><button class="btn btn-outline" id="poll-sim" ${state.taskId ? '' : 'disabled'}>Poll simulation</button><button class="btn btn-ghost" id="clear-preview">Clear preview</button></div><p class="helper">${escapeHtml(state.simulationSummary)}</p></section><section class="panel-card section-stack log-card"><div class="section-head"><div><h2>Event log</h2><p class="muted">Bridge messages, backend replies, and simulation status.</p></div></div><div id="log" class="log-list">${renderLogs()}</div></section></main>`;
-      document.querySelector('#backend-url')?.addEventListener('input', event => { state.backendUrl = event.currentTarget.value; });
-      document.querySelector('#test-backend')?.addEventListener('click', () => run('testBackend'));
-      document.querySelector('#select-stock')?.addEventListener('click', () => run('selectStock'));
-      document.querySelector('#select-boundary')?.addEventListener('click', () => run('selectPocketBoundary'));
-      document.querySelector('#generate')?.addEventListener('click', () => run('generateToolpath'));
-      document.querySelector('#start-sim')?.addEventListener('click', () => run('startSimulation'));
-      document.querySelector('#poll-sim')?.addEventListener('click', () => run('pollSimulation', { taskId: state.taskId }));
-      document.querySelector('#clear-preview')?.addEventListener('click', () => run('clearPreview'));
-    }
-    render();
-    run('ping');
-  </script>
-</body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OpenCAM Viewer</title>
+    <script type="module" crossorigin src="./assets/index-DC2pzb3E.js"></script>
+    <link rel="stylesheet" crossorigin href="./assets/index-Daph9HLm.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
 </html>

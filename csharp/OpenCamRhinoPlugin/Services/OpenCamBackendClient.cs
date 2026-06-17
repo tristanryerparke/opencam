@@ -17,7 +17,7 @@ public sealed class OpenCamBackendClient
     {
         if (string.IsNullOrWhiteSpace(baseUrl))
         {
-            baseUrl = "http://localhost:8000";
+            baseUrl = "http://127.0.0.1:9090";
         }
 
         _baseUri = new Uri(baseUrl.TrimEnd('/') + "/");

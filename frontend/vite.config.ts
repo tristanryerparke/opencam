@@ -5,6 +5,11 @@ import tailwindcss from "@tailwindcss/vite";
 
 // https://vite.dev/config/
 export default defineConfig({
+  base: "./",
+  build: {
+    outDir: "../csharp/OpenCamRhinoPlugin/web",
+    emptyOutDir: true,
+  },
   plugins: [
     react({
       babel: {
@@ -19,6 +24,9 @@ export default defineConfig({
     },
   },
   server: {
+    host: "127.0.0.1",
+    port: 5174,
+    strictPort: true,
     proxy: {
       "/api": {
         target: "http://localhost:9090",

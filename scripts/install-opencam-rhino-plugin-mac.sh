@@ -8,8 +8,9 @@ usage() {
   cat <<'EOF'
 Usage: scripts/install-opencam-rhino-plugin-mac.sh [options]
 
-Builds OpenCamRhinoPlugin and installs the full plugin output folder to Rhino's
-macOS MacPlugIns directory as OpenCamRhinoPlugin.rhp.
+Builds the Rhino panel web UI, builds OpenCamRhinoPlugin, and installs the full
+plugin output folder to Rhino's macOS MacPlugIns directory as
+OpenCamRhinoPlugin.rhp.
 
 Options:
   -c, --configuration <Debug|Release>  Build configuration. Default: Debug
@@ -52,6 +53,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 PROJECT_PATH="$REPO_ROOT/csharp/OpenCamRhinoPlugin/OpenCamRhinoPlugin.csproj"
 SOLUTION_PATH="$REPO_ROOT/csharp/OpenCamRhinoPlugin.slnx"
+WEB_UI_DIR="$REPO_ROOT/csharp/OpenCamRhinoPlugin/web-ui"
 TARGET_FRAMEWORK="net8.0"
 OUTPUT_DIR="$REPO_ROOT/csharp/OpenCamRhinoPlugin/bin/$CONFIGURATION/$TARGET_FRAMEWORK"
 PLUGIN_FILE="$OUTPUT_DIR/OpenCamRhinoPlugin.rhp"
@@ -63,6 +65,18 @@ if [[ "$OSTYPE" != darwin* ]]; then
 fi
 
 if [[ "$BUILD" -eq 1 ]]; then
+  echo "Building Rhino panel web UI..."
+  (
+    cd "$WEB_UI_DIR"
+    if command -v bun >/dev/null 2>&1; then
+      bun install
+      bun run build
+    else
+      npm install
+      npm run build
+    fi
+  )
+
   echo "Building $SOLUTION_PATH ($CONFIGURATION)..."
   dotnet build "$SOLUTION_PATH" -c "$CONFIGURATION"
 fi

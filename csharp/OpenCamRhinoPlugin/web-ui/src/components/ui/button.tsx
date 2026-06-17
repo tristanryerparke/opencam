@@ -22,6 +22,7 @@ const buttonVariants = cva(
           "h-[var(--button-height-sm)] rounded-md px-[var(--button-px-sm)] has-[>svg]:px-[var(--button-px-sm)]",
         lg:
           "h-[var(--button-height-lg)] rounded-md px-[var(--button-px-lg)] has-[>svg]:px-[var(--button-px-lg)]",
+        square: "size-[var(--button-height)] p-0",
       },
     },
     defaultVariants: {

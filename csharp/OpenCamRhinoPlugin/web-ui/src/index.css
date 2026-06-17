@@ -42,7 +42,7 @@
 }
 
 :root {
-    --radius: 0.625rem;
+    --radius: 0.45rem;
     --ui-scale: 1;
     --button-height: calc(1.625rem * var(--ui-scale));
     --button-height-sm: calc(1.625rem * var(--ui-scale));
@@ -99,7 +99,7 @@
 
 .dark {
     --background: rgb(44 44 44);
-    --foreground: oklch(0.985 0 0);
+    --foreground: rgb(211 211 211);
     --card: rgb(44 44 44);
     --card-foreground: oklch(0.985 0 0);
     --popover: rgb(44 44 44);
@@ -141,6 +141,10 @@
     #root {
         height: 100%;
         width: 100%;
+    }
+
+    html {
+        font-size: 14px;
     }
 
     body {

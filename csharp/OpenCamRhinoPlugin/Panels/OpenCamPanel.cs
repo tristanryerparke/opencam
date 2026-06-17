@@ -21,6 +21,9 @@ public sealed class OpenCamPanel : Panel, IPanel
     {
         WriteIndented = false,
     };
+    private static readonly Regex HeadOpenRegex = new(
+        "<head\\b[^>]*>",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex StylesheetHrefRegex = new(
         "<link\\b[^>]*rel=\"stylesheet\"[^>]*href=\"(?<href>[^\"]+)\"[^>]*>",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -39,6 +42,7 @@ public sealed class OpenCamPanel : Panel, IPanel
     private SelectedStock? _selectedStock;
     private SelectedPocketBoundary? _selectedBoundary;
     private string? _operationJson;
+    private bool _webInspectorConfigured;
 
     public OpenCamPanel(uint documentSerialNumber)
     {
@@ -52,6 +56,7 @@ public sealed class OpenCamPanel : Panel, IPanel
         TrySetBrowserContextMenuEnabled(_webView, false);
         LoadFrontend();
         Content = _webView;
+        TryEnableWebInspector();
     }
 
     public static Guid PanelId => typeof(OpenCamPanel).GUID;
@@ -76,6 +81,8 @@ public sealed class OpenCamPanel : Panel, IPanel
 
     private void OnDocumentLoaded(object? sender, WebViewLoadedEventArgs e)
     {
+        TryEnableWebInspector(logFailure: true);
+
         LogUi("WebView document loaded", new
         {
             documentSerialNumber = _documentSerialNumber,
@@ -604,6 +611,75 @@ public sealed class OpenCamPanel : Panel, IPanel
         }
     }
 
+    private void TryEnableWebInspector(bool logFailure = false)
+    {
+        if (_webInspectorConfigured)
+        {
+            return;
+        }
+
+        try
+        {
+            var handler = GetInstancePropertyValue(_webView, "Handler");
+            var control = handler == null ? null : GetInstancePropertyValue(handler, "Control");
+            if (control == null)
+            {
+                if (logFailure)
+                {
+                    _webInspectorConfigured = true;
+                    LogUi("WebView inspection unavailable", new { reason = "Native control not found." });
+                }
+                return;
+            }
+
+            if (TrySetBooleanProperty(control, "Inspectable", true)
+                || TrySetBooleanProperty(control, "IsInspectable", true))
+            {
+                _webInspectorConfigured = true;
+                LogUi("Enabled WebView inspection", new
+                {
+                    controlType = control.GetType().FullName,
+                });
+                return;
+            }
+
+            if (logFailure)
+            {
+                _webInspectorConfigured = true;
+                LogUi("WebView inspection unavailable", new
+                {
+                    controlType = control.GetType().FullName,
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            if (logFailure)
+            {
+                _webInspectorConfigured = true;
+                LogUiError("TryEnableWebInspector failed", new { ex.Message, ex.StackTrace });
+            }
+        }
+    }
+
+    private static object? GetInstancePropertyValue(object target, string propertyName)
+    {
+        var property = target.GetType().GetProperty(propertyName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        return property?.GetValue(target);
+    }
+
+    private static bool TrySetBooleanProperty(object target, string propertyName, bool value)
+    {
+        var property = target.GetType().GetProperty(propertyName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        if (property?.CanWrite != true || property.PropertyType != typeof(bool))
+        {
+            return false;
+        }
+
+        property.SetValue(target, value);
+        return true;
+    }
+
     private void LoadFrontend()
     {
         var indexPath = ResolvePanelIndexPath();
@@ -620,27 +696,22 @@ public sealed class OpenCamPanel : Panel, IPanel
             throw new FileNotFoundException("OpenCAM frontend bundle not found.", indexPath);
         }
 
+        var indexDirectory = Path.GetDirectoryName(indexPath) ?? AppContext.BaseDirectory;
         var html = File.ReadAllText(indexPath);
-        html = InlineFrontendAssets(html, indexPath);
-
-        var bootstrapJson = JsonSerializer.Serialize(new
-        {
-            mode = "panel",
-            backendUrl = "http://127.0.0.1:9090",
-        }, JsonOptions);
-        var bootstrapScript = BuildBootstrapScript(bootstrapJson);
-        var htmlWithBootstrap = html.Contains("</head>", StringComparison.OrdinalIgnoreCase)
-            ? html.Replace("</head>", bootstrapScript + "</head>", StringComparison.OrdinalIgnoreCase)
-            : bootstrapScript + html;
+        html = InlineFrontendAssets(html, indexDirectory);
+        var htmlWithBootstrap = InjectBootstrap(html);
+        var launchPath = WriteBundledLaunchHtml(indexDirectory, htmlWithBootstrap);
 
         LogUi("Loading bundled frontend", new
         {
             indexPath,
+            indexDirectory,
+            launchPath,
             htmlLength = html.Length,
             injectedHtmlLength = htmlWithBootstrap.Length,
         });
 
-        _webView.LoadHtml(htmlWithBootstrap, new Uri(indexPath));
+        _webView.Url = new Uri(launchPath);
     }
 
     private bool TryLoadDevFrontend()
@@ -678,11 +749,11 @@ public sealed class OpenCamPanel : Panel, IPanel
         }
     }
 
-    private string InlineFrontendAssets(string html, string indexPath)
+    private string InlineFrontendAssets(string html, string indexDirectory)
     {
-        var indexDirectory = Path.GetDirectoryName(indexPath) ?? AppContext.BaseDirectory;
         var inlinedStylesheetCount = 0;
         var inlinedScriptCount = 0;
+        var inlinedScripts = new List<string>();
 
         html = StylesheetHrefRegex.Replace(html, match =>
         {
@@ -710,16 +781,40 @@ public sealed class OpenCamPanel : Panel, IPanel
                 return match.Value;
             }
 
-            var originalTag = match.Value;
-            var typeAttribute = originalTag.Contains("type=\"module\"", StringComparison.OrdinalIgnoreCase)
-                ? " type=\"module\""
-                : string.Empty;
+            var escapedSrc = JsonSerializer.Serialize(src);
+            var escapedAssetPath = JsonSerializer.Serialize(assetPath);
 
             inlinedScriptCount += 1;
-            return "<script" + typeAttribute + ">\n"
+            inlinedScripts.Add("<script data-opencam-inline=\"" + Path.GetFileName(assetPath) + "\">\n"
+                + "try {\n"
                 + File.ReadAllText(assetPath)
-                + "\n</script>";
+                + "\n"
+                + "} catch (error) {\n"
+                + "  var message = 'OpenCAM bundled script failed\\n'"
+                + " + 'src: ' + " + escapedSrc + " + '\\n'"
+                + " + 'assetPath: ' + " + escapedAssetPath + " + '\\n'"
+                + " + (error ? String(error.stack || error.message || error) : 'unknown error');\n"
+                + "  try { console.error(message); } catch (_) {}\n"
+                + "  try {\n"
+                + "    var pre = document.createElement('pre');\n"
+                + "    pre.style.cssText = 'white-space:pre-wrap;padding:12px;color:#f88;background:#1f1f1f;font:12px monospace;';\n"
+                + "    pre.textContent = message;\n"
+                + "    (document.body || document.documentElement).appendChild(pre);\n"
+                + "  } catch (_) {}\n"
+                + "  throw error;\n"
+                + "}\n"
+                + "//# sourceURL=" + assetPath.Replace("\\", "/") + "\n"
+                + "</script>");
+            return string.Empty;
         });
+
+        if (inlinedScripts.Count > 0)
+        {
+            var scriptsHtml = string.Join("\n", inlinedScripts);
+            html = html.Contains("</body>", StringComparison.OrdinalIgnoreCase)
+                ? html.Replace("</body>", scriptsHtml + "\n</body>", StringComparison.OrdinalIgnoreCase)
+                : html + scriptsHtml;
+        }
 
         LogUi("Inlined frontend assets", new
         {
@@ -729,6 +824,24 @@ public sealed class OpenCamPanel : Panel, IPanel
         });
 
         return html;
+    }
+
+    private string InjectBootstrap(string html)
+    {
+        var bootstrapJson = JsonSerializer.Serialize(new
+        {
+            mode = "panel",
+            backendUrl = "http://127.0.0.1:9090",
+        }, JsonOptions);
+        var bootstrapScript = BuildBootstrapScript(bootstrapJson);
+        if (HeadOpenRegex.IsMatch(html))
+        {
+            return HeadOpenRegex.Replace(html, match => match.Value + bootstrapScript, 1);
+        }
+
+        return html.Contains("</head>", StringComparison.OrdinalIgnoreCase)
+            ? html.Replace("</head>", bootstrapScript + "</head>", StringComparison.OrdinalIgnoreCase)
+            : bootstrapScript + html;
     }
 
     private static string ResolveFrontendAssetPath(string indexDirectory, string relativePath)
@@ -759,16 +872,13 @@ public sealed class OpenCamPanel : Panel, IPanel
             + "        readyState: document.readyState\n"
             + "      }\n"
             + "    };\n"
-            + "    window.location.href = 'rhino://message?' + encodeURIComponent(JSON.stringify(payload));\n"
+            + "    if (window.eto && typeof window.eto.postMessage === 'function') {\n"
+            + "      window.eto.postMessage(JSON.stringify(payload));\n"
+            + "    } else if (window.console) {\n"
+            + "      (level === 'error' ? console.error : console.log)(message, data);\n"
+            + "    }\n"
             + "  } catch (_) {}\n"
             + "};\n"
-            + "window.__openCamRhinoDebug('info', 'bootstrap injected', window.__OPENCAM_BOOTSTRAP__);\n"
-            + "window.addEventListener('DOMContentLoaded', function() {\n"
-            + "  window.__openCamRhinoDebug('info', 'dom content loaded');\n"
-            + "});\n"
-            + "window.addEventListener('load', function() {\n"
-            + "  window.__openCamRhinoDebug('info', 'window load fired');\n"
-            + "});\n"
             + "window.addEventListener('error', function(event) {\n"
             + "  window.__openCamRhinoDebug('error', 'window error', {\n"
             + "    message: event.message,\n"
@@ -785,6 +895,13 @@ public sealed class OpenCamPanel : Panel, IPanel
             + "  });\n"
             + "});\n"
             + "</script>\n";
+    }
+
+    private static string WriteBundledLaunchHtml(string indexDirectory, string html)
+    {
+        var launchPath = Path.Combine(indexDirectory, "index.opencam.html");
+        File.WriteAllText(launchPath, html);
+        return launchPath;
     }
 
     private static string ResolvePanelIndexPath()

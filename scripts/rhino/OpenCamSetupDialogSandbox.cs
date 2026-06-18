@@ -43,9 +43,10 @@ public sealed class OpenCamSetupDialogSandbox : Dialog<bool>
     private readonly SetupOriginPreviewConduit _preview;
     private readonly Button _okButton = new() { Text = "OK" };
     private readonly Button _selectOriginButton = new() { Text = "Select Point" };
-    private readonly NumericStepper _xInput = new() { Value = 0, Width = 55, Increment = 1, DecimalPlaces = 2, MaximumDecimalPlaces = 2 };
-    private readonly NumericStepper _yInput = new() { Value = 0, Width = 55, Increment = 1, DecimalPlaces = 2, MaximumDecimalPlaces = 2 };
-    private readonly NumericStepper _zInput = new() { Value = 0, Width = 55, Increment = 1, DecimalPlaces = 2, MaximumDecimalPlaces = 2 };
+    private readonly TextBox _setupNameInput = new() { Text = "Setup 1" };
+    private readonly NumericStepper _xInput = new() { Value = 0, Width = 60, Increment = 1, DecimalPlaces = 2, MaximumDecimalPlaces = 2 };
+    private readonly NumericStepper _yInput = new() { Value = 0, Width = 60, Increment = 1, DecimalPlaces = 2, MaximumDecimalPlaces = 2 };
+    private readonly NumericStepper _zInput = new() { Value = 0, Width = 60, Increment = 1, DecimalPlaces = 2, MaximumDecimalPlaces = 2 };
 
     public OpenCamSetupDialogSandbox(RhinoDoc doc, SetupOriginPreviewConduit preview)
     {
@@ -53,7 +54,7 @@ public sealed class OpenCamSetupDialogSandbox : Dialog<bool>
         _preview = preview;
 
         Title = "OpenCAM Setup Sandbox";
-        ClientSize = new Size(520, 120);
+        ClientSize = new Size(520, 170);
         Resizable = false;
 
         var cancelButton = new Button { Text = "Cancel" };
@@ -65,20 +66,47 @@ public sealed class OpenCamSetupDialogSandbox : Dialog<bool>
         _yInput.ValueChanged += (_, _) => ValidateInputs();
         _zInput.ValueChanged += (_, _) => ValidateInputs();
 
+        var xGroup = new StackLayout
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 4,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            Items = { new Label { Text = "X", VerticalAlignment = VerticalAlignment.Center }, _xInput },
+        };
+        var yGroup = new StackLayout
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 4,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            Items = { new Label { Text = "Y", VerticalAlignment = VerticalAlignment.Center }, _yInput },
+        };
+        var zGroup = new StackLayout
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 4,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            Items = { new Label { Text = "Z", VerticalAlignment = VerticalAlignment.Center }, _zInput },
+        };
+
+        var setupNameRow = new TableLayout
+        {
+            Rows =
+            {
+                new TableRow(
+                    new TableCell(_setupNameInput, true)),
+            },
+        };
+
         var topRow = new TableLayout
         {
             Spacing = new Size(8, 8),
             Rows =
             {
                 new TableRow(
-                    new TableCell(new Label { Text = "Setup Origin:", VerticalAlignment = VerticalAlignment.Center }, false),
+                    new TableCell(xGroup, false),
+                    new TableCell(yGroup, false),
+                    new TableCell(zGroup, false),
                     new TableCell(new Panel(), true),
-                    new TableCell(new Label { Text = "X", VerticalAlignment = VerticalAlignment.Center }, false),
-                    new TableCell(_xInput, false),
-                    new TableCell(new Label { Text = "Y", VerticalAlignment = VerticalAlignment.Center }, false),
-                    new TableCell(_yInput, false),
-                    new TableCell(new Label { Text = "Z", VerticalAlignment = VerticalAlignment.Center }, false),
-                    new TableCell(_zInput, false),
                     new TableCell(_selectOriginButton, false)),
             },
         };
@@ -88,7 +116,16 @@ public sealed class OpenCamSetupDialogSandbox : Dialog<bool>
             Padding = new Padding(12),
             DefaultSpacing = new Size(8, 8),
         };
-        content.Add(topRow);
+        content.Add(new GroupBox
+        {
+            Text = "Name",
+            Content = setupNameRow,
+        });
+        content.Add(new GroupBox
+        {
+            Text = "Origin",
+            Content = topRow,
+        });
         content.Add(null, yscale: true);
         content.AddSeparateRow(null, cancelButton, _okButton);
 
@@ -140,6 +177,7 @@ public sealed class OpenCamSetupDialogSandbox : Dialog<bool>
         _preview.Show(point);
         _doc.Views.Redraw();
     }
+
 }
 
 public sealed class SetupOriginPreviewConduit : DisplayConduit

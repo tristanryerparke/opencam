@@ -13,17 +13,22 @@ public sealed class OpenCamSetupDialog : Dialog<bool>
     private readonly SetupOriginPreviewConduit _setupOriginPreview;
     private readonly Button _okButton = new() { Text = "OK" };
     private readonly Button _selectOriginButton = new() { Text = "Select Point" };
-    private readonly NumericStepper _xInput = new() { Value = 0, Width = 55, Increment = 1, DecimalPlaces = 2, MaximumDecimalPlaces = 2 };
-    private readonly NumericStepper _yInput = new() { Value = 0, Width = 55, Increment = 1, DecimalPlaces = 2, MaximumDecimalPlaces = 2 };
-    private readonly NumericStepper _zInput = new() { Value = 0, Width = 55, Increment = 1, DecimalPlaces = 2, MaximumDecimalPlaces = 2 };
+    private readonly TextBox _setupNameInput;
+    private readonly NumericStepper _xInput = new() { Value = 0, Width = 60, Increment = 1, DecimalPlaces = 2, MaximumDecimalPlaces = 2 };
+    private readonly NumericStepper _yInput = new() { Value = 0, Width = 60, Increment = 1, DecimalPlaces = 2, MaximumDecimalPlaces = 2 };
+    private readonly NumericStepper _zInput = new() { Value = 0, Width = 60, Increment = 1, DecimalPlaces = 2, MaximumDecimalPlaces = 2 };
 
     private Point3d _setupOrigin = Point3d.Origin;
 
-    public OpenCamSetupDialog(SetupOriginPreviewConduit setupOriginPreview)
+    public string SetupName => string.IsNullOrWhiteSpace(_setupNameInput.Text) ? "Setup" : _setupNameInput.Text.Trim();
+    public Point3d SetupOrigin => _setupOrigin;
+
+    public OpenCamSetupDialog(SetupOriginPreviewConduit setupOriginPreview, string defaultSetupName = "Setup 1")
     {
         _setupOriginPreview = setupOriginPreview;
+        _setupNameInput = new TextBox { Text = defaultSetupName };
         Title = "OpenCAM Setup";
-        ClientSize = new Size(520, 120);
+        ClientSize = new Size(520, 170);
         Resizable = false;
 
         var cancelButton = new Button { Text = "Cancel" };
@@ -36,49 +41,71 @@ public sealed class OpenCamSetupDialog : Dialog<bool>
         _yInput.ValueChanged += (_, _) => ValidateInputs();
         _zInput.ValueChanged += (_, _) => ValidateInputs();
 
-        var originInputsRow = new StackLayout
+        var xGroup = new StackLayout
         {
             Orientation = Orientation.Horizontal,
-            Spacing = 8,
+            Spacing = 4,
             VerticalContentAlignment = VerticalAlignment.Center,
-            Items =
-            {
-                new Label { Text = "X", VerticalAlignment = VerticalAlignment.Center },
-                _xInput,
-                new Label { Text = "Y", VerticalAlignment = VerticalAlignment.Center },
-                _yInput,
-                new Label { Text = "Z", VerticalAlignment = VerticalAlignment.Center },
-                _zInput,
-                _selectOriginButton,
-            },
+            Items = { new Label { Text = "X", VerticalAlignment = VerticalAlignment.Center }, _xInput },
+        };
+        var yGroup = new StackLayout
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 4,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            Items = { new Label { Text = "Y", VerticalAlignment = VerticalAlignment.Center }, _yInput },
+        };
+        var zGroup = new StackLayout
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 4,
+            VerticalContentAlignment = VerticalAlignment.Center,
+            Items = { new Label { Text = "Z", VerticalAlignment = VerticalAlignment.Center }, _zInput },
         };
 
-        var layout = new TableLayout
+        var setupNameRow = new TableLayout
         {
-            Padding = new Padding(12),
-            Spacing = new Size(8, 8),
-            BackgroundColor = SystemColors.ControlBackground,
             Rows =
             {
                 new TableRow(
-                    new TableCell(new Label { Text = "Setup Origin:", VerticalAlignment = VerticalAlignment.Center }, scaleWidth: false),
-                    new TableCell(new Panel(), scaleWidth: true),
-                    new TableCell(originInputsRow, scaleWidth: false)),
-                new TableRow(
-                    new TableCell(new Panel(), scaleWidth: false),
-                    new TableCell(new Panel(), scaleWidth: true),
-                    new TableCell(new Panel(), scaleWidth: false))
-                {
-                    ScaleHeight = true,
-                },
-                new TableRow(
-                    new TableCell(new Panel(), scaleWidth: false),
-                    new TableCell(cancelButton, scaleWidth: false),
-                    new TableCell(_okButton, scaleWidth: false)),
+                    new TableCell(_setupNameInput, true)),
             },
         };
 
-        Content = layout;
+        var setupOriginRow = new TableLayout
+        {
+            Spacing = new Size(8, 8),
+            Rows =
+            {
+                new TableRow(
+                    new TableCell(xGroup, false),
+                    new TableCell(yGroup, false),
+                    new TableCell(zGroup, false),
+                    new TableCell(new Panel(), true),
+                    new TableCell(_selectOriginButton, false)),
+            },
+        };
+
+        var content = new DynamicLayout
+        {
+            Padding = new Padding(12),
+            DefaultSpacing = new Size(8, 8),
+            BackgroundColor = SystemColors.ControlBackground,
+        };
+        content.Add(new GroupBox
+        {
+            Text = "Name",
+            Content = setupNameRow,
+        });
+        content.Add(new GroupBox
+        {
+            Text = "Origin",
+            Content = setupOriginRow,
+        });
+        content.Add(null, yscale: true);
+        content.AddSeparateRow(null, cancelButton, _okButton);
+
+        Content = content;
         DefaultButton = _okButton;
         AbortButton = cancelButton;
 

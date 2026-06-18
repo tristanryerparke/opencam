@@ -11,16 +11,24 @@ public sealed class SetupOriginPreviewConduit : DisplayConduit
     private const double ArrowWidthFactor = 0.08;
 
     public Point3d? Origin { get; private set; }
+    public string? Label { get; private set; }
 
     public void Show(Point3d origin)
     {
+        Show(origin, null);
+    }
+
+    public void Show(Point3d origin, string? label)
+    {
         Origin = origin;
+        Label = label;
         Enabled = true;
     }
 
     public void Clear()
     {
         Origin = null;
+        Label = null;
         Enabled = false;
     }
 
@@ -34,6 +42,11 @@ public sealed class SetupOriginPreviewConduit : DisplayConduit
         DrawAxis(e, origin, Vector3d.XAxis, Color.Red);
         DrawAxis(e, origin, Vector3d.YAxis, Color.LimeGreen);
         DrawAxis(e, origin, Vector3d.ZAxis, Color.FromArgb(0, 0, 255));
+
+        if (!string.IsNullOrWhiteSpace(Label))
+        {
+            e.Display.DrawDot(origin, Label, Color.White, Color.Black);
+        }
     }
 
     protected override void CalculateBoundingBox(CalculateBoundingBoxEventArgs e)

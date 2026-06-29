@@ -185,17 +185,17 @@
   },
   "active": "e71c9627d55f446d",
   "lastOpenFiles": [
-    "assets/pocketing-research/fusion-pocket-90-reversed.nc",
-    "assets/pocketing-research/pocketing-fusion-90.nc",
-    "assets/pocketing-research/pocketing_part_90.stp",
-    "assets/pocketing-research/pocketing_part_90.stl",
-    "assets/pocketing-research/pocket-fusion-12.7.nc",
-    "frontend-paths.json",
-    "assets/pocketing-research/pocketing-opencam-last-run.json",
-    "assets/pocketing-research/pocketing-opencam.json",
-    "assets/pocketing-research/pocketing-fusion.nc",
-    "assets/pocketing-research/pocketing_part.stp",
-    "assets/pocketing-research/pocketing_part.stl",
+    "src/opencam/engine/closed_polyline/__pycache__/seam_shift._seam_shift_impl-9.py312.1.nbc",
+    "src/opencam/engine/closed_polyline/__pycache__/seam_shift._seam_shift_impl-9.py312.nbi",
+    "src/opencam/engine/closed_polyline/__pycache__/dedup._dedup_impl-7.py312.1.nbc",
+    "src/opencam/engine/closed_polyline/__pycache__/dedup._dedup_impl-7.py312.nbi",
+    "tests/__pycache__/test_seam_shift.cpython-312-pytest-9.0.3.pyc",
+    "tests/test_seam_shift.py",
+    "src/opencam/engine/closed_polyline/__pycache__/evaluate.evaluate_length-7.py312.1.nbc",
+    "src/opencam/engine/closed_polyline/__pycache__/evaluate.evaluate_length-7.py312.nbi",
+    "src/opencam/engine/closed_polyline/__pycache__/evaluate.evaluate-29.py312.1.nbc",
+    "src/opencam/engine/closed_polyline/__pycache__/evaluate.evaluate-29.py312.nbi",
+    "src/opencam/engine/closed_polyline/__pycache__/length.length-5.py312.1.nbc",
     "Operations.md"
   ]
 }

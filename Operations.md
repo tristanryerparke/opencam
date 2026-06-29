@@ -32,6 +32,9 @@ There can be some unification of the rhino and web interfaces by generating the 
 #### 2D Pocketing
 - Drive Geometry (closed curves, closed surface edge)
 - Cut Parameters
+	- Climb/Conventional
 	- Stepover
 	- Stock to leave
-	- Pocket from inside / outside
+- Advanced
+	- Pocket from inside/outside (default-inside)
+	- 

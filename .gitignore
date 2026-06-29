@@ -57,3 +57,6 @@ htmlcov/
 
 # Generated simulation outputs
 output/
+
+
+**/.DS_Store

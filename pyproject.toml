@@ -13,6 +13,7 @@ dependencies = [
     "fastapi>=0.128.0",
     "manifold3d>=3.4.1",
     "mapbox-earcut>=2.0.0",
+    "matplotlib>=3.11.0",
     "networkx>=3.6.1",
     "numba>=0.65.1",
     "numpy>=2.4.4",

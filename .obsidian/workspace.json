@@ -185,17 +185,17 @@
   },
   "active": "e71c9627d55f446d",
   "lastOpenFiles": [
+    "assets/pocketing-research/branch-level-seams.png",
+    "assets/pocketing-research/pocketing_rhinocam.nc",
+    "assets/pocketing-research/just-pocketing_Setup 1.nc",
+    "old-demos/__pycache__/test_milling_simulation_swept.cpython-312-pytest-9.0.3.pyc",
+    "old-demos/__pycache__/test_milling_simulation_manifold_batch.cpython-312-pytest-9.0.3.pyc",
+    "old-demos/__pycache__/test_milling_simulation_manifold.cpython-312-pytest-9.0.3.pyc",
+    "old-demos/__pycache__",
+    "tests/__pycache__/test_pocketing.cpython-312-pytest-9.0.3.pyc",
+    "tests/test_pocketing.py",
     "src/opencam/engine/closed_polyline/__pycache__/seam_shift._seam_shift_impl-9.py312.1.nbc",
     "src/opencam/engine/closed_polyline/__pycache__/seam_shift._seam_shift_impl-9.py312.nbi",
-    "src/opencam/engine/closed_polyline/__pycache__/dedup._dedup_impl-7.py312.1.nbc",
-    "src/opencam/engine/closed_polyline/__pycache__/dedup._dedup_impl-7.py312.nbi",
-    "tests/__pycache__/test_seam_shift.cpython-312-pytest-9.0.3.pyc",
-    "tests/test_seam_shift.py",
-    "src/opencam/engine/closed_polyline/__pycache__/evaluate.evaluate_length-7.py312.1.nbc",
-    "src/opencam/engine/closed_polyline/__pycache__/evaluate.evaluate_length-7.py312.nbi",
-    "src/opencam/engine/closed_polyline/__pycache__/evaluate.evaluate-29.py312.1.nbc",
-    "src/opencam/engine/closed_polyline/__pycache__/evaluate.evaluate-29.py312.nbi",
-    "src/opencam/engine/closed_polyline/__pycache__/length.length-5.py312.1.nbc",
     "Operations.md"
   ]
 }

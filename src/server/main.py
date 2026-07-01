@@ -21,8 +21,8 @@ from opencam.schemas.models import (
     SweptSimulationStatusResponse,
     ToolpathOperation,
 )
-from opencam.services.toolpath.pocketing import ClosedPocketingEngine
-from opencam.services.toolpath.profiling import ClosedProfilingEngine
+from opencam.services.operations.pocketing.operation import ClosedPocketingEngine
+from opencam.services.operations.profiling import ClosedProfilingEngine
 from opencam.services.simulation.swept_volume import (
     SimulatedChunk,
     SimulatedMeshFrame,

@@ -1,5 +1,5 @@
 from opencam.schemas.models import ClosedPolyline, Point2D, Tool
-from opencam.services.toolpath.pocketing import ClosedPocketingEngine
+from opencam.services.operations.pocketing.operation import ClosedPocketingEngine
 
 
 def rectangle_ring() -> ClosedPolyline:

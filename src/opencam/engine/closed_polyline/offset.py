@@ -1,3 +1,5 @@
+import math
+
 import numpy as np
 from shapely import (
     GeometryType,
@@ -10,19 +12,49 @@ from shapely import (
     polygons,
 )
 
-from opencam.engine.closed_polyline.dedup import dedup
+from opencam.engine.closed_polyline.cleanup import dedup, simplify
+
+DEFAULT_BUFFER_CHORD_TOLERANCE = 0.01
+MINIMUM_QUAD_SEGS = 8
+
+
+def quad_segs_for_tolerance(
+    radius: float,
+    chord_tolerance: float = DEFAULT_BUFFER_CHORD_TOLERANCE,
+    *,
+    minimum: int = MINIMUM_QUAD_SEGS,
+) -> int:
+    """Return Shapely quad_segs needed to keep circular buffer error within tolerance."""
+    radius = abs(radius)
+    if radius <= 0.0:
+        return minimum
+    if chord_tolerance <= 0.0:
+        raise ValueError("Expected a positive chord tolerance.")
+    if minimum < 1:
+        raise ValueError("Expected minimum quad_segs to be at least 1.")
+    if chord_tolerance >= radius:
+        return minimum
+
+    angle = math.acos(1.0 - chord_tolerance / radius)
+    return max(minimum, math.ceil(math.pi / (4.0 * angle)))
 
 
 def offset(
     polyline: np.ndarray,
     distance: float,
     *,
-    quad_segs: int = 32,
+    chord_tolerance: float = DEFAULT_BUFFER_CHORD_TOLERANCE,
+    quad_segs: int | None = None,
 ) -> list[np.ndarray]:
     """Buffer a pre-validated closed 2D polyline."""
     vertices = polyline
     if vertices.shape[0] == 0:
         return []
+
+    if quad_segs is None:
+        quad_segs = quad_segs_for_tolerance(distance, chord_tolerance)
+    elif quad_segs < 1:
+        raise ValueError("Expected quad_segs to be at least 1.")
 
     # Build a polygon from the already-closed polyline using Shapely's vectorized constructors.
     polygon = polygons(linearrings(vertices))
@@ -64,6 +96,6 @@ def offset(
 
         # A valid closed polyline needs at least 4 rows: A, B, C, A.
         if ring.shape[0] >= 4:
-            result.append(dedup(ring))
+            result.append(simplify(dedup(ring)))
 
     return result

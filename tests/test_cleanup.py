@@ -1,6 +1,6 @@
 import numpy as np
 
-from opencam.engine.closed_polyline.dedup import dedup
+from opencam.engine.closed_polyline.cleanup import dedup, simplify
 
 
 def test_dedup_returns_empty_for_empty_polyline():
@@ -25,6 +25,34 @@ def test_dedup_cleans_closed_polyline():
     )
 
     result = dedup(polyline)
+
+    np.testing.assert_allclose(
+        result,
+        np.array(
+            [
+                [0.0, 0.0],
+                [2.0, 0.0],
+                [2.0, 2.0],
+                [0.0, 2.0],
+                [0.0, 0.0],
+            ]
+        ),
+    )
+
+
+def test_simplify_removes_flat_vertices():
+    polyline = np.array(
+        [
+            [0.0, 0.0],
+            [1.0, 0.0005],
+            [2.0, 0.0],
+            [2.0, 2.0],
+            [0.0, 2.0],
+            [0.0, 0.0],
+        ]
+    )
+
+    result = simplify(polyline)
 
     np.testing.assert_allclose(
         result,

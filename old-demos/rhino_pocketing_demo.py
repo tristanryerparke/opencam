@@ -6,7 +6,7 @@ import trimesh
 from shapely.geometry import Polygon
 
 from opencam.schemas.models import ClosedPolyline, Point2D, Tool, ToolpathOperation
-from opencam.services.toolpath.pocketing import ClosedPocketingEngine
+from opencam.services.operations.pocketing.operation import ClosedPocketingEngine
 from rhino_renderer import ConduitAction
 from rhino_renderer import ConduitGeometry
 from rhino_renderer import FileClient

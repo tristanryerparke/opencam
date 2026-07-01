@@ -14,7 +14,7 @@ from opencam.schemas.models import CutterLocationData, ToolpathOperation
 from opencam.services.mesh.planar_region_2d_reduction import simplify_mesh_data_2d
 
 TOOL_SEGMENTS = 16
-SIM_STEPDISTANCE = 2
+SIM_STEPDISTANCE = 5
 SIMPLIFY_AFTER_EACH_CHUNK = False
 DEFAULT_CHUNK_PADDING = (5.0, 5.0, 1.0)
 DEFAULT_PLANAR_ANGLE_DEGREES = 0.01
@@ -345,6 +345,8 @@ def sample_operation_points_with_progress(
 ) -> list[tuple[float, CutterLocationData]]:
     sampled_points: list[tuple[float, CutterLocationData]] = []
     traversed_distance = 0.0
+    distance_since_sample = 0.0
+    final_location: CutterLocationData | None = None
 
     for path in operation.paths:
         if not path.locations:
@@ -353,6 +355,9 @@ def sample_operation_points_with_progress(
         start = path.locations[0]
         if not sampled_points or not locations_match(sampled_points[-1][1], start):
             sampled_points.append((traversed_distance, start))
+            distance_since_sample = 0.0
+
+        final_location = path.locations[-1]
 
         for index in range(1, len(path.locations)):
             segment_start = path.locations[index - 1]
@@ -365,28 +370,45 @@ def sample_operation_points_with_progress(
             if segment_length <= 1e-9:
                 continue
 
-            if step_distance > 0:
-                step_count = int(math.ceil(segment_length / step_distance))
-                for step_index in range(1, step_count):
-                    interpolation = (step_index * step_distance) / segment_length
-                    if interpolation >= 1.0:
-                        break
-                    sampled_points.append(
-                        (
-                            traversed_distance + step_index * step_distance,
-                            CutterLocationData(
-                                x=float(segment_start.x + dx * interpolation),
-                                y=float(segment_start.y + dy * interpolation),
-                                z=float(segment_start.z + dz * interpolation),
-                            ),
-                        )
-                    )
+            segment_traversed_start = traversed_distance
+            segment_consumed = 0.0
+            segment_remaining = segment_length
+
+            while step_distance > 0 and distance_since_sample + segment_remaining >= step_distance:
+                distance_to_sample = step_distance - distance_since_sample
+                if distance_to_sample <= 1e-9:
+                    distance_to_sample = 0.0
+
+                segment_consumed += distance_to_sample
+                interpolation = min(segment_consumed / segment_length, 1.0)
+                location = CutterLocationData(
+                    x=float(segment_start.x + dx * interpolation),
+                    y=float(segment_start.y + dy * interpolation),
+                    z=float(segment_start.z + dz * interpolation),
+                )
+                progress = segment_traversed_start + segment_consumed
+
+                if sampled_points and locations_match(sampled_points[-1][1], location):
+                    sampled_points[-1] = (progress, location)
+                else:
+                    sampled_points.append((progress, location))
+
+                distance_since_sample = 0.0
+                segment_remaining = segment_length - segment_consumed
+
+                if segment_remaining <= 1e-9:
+                    segment_consumed = segment_length
+                    segment_remaining = 0.0
+                    break
 
             traversed_distance += segment_length
-            if sampled_points and locations_match(sampled_points[-1][1], segment_end):
-                sampled_points[-1] = (traversed_distance, segment_end)
-            else:
-                sampled_points.append((traversed_distance, segment_end))
+            distance_since_sample += segment_length - segment_consumed
+
+    if final_location is not None:
+        if sampled_points and locations_match(sampled_points[-1][1], final_location):
+            sampled_points[-1] = (traversed_distance, final_location)
+        else:
+            sampled_points.append((traversed_distance, final_location))
 
     return sampled_points
 
@@ -476,8 +498,11 @@ def build_animation_frames(
 def subdivide_tool_positions(positions: list[np.ndarray], step_distance: float) -> list[np.ndarray]:
     if not positions:
         return []
+    if step_distance <= 0:
+        return positions[:]
 
     subdivided_positions: list[np.ndarray] = [positions[0]]
+    distance_since_subdivision = 0.0
 
     for index in range(1, len(positions)):
         start = positions[index - 1]
@@ -488,15 +513,32 @@ def subdivide_tool_positions(positions: list[np.ndarray], step_distance: float) 
         if segment_length < 1e-9:
             continue
 
-        if segment_length > step_distance:
-            step_count = int(math.ceil(segment_length / step_distance))
-            for step_index in range(1, step_count):
-                interpolation = (step_index * step_distance) / segment_length
-                if interpolation >= 1.0:
-                    break
-                subdivided_positions.append(start + translation * interpolation)
+        segment_consumed = 0.0
+        segment_remaining = segment_length
 
-        subdivided_positions.append(end)
+        while distance_since_subdivision + segment_remaining >= step_distance:
+            distance_to_subdivision = step_distance - distance_since_subdivision
+            if distance_to_subdivision <= 1e-9:
+                distance_to_subdivision = 0.0
+
+            segment_consumed += distance_to_subdivision
+            interpolation = min(segment_consumed / segment_length, 1.0)
+            subdivision = start + translation * interpolation
+            if not np.allclose(subdivided_positions[-1], subdivision, atol=1e-9, rtol=0.0):
+                subdivided_positions.append(subdivision)
+
+            distance_since_subdivision = 0.0
+            segment_remaining = segment_length - segment_consumed
+
+            if segment_remaining <= 1e-9:
+                segment_consumed = segment_length
+                segment_remaining = 0.0
+                break
+
+        distance_since_subdivision += segment_length - segment_consumed
+
+        if not np.allclose(subdivided_positions[-1], end, atol=1e-9, rtol=0.0):
+            subdivided_positions.append(end)
 
     return subdivided_positions
 

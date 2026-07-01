@@ -11,14 +11,10 @@
             "id": "e71c9627d55f446d",
             "type": "leaf",
             "state": {
-              "type": "markdown",
-              "state": {
-                "file": "Operations.md",
-                "mode": "source",
-                "source": false
-              },
+              "type": "empty",
+              "state": {},
               "icon": "lucide-file",
-              "title": "Operations"
+              "title": "New tab"
             }
           }
         ]
@@ -94,7 +90,6 @@
             "state": {
               "type": "backlink",
               "state": {
-                "file": "Operations.md",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -104,7 +99,7 @@
                 "unlinkedCollapsed": true
               },
               "icon": "links-coming-in",
-              "title": "Backlinks for Operations"
+              "title": "Backlinks"
             }
           },
           {
@@ -113,12 +108,11 @@
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "Operations.md",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
               "icon": "links-going-out",
-              "title": "Outgoing links from Operations"
+              "title": "Outgoing links"
             }
           },
           {
@@ -183,19 +177,19 @@
       "bases:Create new base": false
     }
   },
-  "active": "e71c9627d55f446d",
+  "active": "9bd5648eb3147320",
   "lastOpenFiles": [
-    "assets/pocketing-research/branch-level-seams.png",
-    "assets/pocketing-research/pocketing_rhinocam.nc",
-    "assets/pocketing-research/just-pocketing_Setup 1.nc",
-    "old-demos/__pycache__/test_milling_simulation_swept.cpython-312-pytest-9.0.3.pyc",
-    "old-demos/__pycache__/test_milling_simulation_manifold_batch.cpython-312-pytest-9.0.3.pyc",
-    "old-demos/__pycache__/test_milling_simulation_manifold.cpython-312-pytest-9.0.3.pyc",
-    "old-demos/__pycache__",
-    "tests/__pycache__/test_pocketing.cpython-312-pytest-9.0.3.pyc",
-    "tests/test_pocketing.py",
-    "src/opencam/engine/closed_polyline/__pycache__/seam_shift._seam_shift_impl-9.py312.1.nbc",
-    "src/opencam/engine/closed_polyline/__pycache__/seam_shift._seam_shift_impl-9.py312.nbi",
-    "Operations.md"
+    "Operations.md",
+    "assets/pocketing-research/complex-pocket.stl",
+    "assets/pocketing-research/complex-pocket.3dm",
+    "src/opencam/engine/closed_polyline/__init__.py",
+    "src/opencam/services/operations/pocketing/__pycache__/tree.cpython-312.pyc",
+    "src/opencam/services/operations/pocketing/__pycache__/seams.cpython-312.pyc",
+    "src/opencam/services/operations/pocketing/__pycache__/paths.cpython-312.pyc",
+    "src/opencam/services/operations/pocketing/__pycache__/models.cpython-312.pyc",
+    "src/opencam/services/operations/pocketing/__pycache__/geometry.cpython-312.pyc",
+    "src/opencam/services/operations/pocketing/__pycache__/operation.cpython-312.pyc",
+    "src/opencam/services/operations/pocketing/tree.py",
+    "assets/pocketing-research/branch-level-seams.png"
   ]
 }

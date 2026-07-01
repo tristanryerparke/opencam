@@ -2,8 +2,9 @@ from typing import Literal
 
 from shapely.geometry import Polygon
 
+from opencam.engine.closed_polyline import quad_segs_for_tolerance
 from opencam.schemas.models import ClosedPolyline, CutterLocationData, Path
-from opencam.services.toolpath.base import BaseOperation
+from opencam.services.operations.base import BaseOperation
 
 
 class ClosedProfilingEngine(BaseOperation):
@@ -23,7 +24,14 @@ class ClosedProfilingEngine(BaseOperation):
         if self.side == "inside":
             offset_distance = -offset_distance
 
-        offset_ring = Polygon(ring).buffer(offset_distance, quad_segs=32).exterior.coords
+        offset_ring = (
+            Polygon(ring)
+            .buffer(
+                offset_distance,
+                quad_segs=quad_segs_for_tolerance(offset_distance),
+            )
+            .exterior.coords
+        )
         locations = [
             CutterLocationData(x=x, y=y, z=height)
             for height in layer_heights

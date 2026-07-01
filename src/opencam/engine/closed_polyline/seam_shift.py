@@ -1,7 +1,7 @@
 import numpy as np
 from numba import njit
 
-from opencam.engine.closed_polyline.dedup import _dedup_impl
+from opencam.engine.closed_polyline.cleanup import _dedup_impl
 from opencam.engine.closed_polyline.evaluate import evaluate_length
 from opencam.engine.closed_polyline.validation import validate_closed_polyline
 

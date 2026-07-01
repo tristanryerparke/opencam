@@ -1,6 +1,11 @@
 import numpy as np
 
-from opencam.engine.closed_polyline.offset import offset
+from opencam.engine.closed_polyline.offset import offset, quad_segs_for_tolerance
+
+
+def test_quad_segs_for_tolerance_scales_with_radius():
+    assert quad_segs_for_tolerance(10.0, 0.01) == 18
+    assert quad_segs_for_tolerance(100.0, 0.01) == 56
 
 
 def test_offset_returns_empty_for_empty_polyline():

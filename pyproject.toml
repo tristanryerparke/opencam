@@ -17,6 +17,7 @@ dependencies = [
     "networkx>=3.6.1",
     "numba>=0.65.1",
     "numpy>=2.4.4",
+    "numpydantic>=1.10.0",
     "pydantic>=2.12.5",
     "pymeshlab>=2025.7.post1",
     "python-multipart>=0.0.27",

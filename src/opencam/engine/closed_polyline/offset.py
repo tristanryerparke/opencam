@@ -15,7 +15,7 @@ from shapely import (
 from opencam.engine.closed_polyline.cleanup import dedup, simplify
 
 DEFAULT_BUFFER_CHORD_TOLERANCE = 0.01
-MINIMUM_QUAD_SEGS = 8
+MINIMUM_QUAD_SEGS = 16
 
 
 def quad_segs_for_tolerance(

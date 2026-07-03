@@ -613,6 +613,19 @@ wheels = [
 ]
 
 [[package]]
+name = "numpydantic"
+version = "1.10.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/95/5c/0cfed22c6483338c73d2faf182d863c47836e5f8f34e65b70aea345e7b72/numpydantic-1.10.0.tar.gz", hash = "sha256:a17d5ccc3b893c4a2e539c81c2f18960d70884ad7fcaa09c9eb56a95e8daf4a3", size = 98771, upload-time = "2026-06-22T22:04:46.251Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/69/15/0dd8e1ff306f97bee18a3ef024bb694f9043ee57474c57f7330f90804cae/numpydantic-1.10.0-py3-none-any.whl", hash = "sha256:1c62a445d305da69a5fa4510f7e7e1c25218f58fe462e5d59548042f1f769e66", size = 101858, upload-time = "2026-06-22T22:04:44.918Z" },
+]
+
+[[package]]
 name = "opencam"
 version = "0.1.0"
 source = { editable = "." }
@@ -625,6 +638,7 @@ dependencies = [
     { name = "networkx" },
     { name = "numba" },
     { name = "numpy" },
+    { name = "numpydantic" },
     { name = "pydantic" },
     { name = "pymeshlab" },
     { name = "python-multipart" },
@@ -646,6 +660,7 @@ requires-dist = [
     { name = "networkx", specifier = ">=3.6.1" },
     { name = "numba", specifier = ">=0.65.1" },
     { name = "numpy", specifier = ">=2.4.4" },
+    { name = "numpydantic", specifier = ">=1.10.0" },
     { name = "pydantic", specifier = ">=2.12.5" },
     { name = "pymeshlab", specifier = ">=2025.7.post1" },
     { name = "python-multipart", specifier = ">=0.0.27" },

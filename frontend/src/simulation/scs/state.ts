@@ -12,6 +12,7 @@ type GLState = {
 };
 
 type GLStateKey = keyof GLState;
+type GLStateValue = Required<GLState>[GLStateKey];
 
 const GL = WebGLRenderingContext;
 
@@ -28,20 +29,29 @@ const defaultGLState: Required<GLState> = {
   colorMask: [true, true, true, true],
 };
 
-const glPropSetters: Record<GLStateKey, (gl: WebGLRenderingContext, value: any) => void> = {
+const glPropSetters: Record<GLStateKey, (gl: WebGLRenderingContext, value: GLStateValue) => void> = {
   stencilTest: (gl, value) =>
     value ? gl.enable(gl.STENCIL_TEST) : gl.disable(gl.STENCIL_TEST),
   depthTest: (gl, value) =>
     value ? gl.enable(gl.DEPTH_TEST) : gl.disable(gl.DEPTH_TEST),
   faceCulling: (gl, value) =>
     value ? gl.enable(gl.CULL_FACE) : gl.disable(gl.CULL_FACE),
-  cullFace: (gl, value) => gl.cullFace(value),
-  stencilOp: (gl, value) => gl.stencilOp(value[0], value[1], value[2]),
-  stencilFunc: (gl, value) => gl.stencilFunc(value[0], value[1], value[2]),
-  stencilMask: (gl, value) => gl.stencilMask(value),
-  depthFunc: (gl, value) => gl.depthFunc(value),
-  depthMask: (gl, value) => gl.depthMask(value),
-  colorMask: (gl, value) => gl.colorMask(value[0], value[1], value[2], value[3]),
+  cullFace: (gl, value) => gl.cullFace(value as number),
+  stencilOp: (gl, value) => {
+    const [a, b, c] = value as [number, number, number];
+    gl.stencilOp(a, b, c);
+  },
+  stencilFunc: (gl, value) => {
+    const [a, b, c] = value as [number, number, number];
+    gl.stencilFunc(a, b, c);
+  },
+  stencilMask: (gl, value) => gl.stencilMask(value as number),
+  depthFunc: (gl, value) => gl.depthFunc(value as number),
+  depthMask: (gl, value) => gl.depthMask(value as boolean),
+  colorMask: (gl, value) => {
+    const [a, b, c, d] = value as [boolean, boolean, boolean, boolean];
+    gl.colorMask(a, b, c, d);
+  },
 };
 
 function isPropEqual<Key extends GLStateKey>(

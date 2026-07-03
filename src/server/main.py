@@ -13,6 +13,11 @@ import numpy as np
 import rhino3dm
 import trimesh
 
+from opencam.schemas.cam import (
+    FrontendCamSchemaBundle,
+    GenerateToolpathRequest,
+    build_frontend_cam_schema_bundle,
+)
 from opencam.schemas.models import (
     SweptSimulationFrameResponse,
     SweptSimulationFramesResponse,
@@ -21,6 +26,7 @@ from opencam.schemas.models import (
     SweptSimulationStatusResponse,
     ToolpathOperation,
 )
+from opencam.services.operations.config_adapter import build_toolpath_operation_from_config
 from opencam.services.operations.pocketing.operation import ClosedPocketingEngine
 from opencam.services.operations.profiling import ClosedProfilingEngine
 from opencam.services.simulation.swept_volume import (
@@ -351,6 +357,21 @@ async def profile_closed(engine: ClosedProfilingEngine):
 async def pocket_closed(engine: ClosedPocketingEngine):
     try:
         return _build_toolpath_operation(engine, "/pocket/closed")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/cam/schema", response_model=FrontendCamSchemaBundle)
+async def cam_schema():
+    return build_frontend_cam_schema_bundle()
+
+
+@app.post("/cam/toolpath", response_model=ToolpathOperation)
+async def generate_cam_toolpath(request: GenerateToolpathRequest):
+    try:
+        operation = build_toolpath_operation_from_config(request)
+        _log_frontend_paths("/cam/toolpath", operation)
+        return operation
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

@@ -1,15 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
 
-import {
-  AppSidebar,
-  type FormValues,
-  type NumericField,
-  type NumericSanitizerOptions,
-  type OperationType,
-  type RequestState,
-} from "@/components/app-sidebar";
+import { AppSidebar, type RequestState } from "@/components/app-sidebar";
 import { ModeToggle } from "@/components/mode-toggle";
+import { OperationDialog } from "@/components/operation-dialog";
 import {
   PolylineViewer,
   type MeshFaceSelection,
@@ -20,7 +14,15 @@ import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { getOpenCamBootstrap, sendRhinoUiDebug } from "@/bootstrap";
+import type { DraftObject } from "@/lib/cam-schema";
+import {
+  buildGenerateToolpathRequest,
+  createPocketOperationDraft,
+  parsePocketOperationDraft,
+  pocketOperationSchema,
+} from "@/lib/cam-schema";
 import { getBackendUrl } from "@/hooks/useBackendConnection";
+import type { Pocket2DOperationConfig } from "@/generated/cam-types";
 import { sampleToolpathLocations, type ToolpathOperation } from "@/simulation/toolpath";
 
 type GeneratedPathResponse = ToolpathOperation["paths"][number];
@@ -150,12 +152,12 @@ type CachedMeshPayload = {
 };
 
 type SidebarSettingsPayload = {
-  selectedOperation: OperationType;
-  formValues: FormValues;
+  selectedOperationId: string | null;
+  operations: Pocket2DOperationConfig[];
 };
 
 const CACHED_MESH_STORAGE_KEY = "opencam.cached-stl";
-const SIDEBAR_SETTINGS_STORAGE_KEY = "opencam.sidebar-settings";
+const SIDEBAR_SETTINGS_STORAGE_KEY = "opencam.sidebar-settings.v2";
 const ORIGINAL_MESH_COLOR = 0x94a3b8;
 const ORIGINAL_MESH_EDGE_COLOR = 0x334155;
 const MILLED_STOCK_MESH_COLOR = 0xfb923c;
@@ -186,33 +188,6 @@ function isCachedMeshPayload(value: unknown): value is CachedMeshPayload {
   );
 }
 
-function isOperationType(value: unknown): value is OperationType {
-  return value === "profile" || value === "pocket";
-}
-
-function isFormValues(value: unknown): value is FormValues {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const form = value as Record<string, unknown>;
-
-  return (
-    typeof form.toolDiameter === "string" &&
-    typeof form.cuttingHeight === "string" &&
-    typeof form.zStepHeight === "string" &&
-    typeof form.feedrate === "string" &&
-    typeof form.rpm === "string" &&
-    typeof form.zMin === "string" &&
-    typeof form.zMax === "string" &&
-    typeof form.clearancePlaneHeight === "string" &&
-    typeof form.stepover === "string" &&
-    typeof form.stockToLeave === "string" &&
-    typeof form.maxSimDistance === "string" &&
-    (form.side === "outside" || form.side === "inside")
-  );
-}
-
 function isSidebarSettingsPayload(value: unknown): value is SidebarSettingsPayload {
   if (!value || typeof value !== "object") {
     return false;
@@ -221,8 +196,8 @@ function isSidebarSettingsPayload(value: unknown): value is SidebarSettingsPaylo
   const payload = value as Record<string, unknown>;
 
   return (
-    isOperationType(payload.selectedOperation) &&
-    isFormValues(payload.formValues)
+    (payload.selectedOperationId === null || typeof payload.selectedOperationId === "string") &&
+    Array.isArray(payload.operations)
   );
 }
 
@@ -315,63 +290,6 @@ async function getMeshVertexMaxZ(file: File) {
   return maxZ;
 }
 
-function sanitizeNumericInput(
-  value: string,
-  {
-    allowNegative = false,
-    allowDecimal = true,
-    maxDecimalPlaces = 3,
-  }: NumericSanitizerOptions = {},
-) {
-  let sanitized = "";
-  let hasDecimalPoint = false;
-
-  for (const character of value) {
-    if (character >= "0" && character <= "9") {
-      sanitized += character;
-      continue;
-    }
-
-    if (character === "-" && allowNegative && sanitized.length === 0) {
-      sanitized += character;
-      continue;
-    }
-
-    if (character === "." && allowDecimal && !hasDecimalPoint) {
-      sanitized += character;
-      hasDecimalPoint = true;
-    }
-  }
-
-  if (!allowDecimal) {
-    return sanitized;
-  }
-
-  const [integerPart, decimalPart] = sanitized.split(".");
-
-  if (decimalPart === undefined) {
-    return sanitized;
-  }
-
-  return `${integerPart}.${decimalPart.slice(0, maxDecimalPlaces)}`;
-}
-
-function formatNumericValue(
-  value: number,
-  options?: NumericSanitizerOptions,
-) {
-  if (!Number.isFinite(value)) {
-    return "";
-  }
-
-  const formatted = sanitizeNumericInput(
-    value.toFixed(options?.maxDecimalPlaces ?? 3),
-    options,
-  );
-
-  return Number(formatted) === 0 ? "0" : formatted;
-}
-
 function getPolylineLength(points: ReadonlyArray<PolylinePoint>) {
   let total = 0;
 
@@ -398,16 +316,6 @@ function parsePositiveNumber(value: string, label: string) {
   return parsed;
 }
 
-function parseNonNegativeNumber(value: string, label: string) {
-  const parsed = Number(value);
-
-  if (!Number.isFinite(parsed) || parsed < 0) {
-    throw new Error(`${label} must be 0 or greater.`);
-  }
-
-  return parsed;
-}
-
 function App() {
   const [meshFile, setMeshFile] = useState<File | null>(null);
   const [meshUrl, setMeshUrl] = useState<string | null>(null);
@@ -418,8 +326,13 @@ function App() {
   const preserveMeshCacheMessageRef = useRef(false);
   const hasInitializedSidebarSettingsRef = useRef(false);
   const [faceSelectionMode, setFaceSelectionMode] = useState(false);
-  const [selectedOperation, setSelectedOperation] = useState<OperationType>("pocket");
   const [selectedMeshFace, setSelectedMeshFace] = useState<MeshFaceSelection | null>(null);
+  const [meshMaxZ, setMeshMaxZ] = useState<number | null>(null);
+  const [operations, setOperations] = useState<Pocket2DOperationConfig[]>([]);
+  const [selectedOperationId, setSelectedOperationId] = useState<string | null>(null);
+  const [isOperationDialogOpen, setIsOperationDialogOpen] = useState(false);
+  const [operationDialogMode, setOperationDialogMode] = useState<"create" | "edit">("create");
+  const [operationDraft, setOperationDraft] = useState<DraftObject | null>(null);
   const [generatedOperation, setGeneratedOperation] =
     useState<GeneratedOperationResponse | null>(null);
   const [simulationActiveMeshUrl, setSimulationActiveMeshUrl] = useState<string | null>(null);
@@ -456,20 +369,7 @@ function App() {
   const [requestState, setRequestState] = useState<RequestState>("idle");
   const [requestMessage, setRequestMessage] = useState<string>("");
   const [showOriginalMesh, setShowOriginalMesh] = useState(true);
-  const [formValues, setFormValues] = useState<FormValues>({
-    toolDiameter: "12",
-    cuttingHeight: "30",
-    zStepHeight: "20",
-    feedrate: "500",
-    rpm: "12000",
-    zMin: "",
-    zMax: "",
-    clearancePlaneHeight: "25.4",
-    stepover: "25",
-    stockToLeave: "0",
-    maxSimDistance: "40",
-    side: "outside",
-  });
+  const maxSimDistance = "40";
 
   useEffect(() => {
     sendRhinoUiDebug("info", "App mounted", {
@@ -495,8 +395,8 @@ function App() {
         throw new Error("Invalid cached sidebar settings payload.");
       }
 
-      setSelectedOperation(parsed.selectedOperation);
-      setFormValues(parsed.formValues);
+      setSelectedOperationId(parsed.selectedOperationId);
+      setOperations(parsed.operations);
     } catch {
       window.localStorage.removeItem(SIDEBAR_SETTINGS_STORAGE_KEY);
     } finally {
@@ -510,8 +410,8 @@ function App() {
     }
 
     const payload: SidebarSettingsPayload = {
-      selectedOperation,
-      formValues,
+      selectedOperationId,
+      operations,
     };
 
     try {
@@ -522,7 +422,7 @@ function App() {
     } catch (error: unknown) {
       console.error("Failed to persist sidebar settings", error);
     }
-  }, [formValues, selectedOperation]);
+  }, [operations, selectedOperationId]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -584,13 +484,11 @@ function App() {
           return;
         }
 
-        setFormValues((current) => ({
-          ...current,
-          zMax: formatNumericValue(maxZ, { allowNegative: true }),
-        }));
+        setMeshMaxZ(maxZ);
       })
       .catch((error: unknown) => {
         if (!cancelled) {
+          setMeshMaxZ(null);
           console.error("Failed to determine mesh Z max", error);
         }
       });
@@ -702,7 +600,10 @@ function App() {
     setIsSimulationPlaying(false);
   }
 
-  const generatedPaths: GeneratedPathResponse[] = generatedOperation?.paths ?? [];
+  const generatedPaths = useMemo<GeneratedPathResponse[]>(
+    () => generatedOperation?.paths ?? [],
+    [generatedOperation],
+  );
   const simulationSamples = useMemo(
     () => sampleToolpathLocations(generatedPaths, SIMULATION_SAMPLE_SPACING),
     [generatedPaths],
@@ -751,23 +652,15 @@ function App() {
     return generatedPaths.reduce((total, path) => total + path.locations.length, 0);
   }, [generatedPaths]);
 
-  const operationLabel = selectedOperation === "profile" ? "Closed profile" : "2.5D pocket";
-  const generateButtonLabel =
-    requestState === "submitting"
-      ? "Generating..."
-      : selectedOperation === "profile"
-        ? "Generate profile"
-        : "Generate pocket";
-
-  const canGenerate = Boolean(
-    meshUrl &&
-      selectedMeshFace &&
-      selectedMeshFace.isParallelToXY &&
-      selectedMeshFace.boundaryLoop &&
-      !selectedMeshFace.validationError &&
-      formValues.zMin.trim() !== "" &&
-      formValues.zMax.trim() !== "",
+  const selectedOperation = useMemo(
+    () => operations.find((operation) => operation.id === selectedOperationId) ?? null,
+    [operations, selectedOperationId],
   );
+
+  const operationLabel = selectedOperation?.displayName ?? "2D Pocket";
+  const generateButtonLabel = requestState === "submitting" ? "Generating..." : "Generate pocket";
+
+  const canGenerate = Boolean(meshUrl && meshFile && selectedOperation);
 
   const meshStatusLabel = meshFile ? meshFile.name : "No mesh loaded.";
   const meshCacheStatusLabel =
@@ -1157,19 +1050,7 @@ function App() {
     };
   }, [isSimulationPlaying, simulationFrameCount, simulationFrameIndex]);
 
-  function updateNumericField(
-    field: NumericField,
-    value: string,
-    options?: NumericSanitizerOptions,
-  ) {
-    setFormValues((current) => ({
-      ...current,
-      [field]: sanitizeNumericInput(value, options),
-    }));
-  }
-
-  function handleMeshFaceSelect(selection: MeshFaceSelection) {
-    setSelectedMeshFace(selection);
+  function resetGeneratedPreview() {
     setGeneratedOperation(null);
     setSimulationActiveMeshUrl(null);
     setSimulationCachedMeshUrl(null);
@@ -1177,14 +1058,94 @@ function App() {
     setRequestState("idle");
     setRequestMessage("");
     setShowOriginalMesh(true);
+  }
+
+  function handleMeshFaceSelect(selection: MeshFaceSelection) {
+    setSelectedMeshFace(selection);
+    resetGeneratedPreview();
     setFaceSelectionMode(false);
-    setFormValues((current) => ({
-      ...current,
-      zMin:
-        selection.planeZ != null
-          ? formatNumericValue(selection.planeZ, { allowNegative: true })
-          : "",
-    }));
+  }
+
+  function handleAddPocketOperation() {
+    if (!selectedMeshFace) {
+      setRequestState("error");
+      setRequestMessage("Select a face before adding a pocket operation.");
+      return;
+    }
+
+    if (
+      !selectedMeshFace.isParallelToXY ||
+      !selectedMeshFace.boundaryLoop ||
+      selectedMeshFace.validationError ||
+      selectedMeshFace.planeZ == null
+    ) {
+      setRequestState("error");
+      setRequestMessage(selectedMeshFace.validationError ?? "Selected face cannot be machined.");
+      return;
+    }
+
+    setOperationDialogMode("create");
+    setOperationDraft(createPocketOperationDraft(operations.length + 1, selectedMeshFace, meshMaxZ));
+    setIsOperationDialogOpen(true);
+  }
+
+  function handleEditSelectedOperation() {
+    if (!selectedOperation) {
+      return;
+    }
+
+    setOperationDialogMode("edit");
+    setOperationDraft(
+      createPocketOperationDraft(
+        operations.findIndex((operation) => operation.id === selectedOperation.id) + 1,
+        selectedMeshFace,
+        meshMaxZ,
+        selectedOperation,
+      ),
+    );
+    setIsOperationDialogOpen(true);
+  }
+
+  function handleOperationDialogSave() {
+    if (!operationDraft) {
+      return;
+    }
+
+    try {
+      const parsedOperation = parsePocketOperationDraft(operationDraft);
+
+      if (operationDialogMode === "create") {
+        setOperations((current) => [...current, parsedOperation]);
+        setSelectedOperationId(parsedOperation.id ?? null);
+      } else {
+        setOperations((current) =>
+          current.map((operation) =>
+            operation.id === parsedOperation.id ? parsedOperation : operation,
+          ),
+        );
+        setSelectedOperationId(parsedOperation.id ?? null);
+      }
+
+      resetGeneratedPreview();
+      setIsOperationDialogOpen(false);
+      setOperationDraft(null);
+    } catch (error) {
+      setRequestState("error");
+      setRequestMessage(
+        error instanceof Error ? error.message : "Failed to save operation.",
+      );
+    }
+  }
+
+  function handleRemoveOperation(operationId: string) {
+    setOperations((current) => current.filter((operation) => operation.id !== operationId));
+    setSelectedOperationId((current) => (current === operationId ? null : current));
+    resetGeneratedPreview();
+  }
+
+  function handleSelectOperation(operationId: string) {
+    setSelectedOperationId(operationId);
+    resetGeneratedPreview();
   }
 
   function handleSimulationFrameChange(values: number[]) {
@@ -1325,9 +1286,9 @@ function App() {
   }, [applyCompletedSimulation, operationLabel, requestState, simulationTaskId]);
 
   async function handleGenerateOperation() {
-    if (!selectedMeshFace) {
+    if (!selectedOperation) {
       setRequestState("error");
-      setRequestMessage("Select a face before generating a toolpath.");
+      setRequestMessage("Add and select a pocket operation before generating a toolpath.");
       return;
     }
 
@@ -1337,78 +1298,9 @@ function App() {
       return;
     }
 
-    if (
-      !selectedMeshFace.isParallelToXY ||
-      !selectedMeshFace.boundaryLoop ||
-      selectedMeshFace.validationError
-    ) {
-      setRequestState("error");
-      setRequestMessage(selectedMeshFace.validationError ?? "Selected face cannot be machined.");
-      return;
-    }
-
-    if (selectedMeshFace.planeZ == null) {
-      setRequestState("error");
-      setRequestMessage("Selected face is missing a valid Z plane.");
-      return;
-    }
-
     try {
-      const toolDiameter = parsePositiveNumber(formValues.toolDiameter, "Tool diameter");
-      const cuttingHeight = parsePositiveNumber(formValues.cuttingHeight, "Cutting height");
-      const zStepHeight = parsePositiveNumber(formValues.zStepHeight, "Z step height");
-      const feedrate = parsePositiveNumber(formValues.feedrate, "Feedrate");
-      const rpm = parsePositiveNumber(formValues.rpm, "RPM");
-      const zMin = Number(formValues.zMin);
-      const zMax = Number(formValues.zMax);
-      const clearancePlaneHeight = Number(formValues.clearancePlaneHeight);
-      const stockToLeave = parseNonNegativeNumber(formValues.stockToLeave, "Stock to leave");
-      const maxSimDistance = parsePositiveNumber(formValues.maxSimDistance, "Max sim distance");
-
-      if (!Number.isFinite(zMin)) {
-        throw new Error("Z min is required.");
-      }
-
-      if (!Number.isFinite(zMax)) {
-        throw new Error("Z max is required.");
-      }
-
-      if (!Number.isFinite(clearancePlaneHeight)) {
-        throw new Error("Clearance plane height is required.");
-      }
-
-      if (clearancePlaneHeight <= Math.max(zMin, zMax)) {
-        throw new Error("Clearance plane height must be above the operation Z range.");
-      }
-
-      const requestBody: Record<string, unknown> = {
-        ring: {
-          vertices: selectedMeshFace.boundaryLoop.map(([x, y]) => ({ x, y })),
-        },
-        tool: {
-          diameter: toolDiameter,
-          cuttingHeight,
-        },
-        feedrate,
-        rpm: Math.round(rpm),
-        zBounds: [zMin, zMax],
-        zStepHeight,
-        clearancePlaneHeight,
-        stockToLeave,
-      };
-
-      const endpoint =
-        selectedOperation === "profile" ? "/profile/closed" : "/pocket/closed";
-
-      if (selectedOperation === "profile") {
-        requestBody.side = formValues.side;
-      } else {
-        const stepover = parsePositiveNumber(formValues.stepover, "Stepover");
-        if (stepover > 100) {
-          throw new Error("Stepover must be 100 or less.");
-        }
-        requestBody.stepover = stepover;
-      }
+      const requestBody = buildGenerateToolpathRequest(selectedOperation, meshMaxZ);
+      const parsedMaxSimDistance = parsePositiveNumber(maxSimDistance, "Max sim distance");
 
       setGeneratedOperation(null);
       setSimulationActiveMeshUrl(null);
@@ -1418,7 +1310,7 @@ function App() {
       setRequestState("submitting");
       setRequestMessage(`Generating ${operationLabel.toLowerCase()} toolpath...`);
 
-      const response = await fetch(`${getBackendUrl()}${endpoint}`, {
+      const response = await fetch(`${getBackendUrl()}/cam/toolpath`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -1441,7 +1333,7 @@ function App() {
       const simulationRequest = new FormData();
       simulationRequest.append("mesh", meshFile, meshFile.name);
       simulationRequest.append("operation", JSON.stringify(operation));
-      simulationRequest.append("max_sim_distance", String(maxSimDistance));
+      simulationRequest.append("max_sim_distance", String(parsedMaxSimDistance));
       simulationRequest.append("chunk_padding_x", String(CHUNK_PADDING_X));
       simulationRequest.append("chunk_padding_y", String(CHUNK_PADDING_Y));
       simulationRequest.append("chunk_padding_z", String(CHUNK_PADDING_Z));
@@ -1506,7 +1398,10 @@ function App() {
     setMeshCacheState(file ? "saving" : "idle");
     setMeshCacheMessage("");
     setMeshFile(file);
+    setMeshMaxZ(null);
     setSelectedMeshFace(null);
+    setOperations([]);
+    setSelectedOperationId(null);
     setGeneratedOperation(null);
     setSimulationActiveMeshUrl(null);
     setSimulationCachedMeshUrl(null);
@@ -1515,11 +1410,8 @@ function App() {
     setRequestMessage("");
     setShowOriginalMesh(true);
     setFaceSelectionMode(false);
-    setFormValues((current) => ({
-      ...current,
-      zMin: "",
-      zMax: "",
-    }));
+    setIsOperationDialogOpen(false);
+    setOperationDraft(null);
   }
 
   return (
@@ -1540,9 +1432,9 @@ function App() {
             meshStatusLabel={meshStatusLabel}
             meshCacheStatusLabel={meshCacheStatusLabel}
             faceSelectionMode={faceSelectionMode}
-            selectedOperation={selectedOperation}
             selectedMeshFace={selectedMeshFace}
-            formValues={formValues}
+            operations={operations}
+            selectedOperationId={selectedOperationId}
             canGenerate={canGenerate}
             requestState={requestState}
             requestMessage={requestMessage}
@@ -1552,23 +1444,10 @@ function App() {
             generatedPathLength={generatedPathLength}
             onMeshUpload={handleMeshUpload}
             onToggleFaceSelection={() => setFaceSelectionMode((current) => !current)}
-            onOperationChange={(operation) => {
-              setSelectedOperation(operation);
-              setGeneratedOperation(null);
-              setSimulationActiveMeshUrl(null);
-              setSimulationCachedMeshUrl(null);
-              resetSimulationPlaybackState();
-              setRequestState("idle");
-              setRequestMessage("");
-              setShowOriginalMesh(true);
-            }}
-            onUpdateNumericField={updateNumericField}
-            onSideChange={(side) =>
-              setFormValues((current) => ({
-                ...current,
-                side,
-              }))
-            }
+            onAddPocketOperation={handleAddPocketOperation}
+            onEditSelectedOperation={handleEditSelectedOperation}
+            onSelectOperation={handleSelectOperation}
+            onRemoveOperation={handleRemoveOperation}
             onGenerateOperation={handleGenerateOperation}
             canCancelGeneration={requestState === "submitting" && simulationTaskId !== null}
             onCancelGeneration={handleCancelGeneration}
@@ -1635,6 +1514,21 @@ function App() {
             ) : null}
           </main>
         </div>
+
+        <OperationDialog
+          open={isOperationDialogOpen}
+          draft={operationDraft}
+          mode={operationDialogMode}
+          rootSchema={pocketOperationSchema}
+          onDraftChange={setOperationDraft}
+          onOpenChange={(open) => {
+            setIsOperationDialogOpen(open);
+            if (!open) {
+              setOperationDraft(null);
+            }
+          }}
+          onSave={handleOperationDialogSave}
+        />
       </div>
     </SidebarProvider>
   );

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -11,7 +11,17 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarProvider,
+} from "@/components/ui/sidebar";
 import {
   type DraftObject,
   type DraftValue,
@@ -110,12 +120,12 @@ function SchemaFields({ rootSchema, schema, value, path, onChange, onStartGeomet
       <div className="space-y-4">
         {path.length === 1 && path[0] === "controlGeometry" && onStartGeometrySelection ? (
           <div className="rounded-md border bg-muted/30 p-3">
-            <div className="text-sm font-medium">Select control geometry</div>
+            <div className="text-sm font-medium">Control geometry</div>
             <p className="mt-1 text-xs leading-5 text-muted-foreground">
-              Pick a flat XY-coplanar area from the viewport. The dialog will hide while you select it.
+              Pick an XY-coplanar face from the viewport. The dialog will hide while you select it.
             </p>
             <Button type="button" variant="outline" className="mt-3" onClick={onStartGeometrySelection}>
-              Select flat area
+              Select XY-coplanar face
             </Button>
           </div>
         ) : null}
@@ -237,10 +247,22 @@ export function OperationDialog({
   onStartGeometrySelection,
 }: OperationDialogProps) {
   const sections = useMemo(() => getVisibleSections(rootSchema), [rootSchema]);
-  const [requestedTab, setRequestedTab] = useState(sections[0]?.key ?? "");
-  const activeTab = sections.some((section) => section.key === requestedTab)
-    ? requestedTab
-    : (sections[0]?.key ?? "");
+  const [requestedSectionKey, setRequestedSectionKey] = useState(sections[0]?.key ?? "");
+  const activeSection = sections.find((section) => section.key === requestedSectionKey) ?? sections[0];
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    setRequestedSectionKey((currentKey) => {
+      const fallbackKey = sections[0]?.key ?? "";
+      if (mode === "create" && sections.some((section) => section.key === "controlGeometry")) {
+        return "controlGeometry";
+      }
+      return sections.some((section) => section.key === currentKey) ? currentKey : fallbackKey;
+    });
+  }, [mode, open, sections]);
 
   const validationMessage = useMemo(() => {
     if (!draft) {
@@ -261,7 +283,7 @@ export function OperationDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] max-w-5xl overflow-hidden">
+      <DialogContent className="grid h-[85vh] max-h-[90vh] w-full max-w-5xl grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden sm:max-w-5xl">
         <DialogHeader>
           <DialogTitle>{mode === "create" ? "Add pocket operation" : "Edit pocket operation"}</DialogTitle>
           <DialogDescription>
@@ -269,32 +291,47 @@ export function OperationDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <Tabs value={activeTab} onValueChange={setRequestedTab} orientation="vertical" className="min-h-0 flex-1 overflow-hidden">
-          <div className="grid min-h-0 flex-1 grid-cols-[220px_minmax(0,1fr)] gap-6 overflow-hidden">
-            <TabsList variant="line" className="h-full w-full flex-col items-stretch justify-start rounded-md border bg-muted/30 p-2">
-              {sections.map((section) => (
-                <TabsTrigger key={section.key} value={section.key} className="justify-start px-3 py-2 text-left">
-                  {section.title}
-                </TabsTrigger>
-              ))}
-            </TabsList>
+        <SidebarProvider defaultOpen>
+          <div className="flex min-h-0 flex-1 overflow-hidden rounded-md border">
+            <Sidebar className="bg-muted/30" style={{ "--sidebar-width": "12rem" } as React.CSSProperties}>
+              <SidebarContent>
+                <SidebarGroup>
+                  <SidebarGroupLabel>Operation sections</SidebarGroupLabel>
+                  <SidebarGroupContent>
+                    <SidebarMenu>
+                      {sections.map((section) => (
+                        <SidebarMenuItem key={section.key}>
+                          <SidebarMenuButton
+                            type="button"
+                            isActive={section.key === activeSection?.key}
+                            onClick={() => setRequestedSectionKey(section.key)}
+                          >
+                            <span>{section.title}</span>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                      ))}
+                    </SidebarMenu>
+                  </SidebarGroupContent>
+                </SidebarGroup>
+              </SidebarContent>
+            </Sidebar>
 
-            <div className="min-h-0 overflow-y-auto pr-1">
-              {sections.map((section) => (
-                <TabsContent key={section.key} value={section.key} className="space-y-4">
+            <div className="min-h-0 flex-1 overflow-y-auto p-4">
+              {activeSection ? (
+                <div className="space-y-4">
                   <SchemaFields
                     rootSchema={rootSchema}
-                    schema={section.schema}
-                    value={draft[section.key]}
-                    path={[section.key]}
+                    schema={activeSection.schema}
+                    value={draft[activeSection.key]}
+                    path={[activeSection.key]}
                     onChange={(nextPath, nextValue) => onDraftChange(setDraftValueAtPath(draft, nextPath, nextValue))}
                     onStartGeometrySelection={onStartGeometrySelection}
                   />
-                </TabsContent>
-              ))}
+                </div>
+              ) : null}
             </div>
           </div>
-        </Tabs>
+        </SidebarProvider>
 
         <DialogFooter>
           {validationMessage ? (

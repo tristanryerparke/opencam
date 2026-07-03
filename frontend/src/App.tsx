@@ -1074,19 +1074,6 @@ function App() {
     }
   }
 
-  function handleToggleFaceSelection() {
-    if (faceSelectionMode) {
-      setFaceSelectionMode(false);
-      if (resumeOperationDialogAfterSelection && operationDraft) {
-        setIsOperationDialogOpen(true);
-        setResumeOperationDialogAfterSelection(false);
-      }
-      return;
-    }
-
-    setFaceSelectionMode(true);
-  }
-
   function handleStartDialogGeometrySelection() {
     if (!operationDraft) {
       return;
@@ -1096,30 +1083,39 @@ function App() {
     setResumeOperationDialogAfterSelection(true);
     setFaceSelectionMode(true);
     setRequestState("idle");
-    setRequestMessage("Select a flat XY-coplanar area in the viewport.");
+    setRequestMessage("Select a flat XY-coplanar area in the viewport. Press Escape to cancel.");
   }
 
-  function handleAddPocketOperation() {
-    if (!selectedMeshFace) {
-      setRequestState("error");
-      setRequestMessage("Select a face before adding a pocket operation.");
-      return;
+  useEffect(() => {
+    if (!faceSelectionMode || !resumeOperationDialogAfterSelection) {
+      return undefined;
     }
 
-    if (
-      !selectedMeshFace.isParallelToXY ||
-      !selectedMeshFace.boundaryLoop ||
-      selectedMeshFace.validationError ||
-      selectedMeshFace.planeZ == null
-    ) {
+    const handleSelectionCancel = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") {
+        return;
+      }
+
+      setFaceSelectionMode(false);
+      setIsOperationDialogOpen(true);
+      setResumeOperationDialogAfterSelection(false);
+      setRequestMessage("");
+    };
+
+    window.addEventListener("keydown", handleSelectionCancel);
+    return () => window.removeEventListener("keydown", handleSelectionCancel);
+  }, [faceSelectionMode, resumeOperationDialogAfterSelection]);
+
+  function handleAddPocketOperation() {
+    if (!meshUrl) {
       setRequestState("error");
-      setRequestMessage(selectedMeshFace.validationError ?? "Selected face cannot be machined.");
+      setRequestMessage("Upload an STL before adding a pocket operation.");
       return;
     }
 
     setOperationDialogMode("create");
     setResumeOperationDialogAfterSelection(false);
-    setOperationDraft(createPocketOperationDraft(operations.length + 1, selectedMeshFace, meshMaxZ));
+    setOperationDraft(createPocketOperationDraft(operations.length + 1, null, meshMaxZ));
     setIsOperationDialogOpen(true);
   }
 
@@ -1133,7 +1129,7 @@ function App() {
     setOperationDraft(
       createPocketOperationDraft(
         operations.findIndex((operation) => operation.id === selectedOperation.id) + 1,
-        selectedMeshFace,
+        null,
         meshMaxZ,
         selectedOperation,
       ),
@@ -1468,8 +1464,6 @@ function App() {
             meshLoaded={Boolean(meshUrl)}
             meshStatusLabel={meshStatusLabel}
             meshCacheStatusLabel={meshCacheStatusLabel}
-            faceSelectionMode={faceSelectionMode}
-            selectedMeshFace={selectedMeshFace}
             operations={operations}
             selectedOperationId={selectedOperationId}
             canGenerate={canGenerate}
@@ -1480,7 +1474,6 @@ function App() {
             generatedPathPointCount={generatedPathPointCount}
             generatedPathLength={generatedPathLength}
             onMeshUpload={handleMeshUpload}
-            onToggleFaceSelection={handleToggleFaceSelection}
             onAddPocketOperation={handleAddPocketOperation}
             onEditSelectedOperation={handleEditSelectedOperation}
             onSelectOperation={handleSelectOperation}

@@ -63,21 +63,22 @@ function useSidebar() {
   return context;
 }
 
-function Sidebar({ className, children, ...props }: React.ComponentProps<"aside">) {
+function Sidebar({ className, children, style, ...props }: React.ComponentProps<"aside">) {
   const { open } = useSidebar();
 
   return (
     <div
       data-slot="sidebar-wrapper"
       data-state={open ? "open" : "closed"}
+      style={style}
       className={cn(
         "relative shrink-0 overflow-hidden border-r border-sidebar-border bg-sidebar text-sidebar-foreground transition-[width,border-color] duration-200 ease-out",
-        open ? "w-72" : "w-0 border-r-0",
+        open ? "w-[var(--sidebar-width,18rem)]" : "w-0 border-r-0",
       )}
     >
       <aside
         data-slot="sidebar"
-        className={cn("flex h-full w-72 flex-col", className)}
+        className={cn("flex h-full w-[var(--sidebar-width,18rem)] flex-col", className)}
         {...props}
       >
         {children}

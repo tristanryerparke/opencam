@@ -2,7 +2,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Sidebar, SidebarContent } from "@/components/ui/sidebar";
-import { type MeshFaceSelection } from "@/components/polyline-viewer";
 import { type Pocket2DOperationConfig } from "@/generated/cam-types";
 
 export type RequestState = "idle" | "submitting" | "success" | "error";
@@ -11,8 +10,6 @@ type AppSidebarProps = {
   meshLoaded: boolean;
   meshStatusLabel: string;
   meshCacheStatusLabel: string;
-  faceSelectionMode: boolean;
-  selectedMeshFace: MeshFaceSelection | null;
   operations: Pocket2DOperationConfig[];
   selectedOperationId: string | null;
   canGenerate: boolean;
@@ -23,7 +20,6 @@ type AppSidebarProps = {
   generatedPathPointCount: number;
   generatedPathLength: number;
   onMeshUpload: (file: File | null) => void;
-  onToggleFaceSelection: () => void;
   onAddPocketOperation: () => void;
   onEditSelectedOperation: () => void;
   onSelectOperation: (operationId: string) => void;
@@ -50,8 +46,6 @@ export function AppSidebar({
   meshLoaded,
   meshStatusLabel,
   meshCacheStatusLabel,
-  faceSelectionMode,
-  selectedMeshFace,
   operations,
   selectedOperationId,
   canGenerate,
@@ -62,7 +56,6 @@ export function AppSidebar({
   generatedPathPointCount,
   generatedPathLength,
   onMeshUpload,
-  onToggleFaceSelection,
   onAddPocketOperation,
   onEditSelectedOperation,
   onSelectOperation,
@@ -88,26 +81,6 @@ export function AppSidebar({
 
         {meshCacheStatusLabel ? (
           <p className="text-xs leading-5 text-sidebar-foreground/65">{meshCacheStatusLabel}</p>
-        ) : null}
-
-        <Button
-          type="button"
-          variant={faceSelectionMode ? "default" : "outline"}
-          className="w-full justify-start"
-          onClick={onToggleFaceSelection}
-          disabled={!meshLoaded}
-        >
-          {faceSelectionMode ? "Click a mesh face in the viewport" : "Select XY-coplanar face"}
-        </Button>
-
-        {selectedMeshFace ? (
-          <p className="text-xs leading-5 text-sidebar-foreground/65">
-            Selected face: {selectedMeshFace.label} · {selectedMeshFace.boundaryLoop?.length ?? 0} boundary points
-          </p>
-        ) : meshLoaded ? (
-          <p className="text-xs leading-5 text-sidebar-foreground/65">
-            No face selected. Pick a face that is coplanar to XY.
-          </p>
         ) : null}
 
         <div className="space-y-2 rounded-md border p-3">
@@ -180,7 +153,7 @@ export function AppSidebar({
             </div>
           ) : (
             <p className="text-xs leading-5 text-sidebar-foreground/65">
-              No operations yet. Select a face, then add a pocket operation.
+              No operations yet. Add a pocket operation, then choose control geometry in the dialog.
             </p>
           )}
         </div>
@@ -206,7 +179,7 @@ export function AppSidebar({
           <p className="text-xs leading-5 text-sidebar-foreground/65">{requestMessage}</p>
         ) : (
           <p className="text-xs leading-5 text-sidebar-foreground/65">
-            Upload an STL, select one XY-coplanar face, add a pocket operation, then generate the toolpath and swept stock simulation.
+            Upload an STL, add a pocket operation, choose XY-coplanar control geometry in the dialog, then generate the toolpath and swept stock simulation.
           </p>
         )}
 

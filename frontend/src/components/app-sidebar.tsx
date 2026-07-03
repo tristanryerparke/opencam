@@ -34,9 +34,9 @@ type AppSidebarProps = {
 };
 
 function getOperationSummary(operation: Pocket2DOperationConfig) {
-  const vertexCount = operation.pocket?.driveGeometry?.vertices?.length ?? 0;
-  const bottomZ = operation.heights?.bottomZ;
-  const topZ = operation.heights?.topZ;
+  const vertexCount = operation.controlGeometry?.driveGeometry?.vertices?.length ?? 0;
+  const bottomZ = operation.levels?.bottomZ;
+  const topZ = operation.levels?.topZ;
 
   const zLabel =
     typeof topZ === "number" && typeof bottomZ === "number"

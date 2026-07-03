@@ -67,9 +67,10 @@ type SchemaFieldsProps = {
   value: DraftValue | undefined;
   path: readonly string[];
   onChange: (path: readonly string[], value: DraftValue) => void;
+  onStartGeometrySelection?: () => void;
 };
 
-function SchemaFields({ rootSchema, schema, value, path, onChange }: SchemaFieldsProps) {
+function SchemaFields({ rootSchema, schema, value, path, onChange, onStartGeometrySelection }: SchemaFieldsProps) {
   const resolved = resolveSchema(schema, rootSchema);
   const metadata = getUiMetadata(schema, rootSchema);
 
@@ -107,6 +108,18 @@ function SchemaFields({ rootSchema, schema, value, path, onChange }: SchemaField
   if (resolved.properties) {
     return (
       <div className="space-y-4">
+        {path.length === 1 && path[0] === "controlGeometry" && onStartGeometrySelection ? (
+          <div className="rounded-md border bg-muted/30 p-3">
+            <div className="text-sm font-medium">Select control geometry</div>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">
+              Pick a flat XY-coplanar area from the viewport. The dialog will hide while you select it.
+            </p>
+            <Button type="button" variant="outline" className="mt-3" onClick={onStartGeometrySelection}>
+              Select flat area
+            </Button>
+          </div>
+        ) : null}
+
         {Object.entries(resolved.properties).map(([key, childSchema]) => (
           <SchemaFields
             key={[...path, key].join(".")}
@@ -119,6 +132,7 @@ function SchemaFields({ rootSchema, schema, value, path, onChange }: SchemaField
             }
             path={[...path, key]}
             onChange={onChange}
+            onStartGeometrySelection={onStartGeometrySelection}
           />
         ))}
       </div>
@@ -209,6 +223,7 @@ type OperationDialogProps = {
   onDraftChange: (draft: DraftObject) => void;
   onOpenChange: (open: boolean) => void;
   onSave: () => void;
+  onStartGeometrySelection: () => void;
 };
 
 export function OperationDialog({
@@ -219,6 +234,7 @@ export function OperationDialog({
   onDraftChange,
   onOpenChange,
   onSave,
+  onStartGeometrySelection,
 }: OperationDialogProps) {
   const sections = useMemo(() => getVisibleSections(rootSchema), [rootSchema]);
   const [requestedTab, setRequestedTab] = useState(sections[0]?.key ?? "");
@@ -245,35 +261,38 @@ export function OperationDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] max-w-4xl overflow-hidden">
+      <DialogContent className="max-h-[90vh] max-w-5xl overflow-hidden">
         <DialogHeader>
           <DialogTitle>{mode === "create" ? "Add pocket operation" : "Edit pocket operation"}</DialogTitle>
           <DialogDescription>
-            Fill out the tabbed operation form generated from the backend Pydantic schema.
+            Fill out the operation form generated from the backend Pydantic schema.
           </DialogDescription>
         </DialogHeader>
 
-        <Tabs value={activeTab} onValueChange={setRequestedTab} className="min-h-0 overflow-hidden">
-          <TabsList variant="line" className="h-auto flex-wrap justify-start">
-            {sections.map((section) => (
-              <TabsTrigger key={section.key} value={section.key}>
-                {section.title}
-              </TabsTrigger>
-            ))}
-          </TabsList>
+        <Tabs value={activeTab} onValueChange={setRequestedTab} orientation="vertical" className="min-h-0 flex-1 overflow-hidden">
+          <div className="grid min-h-0 flex-1 grid-cols-[220px_minmax(0,1fr)] gap-6 overflow-hidden">
+            <TabsList variant="line" className="h-full w-full flex-col items-stretch justify-start rounded-md border bg-muted/30 p-2">
+              {sections.map((section) => (
+                <TabsTrigger key={section.key} value={section.key} className="justify-start px-3 py-2 text-left">
+                  {section.title}
+                </TabsTrigger>
+              ))}
+            </TabsList>
 
-          <div className="min-h-0 overflow-y-auto pr-1">
-            {sections.map((section) => (
-              <TabsContent key={section.key} value={section.key} className="mt-4 space-y-4">
-                <SchemaFields
-                  rootSchema={rootSchema}
-                  schema={section.schema}
-                  value={draft[section.key]}
-                  path={[section.key]}
-                  onChange={(nextPath, nextValue) => onDraftChange(setDraftValueAtPath(draft, nextPath, nextValue))}
-                />
-              </TabsContent>
-            ))}
+            <div className="min-h-0 overflow-y-auto pr-1">
+              {sections.map((section) => (
+                <TabsContent key={section.key} value={section.key} className="space-y-4">
+                  <SchemaFields
+                    rootSchema={rootSchema}
+                    schema={section.schema}
+                    value={draft[section.key]}
+                    path={[section.key]}
+                    onChange={(nextPath, nextValue) => onDraftChange(setDraftValueAtPath(draft, nextPath, nextValue))}
+                    onStartGeometrySelection={onStartGeometrySelection}
+                  />
+                </TabsContent>
+              ))}
+            </div>
           </div>
         </Tabs>
 

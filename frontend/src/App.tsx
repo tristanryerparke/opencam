@@ -16,6 +16,7 @@ import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { getOpenCamBootstrap, sendRhinoUiDebug } from "@/bootstrap";
 import type { DraftObject } from "@/lib/cam-schema";
 import {
+  applySelectionToPocketOperationDraft,
   buildGenerateToolpathRequest,
   createPocketOperationDraft,
   parsePocketOperationDraft,
@@ -332,6 +333,7 @@ function App() {
   const [selectedOperationId, setSelectedOperationId] = useState<string | null>(null);
   const [isOperationDialogOpen, setIsOperationDialogOpen] = useState(false);
   const [operationDialogMode, setOperationDialogMode] = useState<"create" | "edit">("create");
+  const [resumeOperationDialogAfterSelection, setResumeOperationDialogAfterSelection] = useState(false);
   const [operationDraft, setOperationDraft] = useState<DraftObject | null>(null);
   const [generatedOperation, setGeneratedOperation] =
     useState<GeneratedOperationResponse | null>(null);
@@ -1064,6 +1066,37 @@ function App() {
     setSelectedMeshFace(selection);
     resetGeneratedPreview();
     setFaceSelectionMode(false);
+
+    if (resumeOperationDialogAfterSelection && operationDraft) {
+      setOperationDraft(applySelectionToPocketOperationDraft(operationDraft, selection, meshMaxZ));
+      setIsOperationDialogOpen(true);
+      setResumeOperationDialogAfterSelection(false);
+    }
+  }
+
+  function handleToggleFaceSelection() {
+    if (faceSelectionMode) {
+      setFaceSelectionMode(false);
+      if (resumeOperationDialogAfterSelection && operationDraft) {
+        setIsOperationDialogOpen(true);
+        setResumeOperationDialogAfterSelection(false);
+      }
+      return;
+    }
+
+    setFaceSelectionMode(true);
+  }
+
+  function handleStartDialogGeometrySelection() {
+    if (!operationDraft) {
+      return;
+    }
+
+    setIsOperationDialogOpen(false);
+    setResumeOperationDialogAfterSelection(true);
+    setFaceSelectionMode(true);
+    setRequestState("idle");
+    setRequestMessage("Select a flat XY-coplanar area in the viewport.");
   }
 
   function handleAddPocketOperation() {
@@ -1085,6 +1118,7 @@ function App() {
     }
 
     setOperationDialogMode("create");
+    setResumeOperationDialogAfterSelection(false);
     setOperationDraft(createPocketOperationDraft(operations.length + 1, selectedMeshFace, meshMaxZ));
     setIsOperationDialogOpen(true);
   }
@@ -1095,6 +1129,7 @@ function App() {
     }
 
     setOperationDialogMode("edit");
+    setResumeOperationDialogAfterSelection(false);
     setOperationDraft(
       createPocketOperationDraft(
         operations.findIndex((operation) => operation.id === selectedOperation.id) + 1,
@@ -1128,6 +1163,7 @@ function App() {
 
       resetGeneratedPreview();
       setIsOperationDialogOpen(false);
+      setResumeOperationDialogAfterSelection(false);
       setOperationDraft(null);
     } catch (error) {
       setRequestState("error");
@@ -1411,6 +1447,7 @@ function App() {
     setShowOriginalMesh(true);
     setFaceSelectionMode(false);
     setIsOperationDialogOpen(false);
+    setResumeOperationDialogAfterSelection(false);
     setOperationDraft(null);
   }
 
@@ -1443,7 +1480,7 @@ function App() {
             generatedPathPointCount={generatedPathPointCount}
             generatedPathLength={generatedPathLength}
             onMeshUpload={handleMeshUpload}
-            onToggleFaceSelection={() => setFaceSelectionMode((current) => !current)}
+            onToggleFaceSelection={handleToggleFaceSelection}
             onAddPocketOperation={handleAddPocketOperation}
             onEditSelectedOperation={handleEditSelectedOperation}
             onSelectOperation={handleSelectOperation}
@@ -1524,10 +1561,12 @@ function App() {
           onOpenChange={(open) => {
             setIsOperationDialogOpen(open);
             if (!open) {
+              setResumeOperationDialogAfterSelection(false);
               setOperationDraft(null);
             }
           }}
           onSave={handleOperationDialogSave}
+          onStartGeometrySelection={handleStartDialogGeometrySelection}
         />
       </div>
     </SidebarProvider>

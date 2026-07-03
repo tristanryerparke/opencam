@@ -350,25 +350,53 @@ export function createPocketOperationDraft(
   const driveGeometry = selection ? createDriveGeometryFromSelection(selection) : null;
   const hydratedOperation = {
     ...(actualOperation as DraftObject),
-    pocket: {
-      ...(((actualOperation as DraftObject).pocket as DraftObject | undefined) ?? {}),
-      driveGeometry: driveGeometry ?? (((actualOperation as DraftObject).pocket as DraftObject | undefined)?.driveGeometry as DraftValue | undefined),
+    controlGeometry: {
+      ...(((actualOperation as DraftObject).controlGeometry as DraftObject | undefined) ?? {}),
+      driveGeometry:
+        driveGeometry
+        ?? (((actualOperation as DraftObject).controlGeometry as DraftObject | undefined)
+          ?.driveGeometry as DraftValue | undefined),
     },
-    heights: {
-      ...(((actualOperation as DraftObject).heights as DraftObject | undefined) ?? {}),
+    levels: {
+      ...(((actualOperation as DraftObject).levels as DraftObject | undefined) ?? {}),
       topZ:
-        existingOperation?.heights?.topZ ??
+        existingOperation?.levels?.topZ ??
         meshMaxZ ??
         selection?.planeZ ??
-        (((actualOperation as DraftObject).heights as DraftObject | undefined)?.topZ as DraftValue | undefined),
+        (((actualOperation as DraftObject).levels as DraftObject | undefined)?.topZ as DraftValue | undefined),
       bottomZ:
-        existingOperation?.heights?.bottomZ ??
+        existingOperation?.levels?.bottomZ ??
         selection?.planeZ ??
-        (((actualOperation as DraftObject).heights as DraftObject | undefined)?.bottomZ as DraftValue | undefined),
+        (((actualOperation as DraftObject).levels as DraftObject | undefined)?.bottomZ as DraftValue | undefined),
     },
   } satisfies DraftObject;
 
   return schemaValueToDraft(pocketOperationSchema, hydratedOperation, pocketOperationSchema) as DraftObject;
+}
+
+export function applySelectionToPocketOperationDraft(
+  draft: DraftObject,
+  selection: MeshFaceSelection,
+  meshMaxZ: number | null,
+): DraftObject {
+  const driveGeometry = createDriveGeometryFromSelection(selection);
+
+  return schemaValueToDraft(
+    pocketOperationSchema,
+    {
+      ...draft,
+      controlGeometry: {
+        ...((draft.controlGeometry as DraftObject | undefined) ?? {}),
+        driveGeometry,
+      },
+      levels: {
+        ...((draft.levels as DraftObject | undefined) ?? {}),
+        topZ: meshMaxZ ?? selection.planeZ ?? ((draft.levels as DraftObject | undefined)?.topZ as DraftValue | undefined),
+        bottomZ: selection.planeZ ?? ((draft.levels as DraftObject | undefined)?.bottomZ as DraftValue | undefined),
+      },
+    },
+    pocketOperationSchema,
+  ) as DraftObject;
 }
 
 export function parsePocketOperationDraft(draft: DraftObject): Pocket2DOperationConfig {
@@ -383,7 +411,7 @@ export function buildGenerateToolpathRequest(
     setup: {
       origin: { x: 0, y: 0, z: 0 },
       orientation: { machineZAxis: "positiveZ" },
-      stock: { maxZ: meshMaxZ ?? operation.heights?.topZ ?? 0 },
+      stock: { maxZ: meshMaxZ ?? operation.levels?.topZ ?? 0 },
     },
     operation,
   };

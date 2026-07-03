@@ -88,12 +88,80 @@ class CamSetupConfig(CamelBaseModel):
     stock: SetupStock = Field(default_factory=SetupStock, title="Stock")
 
 
-class PocketFeedsAndSpeedsSection(CamelBaseModel):
+class ClosedCurveSelection(CamelBaseModel):
+    model_config = ConfigDict(title="ClosedCurveSelection")
+
+    source: Literal["selectedFaceBoundary"] = Field(
+        default="selectedFaceBoundary",
+        title="Geometry source",
+    )
+    plane_z: float = Field(
+        title="Drive geometry plane Z",
+        json_schema_extra=_ui_metadata(unit="mm", read_only=True),
+    )
+    vertices: list[Point2D] = Field(
+        min_length=3,
+        title="Closed curve vertices",
+        description="Closed curves or closed surface edges captured from the selected mesh face.",
+        json_schema_extra=_ui_metadata(read_only=True),
+    )
+    selection_label: str | None = Field(
+        default=None,
+        title="Selection label",
+        json_schema_extra=_ui_metadata(read_only=True),
+    )
+
+
+class PocketControlGeometrySection(CamelBaseModel):
     model_config = ConfigDict(
-        title="PocketFeedsAndSpeedsSection",
+        title="PocketControlGeometrySection",
         json_schema_extra=_ui_metadata(
-            tab_id="feedsAndSpeeds",
-            tab_title="Material / Feeds & Speeds",
+            tab_id="controlGeometry",
+            tab_title="Control geometry",
+        ),
+    )
+
+    drive_geometry: ClosedCurveSelection = Field(title="Drive geometries")
+
+
+class PocketCutParametersSection(CamelBaseModel):
+    model_config = ConfigDict(
+        title="PocketCutParametersSection",
+        json_schema_extra=_ui_metadata(
+            tab_id="cutParameters",
+            tab_title="Cut parameters",
+        ),
+    )
+
+    cut_direction: Literal["climb", "conventional"] = Field(
+        default="climb",
+        title="Climb/Conventional",
+    )
+    stepover: float = Field(
+        default=25.0,
+        gt=0,
+        le=100,
+        title="Stepover",
+        json_schema_extra=_ui_metadata(unit="%"),
+    )
+    stock_to_leave: float = Field(
+        default=0.0,
+        ge=0,
+        title="Stock to leave",
+        json_schema_extra=_ui_metadata(unit="mm"),
+    )
+    pocket_strategy: Literal["inside", "outside"] = Field(
+        default="inside",
+        title="Pocket from inside/outside",
+    )
+
+
+class PocketMaterialSection(CamelBaseModel):
+    model_config = ConfigDict(
+        title="PocketMaterialSection",
+        json_schema_extra=_ui_metadata(
+            tab_id="material",
+            tab_title="Material",
         ),
     )
 
@@ -131,41 +199,12 @@ class PocketToolSection(CamelBaseModel):
     manual_change: bool = Field(default=False, title="Manual change")
 
 
-class PocketClearanceSection(CamelBaseModel):
+class PocketLevelsSection(CamelBaseModel):
     model_config = ConfigDict(
-        title="PocketClearanceSection",
+        title="PocketLevelsSection",
         json_schema_extra=_ui_metadata(
-            tab_id="clearance",
-            tab_title="Clearance Settings",
-        ),
-    )
-
-    clearance_plane_height: float = Field(
-        default=25.4,
-        title="Clearance plane height",
-        description="Absolute clearance plane height used for retracts and transfers when selected.",
-        json_schema_extra=_ui_metadata(unit="mm"),
-    )
-    transfer_height_mode: Literal["clearancePlane", "stockTopPlusOffset"] = Field(
-        default="clearancePlane",
-        title="Transfer height",
-        description="Use the clearance plane directly, or compute transfer height as stock max Z plus an offset.",
-    )
-    transfer_height_offset: float = Field(
-        default=5.0,
-        ge=0,
-        title="Transfer height offset",
-        description="Only used when transfer height comes from stock max Z + X.",
-        json_schema_extra=_ui_metadata(unit="mm"),
-    )
-
-
-class PocketHeightsSection(CamelBaseModel):
-    model_config = ConfigDict(
-        title="PocketHeightsSection",
-        json_schema_extra=_ui_metadata(
-            tab_id="heights",
-            tab_title="Heights & Levels",
+            tab_id="levels",
+            tab_title="Levels",
         ),
     )
 
@@ -192,10 +231,39 @@ class PocketHeightsSection(CamelBaseModel):
     )
 
     @model_validator(mode="after")
-    def validate_z_range(self) -> "PocketHeightsSection":
+    def validate_z_range(self) -> "PocketLevelsSection":
         if self.bottom_z > self.top_z:
             raise ValueError("Bottom Z must be less than or equal to top Z.")
         return self
+
+
+class PocketClearanceSection(CamelBaseModel):
+    model_config = ConfigDict(
+        title="PocketClearanceSection",
+        json_schema_extra=_ui_metadata(
+            tab_id="clearance",
+            tab_title="Clearence",
+        ),
+    )
+
+    clearance_plane_height: float = Field(
+        default=25.4,
+        title="Clearance plane height",
+        description="Absolute clearance plane height used for retracts and transfers when selected.",
+        json_schema_extra=_ui_metadata(unit="mm"),
+    )
+    transfer_height_mode: Literal["clearancePlane", "stockTopPlusOffset"] = Field(
+        default="clearancePlane",
+        title="Transfer height",
+        description="Use the clearance plane directly, or compute transfer height as stock max Z plus an offset.",
+    )
+    transfer_height_offset: float = Field(
+        default=5.0,
+        ge=0,
+        title="Transfer height offset",
+        description="Only used when transfer height comes from stock max Z + X.",
+        json_schema_extra=_ui_metadata(unit="mm"),
+    )
 
 
 class PocketAdvancedSection(CamelBaseModel):
@@ -203,7 +271,7 @@ class PocketAdvancedSection(CamelBaseModel):
         title="PocketAdvancedSection",
         json_schema_extra=_ui_metadata(
             tab_id="advanced",
-            tab_title="Advanced Parameters",
+            tab_title="Advanced",
         ),
     )
 
@@ -227,63 +295,6 @@ class PocketAdvancedSection(CamelBaseModel):
     )
 
 
-class ClosedCurveSelection(CamelBaseModel):
-    model_config = ConfigDict(title="ClosedCurveSelection")
-
-    source: Literal["selectedFaceBoundary"] = Field(
-        default="selectedFaceBoundary",
-        title="Geometry source",
-    )
-    plane_z: float = Field(
-        title="Drive geometry plane Z",
-        json_schema_extra=_ui_metadata(unit="mm", read_only=True),
-    )
-    vertices: list[Point2D] = Field(
-        min_length=3,
-        title="Closed curve vertices",
-        description="Closed curves or closed surface edges captured from the selected mesh face.",
-        json_schema_extra=_ui_metadata(read_only=True),
-    )
-    selection_label: str | None = Field(
-        default=None,
-        title="Selection label",
-        json_schema_extra=_ui_metadata(read_only=True),
-    )
-
-
-class PocketCutParametersSection(CamelBaseModel):
-    model_config = ConfigDict(
-        title="PocketCutParametersSection",
-        json_schema_extra=_ui_metadata(
-            tab_id="pocket",
-            tab_title="2D Pocketing",
-        ),
-    )
-
-    drive_geometry: ClosedCurveSelection = Field(title="Drive geometries")
-    cut_direction: Literal["climb", "conventional"] = Field(
-        default="climb",
-        title="Climb/Conventional",
-    )
-    stepover: float = Field(
-        default=25.0,
-        gt=0,
-        le=100,
-        title="Stepover",
-        json_schema_extra=_ui_metadata(unit="%"),
-    )
-    stock_to_leave: float = Field(
-        default=0.0,
-        ge=0,
-        title="Stock to leave",
-        json_schema_extra=_ui_metadata(unit="mm"),
-    )
-    pocket_strategy: Literal["inside", "outside"] = Field(
-        default="inside",
-        title="Pocket from inside/outside",
-    )
-
-
 class Pocket2DOperationConfig(CamelBaseModel):
     model_config = ConfigDict(title="Pocket2DOperationConfig")
 
@@ -292,24 +303,35 @@ class Pocket2DOperationConfig(CamelBaseModel):
         title="Operation ID",
         json_schema_extra=_ui_metadata(hidden=True),
     )
-    kind: Literal["pocket2d"] = Field(default="pocket2d", title="Operation kind")
+    kind: Literal["pocket2d"] = Field(
+        default="pocket2d",
+        title="Operation kind",
+        json_schema_extra=_ui_metadata(hidden=True),
+    )
     display_name: str = Field(
         default="2D Pocket",
         title="Operation name",
         json_schema_extra=_ui_metadata(hidden=True),
     )
-    feeds_and_speeds: PocketFeedsAndSpeedsSection = Field(
-        default_factory=PocketFeedsAndSpeedsSection,
-        title="Material / Feeds & Speeds",
+    control_geometry: PocketControlGeometrySection = Field(
+        default_factory=PocketControlGeometrySection,
+        title="Control geometry",
+    )
+    cut_parameters: PocketCutParametersSection = Field(
+        default_factory=PocketCutParametersSection,
+        title="Cut parameters",
+    )
+    material: PocketMaterialSection = Field(
+        default_factory=PocketMaterialSection,
+        title="Material",
     )
     tool: PocketToolSection = Field(default_factory=PocketToolSection, title="Tool")
+    levels: PocketLevelsSection = Field(default_factory=PocketLevelsSection, title="Levels")
     clearance: PocketClearanceSection = Field(
         default_factory=PocketClearanceSection,
-        title="Clearance Settings",
+        title="Clearence",
     )
-    heights: PocketHeightsSection = Field(default_factory=PocketHeightsSection, title="Heights & Levels")
-    advanced: PocketAdvancedSection = Field(default_factory=PocketAdvancedSection, title="Advanced Parameters")
-    pocket: PocketCutParametersSection = Field(default_factory=PocketCutParametersSection, title="2D Pocketing")
+    advanced: PocketAdvancedSection = Field(default_factory=PocketAdvancedSection, title="Advanced")
 
 
 MachiningOperation = Annotated[Pocket2DOperationConfig, Field(discriminator="kind")]
@@ -324,7 +346,7 @@ class GenerateToolpathRequest(CamelBaseModel):
     @model_validator(mode="after")
     def validate_transfer_height(self) -> "GenerateToolpathRequest":
         operation = self.operation
-        top_z = operation.heights.top_z
+        top_z = operation.levels.top_z
 
         if operation.clearance.transfer_height_mode == "clearancePlane":
             transfer_height = operation.clearance.clearance_plane_height
@@ -337,7 +359,7 @@ class GenerateToolpathRequest(CamelBaseModel):
         return self
 
     def to_closed_polyline(self) -> ClosedPolyline:
-        return ClosedPolyline(vertices=self.operation.pocket.drive_geometry.vertices)
+        return ClosedPolyline(vertices=self.operation.control_geometry.drive_geometry.vertices)
 
 
 class FrontendCamSchemaBundle(CamelBaseModel):

@@ -20,31 +20,7 @@ def pocket_request_payload() -> dict:
             "id": "pocket-1",
             "kind": "pocket2d",
             "displayName": "2D Pocket 1",
-            "feedsAndSpeeds": {"feedrate": 100.0, "rpm": 1000},
-            "tool": {
-                "diameter": 2.0,
-                "fluteLength": 10.0,
-                "toolNumber": 1,
-                "manualChange": False,
-            },
-            "clearance": {
-                "clearancePlaneHeight": 5.0,
-                "transferHeightMode": "clearancePlane",
-                "transferHeightOffset": 5.0,
-            },
-            "heights": {
-                "driveGeometryReference": "top",
-                "topZ": 0.0,
-                "bottomZ": -2.0,
-                "maxCutDepth": 1.0,
-            },
-            "advanced": {
-                "operationSorting": "shortestTravel",
-                "cutTransitions": "clearance",
-                "layerOrder": "perLayer",
-                "chordalTolerance": 0.01,
-            },
-            "pocket": {
+            "controlGeometry": {
                 "driveGeometry": {
                     "source": "selectedFaceBoundary",
                     "planeZ": 0.0,
@@ -56,10 +32,36 @@ def pocket_request_payload() -> dict:
                         {"x": 0.0, "y": 6.0},
                     ],
                 },
+            },
+            "cutParameters": {
                 "cutDirection": "climb",
                 "stepover": 50.0,
                 "stockToLeave": 0.0,
                 "pocketStrategy": "inside",
+            },
+            "material": {"feedrate": 100.0, "rpm": 1000},
+            "tool": {
+                "diameter": 2.0,
+                "fluteLength": 10.0,
+                "toolNumber": 1,
+                "manualChange": False,
+            },
+            "clearance": {
+                "clearancePlaneHeight": 5.0,
+                "transferHeightMode": "clearancePlane",
+                "transferHeightOffset": 5.0,
+            },
+            "levels": {
+                "driveGeometryReference": "top",
+                "topZ": 0.0,
+                "bottomZ": -2.0,
+                "maxCutDepth": 1.0,
+            },
+            "advanced": {
+                "operationSorting": "shortestTravel",
+                "cutTransitions": "clearance",
+                "layerOrder": "perLayer",
+                "chordalTolerance": 0.01,
             },
         },
     }

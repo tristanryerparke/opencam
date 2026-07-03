@@ -92,7 +92,10 @@ export const camSchemaBundle = {
             "const": "pocket2d",
             "default": "pocket2d",
             "title": "Operation kind",
-            "type": "string"
+            "type": "string",
+            "x-opencam": {
+              "hidden": true
+            }
           },
           "displayName": {
             "default": "2D Pocket",
@@ -102,29 +105,33 @@ export const camSchemaBundle = {
               "hidden": true
             }
           },
-          "feedsAndSpeeds": {
-            "$ref": "#/$defs/PocketFeedsAndSpeedsSection",
-            "title": "Material / Feeds & Speeds"
+          "controlGeometry": {
+            "$ref": "#/$defs/PocketControlGeometrySection",
+            "title": "Control geometry"
+          },
+          "cutParameters": {
+            "$ref": "#/$defs/PocketCutParametersSection",
+            "title": "Cut parameters"
+          },
+          "material": {
+            "$ref": "#/$defs/PocketMaterialSection",
+            "title": "Material"
           },
           "tool": {
             "$ref": "#/$defs/PocketToolSection",
             "title": "Tool"
           },
+          "levels": {
+            "$ref": "#/$defs/PocketLevelsSection",
+            "title": "Levels"
+          },
           "clearance": {
             "$ref": "#/$defs/PocketClearanceSection",
-            "title": "Clearance Settings"
-          },
-          "heights": {
-            "$ref": "#/$defs/PocketHeightsSection",
-            "title": "Heights & Levels"
+            "title": "Clearence"
           },
           "advanced": {
             "$ref": "#/$defs/PocketAdvancedSection",
-            "title": "Advanced Parameters"
-          },
-          "pocket": {
-            "$ref": "#/$defs/PocketCutParametersSection",
-            "title": "2D Pocketing"
+            "title": "Advanced"
           }
         },
         "title": "Pocket2DOperationConfig",
@@ -167,7 +174,7 @@ export const camSchemaBundle = {
         "type": "object",
         "x-opencam": {
           "tabId": "advanced",
-          "tabTitle": "Advanced Parameters"
+          "tabTitle": "Advanced"
         }
       },
       "PocketClearanceSection": {
@@ -206,15 +213,28 @@ export const camSchemaBundle = {
         "type": "object",
         "x-opencam": {
           "tabId": "clearance",
-          "tabTitle": "Clearance Settings"
+          "tabTitle": "Clearence"
         }
       },
-      "PocketCutParametersSection": {
+      "PocketControlGeometrySection": {
         "properties": {
           "driveGeometry": {
             "$ref": "#/$defs/ClosedCurveSelection",
             "title": "Drive geometries"
-          },
+          }
+        },
+        "required": [
+          "driveGeometry"
+        ],
+        "title": "PocketControlGeometrySection",
+        "type": "object",
+        "x-opencam": {
+          "tabId": "controlGeometry",
+          "tabTitle": "Control geometry"
+        }
+      },
+      "PocketCutParametersSection": {
+        "properties": {
           "cutDirection": {
             "default": "climb",
             "enum": [
@@ -253,42 +273,14 @@ export const camSchemaBundle = {
             "type": "string"
           }
         },
-        "required": [
-          "driveGeometry"
-        ],
         "title": "PocketCutParametersSection",
         "type": "object",
         "x-opencam": {
-          "tabId": "pocket",
-          "tabTitle": "2D Pocketing"
+          "tabId": "cutParameters",
+          "tabTitle": "Cut parameters"
         }
       },
-      "PocketFeedsAndSpeedsSection": {
-        "properties": {
-          "feedrate": {
-            "default": 500,
-            "exclusiveMinimum": 0,
-            "title": "Feedrate",
-            "type": "number",
-            "x-opencam": {
-              "unit": "mm/min"
-            }
-          },
-          "rpm": {
-            "default": 12000,
-            "exclusiveMinimum": 0,
-            "title": "RPM",
-            "type": "integer"
-          }
-        },
-        "title": "PocketFeedsAndSpeedsSection",
-        "type": "object",
-        "x-opencam": {
-          "tabId": "feedsAndSpeeds",
-          "tabTitle": "Material / Feeds & Speeds"
-        }
-      },
-      "PocketHeightsSection": {
+      "PocketLevelsSection": {
         "properties": {
           "driveGeometryReference": {
             "default": "top",
@@ -326,11 +318,36 @@ export const camSchemaBundle = {
             }
           }
         },
-        "title": "PocketHeightsSection",
+        "title": "PocketLevelsSection",
         "type": "object",
         "x-opencam": {
-          "tabId": "heights",
-          "tabTitle": "Heights & Levels"
+          "tabId": "levels",
+          "tabTitle": "Levels"
+        }
+      },
+      "PocketMaterialSection": {
+        "properties": {
+          "feedrate": {
+            "default": 500,
+            "exclusiveMinimum": 0,
+            "title": "Feedrate",
+            "type": "number",
+            "x-opencam": {
+              "unit": "mm/min"
+            }
+          },
+          "rpm": {
+            "default": 12000,
+            "exclusiveMinimum": 0,
+            "title": "RPM",
+            "type": "integer"
+          }
+        },
+        "title": "PocketMaterialSection",
+        "type": "object",
+        "x-opencam": {
+          "tabId": "material",
+          "tabTitle": "Material"
         }
       },
       "PocketToolSection": {
@@ -580,7 +597,7 @@ export const camSchemaBundle = {
         "type": "object",
         "x-opencam": {
           "tabId": "advanced",
-          "tabTitle": "Advanced Parameters"
+          "tabTitle": "Advanced"
         }
       },
       "PocketClearanceSection": {
@@ -619,15 +636,28 @@ export const camSchemaBundle = {
         "type": "object",
         "x-opencam": {
           "tabId": "clearance",
-          "tabTitle": "Clearance Settings"
+          "tabTitle": "Clearence"
         }
       },
-      "PocketCutParametersSection": {
+      "PocketControlGeometrySection": {
         "properties": {
           "driveGeometry": {
             "$ref": "#/$defs/ClosedCurveSelection",
             "title": "Drive geometries"
-          },
+          }
+        },
+        "required": [
+          "driveGeometry"
+        ],
+        "title": "PocketControlGeometrySection",
+        "type": "object",
+        "x-opencam": {
+          "tabId": "controlGeometry",
+          "tabTitle": "Control geometry"
+        }
+      },
+      "PocketCutParametersSection": {
+        "properties": {
           "cutDirection": {
             "default": "climb",
             "enum": [
@@ -666,42 +696,14 @@ export const camSchemaBundle = {
             "type": "string"
           }
         },
-        "required": [
-          "driveGeometry"
-        ],
         "title": "PocketCutParametersSection",
         "type": "object",
         "x-opencam": {
-          "tabId": "pocket",
-          "tabTitle": "2D Pocketing"
+          "tabId": "cutParameters",
+          "tabTitle": "Cut parameters"
         }
       },
-      "PocketFeedsAndSpeedsSection": {
-        "properties": {
-          "feedrate": {
-            "default": 500,
-            "exclusiveMinimum": 0,
-            "title": "Feedrate",
-            "type": "number",
-            "x-opencam": {
-              "unit": "mm/min"
-            }
-          },
-          "rpm": {
-            "default": 12000,
-            "exclusiveMinimum": 0,
-            "title": "RPM",
-            "type": "integer"
-          }
-        },
-        "title": "PocketFeedsAndSpeedsSection",
-        "type": "object",
-        "x-opencam": {
-          "tabId": "feedsAndSpeeds",
-          "tabTitle": "Material / Feeds & Speeds"
-        }
-      },
-      "PocketHeightsSection": {
+      "PocketLevelsSection": {
         "properties": {
           "driveGeometryReference": {
             "default": "top",
@@ -739,11 +741,36 @@ export const camSchemaBundle = {
             }
           }
         },
-        "title": "PocketHeightsSection",
+        "title": "PocketLevelsSection",
         "type": "object",
         "x-opencam": {
-          "tabId": "heights",
-          "tabTitle": "Heights & Levels"
+          "tabId": "levels",
+          "tabTitle": "Levels"
+        }
+      },
+      "PocketMaterialSection": {
+        "properties": {
+          "feedrate": {
+            "default": 500,
+            "exclusiveMinimum": 0,
+            "title": "Feedrate",
+            "type": "number",
+            "x-opencam": {
+              "unit": "mm/min"
+            }
+          },
+          "rpm": {
+            "default": 12000,
+            "exclusiveMinimum": 0,
+            "title": "RPM",
+            "type": "integer"
+          }
+        },
+        "title": "PocketMaterialSection",
+        "type": "object",
+        "x-opencam": {
+          "tabId": "material",
+          "tabTitle": "Material"
         }
       },
       "PocketToolSection": {
@@ -816,7 +843,10 @@ export const camSchemaBundle = {
         "const": "pocket2d",
         "default": "pocket2d",
         "title": "Operation kind",
-        "type": "string"
+        "type": "string",
+        "x-opencam": {
+          "hidden": true
+        }
       },
       "displayName": {
         "default": "2D Pocket",
@@ -826,29 +856,33 @@ export const camSchemaBundle = {
           "hidden": true
         }
       },
-      "feedsAndSpeeds": {
-        "$ref": "#/$defs/PocketFeedsAndSpeedsSection",
-        "title": "Material / Feeds & Speeds"
+      "controlGeometry": {
+        "$ref": "#/$defs/PocketControlGeometrySection",
+        "title": "Control geometry"
+      },
+      "cutParameters": {
+        "$ref": "#/$defs/PocketCutParametersSection",
+        "title": "Cut parameters"
+      },
+      "material": {
+        "$ref": "#/$defs/PocketMaterialSection",
+        "title": "Material"
       },
       "tool": {
         "$ref": "#/$defs/PocketToolSection",
         "title": "Tool"
       },
+      "levels": {
+        "$ref": "#/$defs/PocketLevelsSection",
+        "title": "Levels"
+      },
       "clearance": {
         "$ref": "#/$defs/PocketClearanceSection",
-        "title": "Clearance Settings"
-      },
-      "heights": {
-        "$ref": "#/$defs/PocketHeightsSection",
-        "title": "Heights & Levels"
+        "title": "Clearence"
       },
       "advanced": {
         "$ref": "#/$defs/PocketAdvancedSection",
-        "title": "Advanced Parameters"
-      },
-      "pocket": {
-        "$ref": "#/$defs/PocketCutParametersSection",
-        "title": "2D Pocketing"
+        "title": "Advanced"
       }
     },
     "title": "Pocket2DOperationConfig",

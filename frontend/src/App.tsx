@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
 
 import { AppSidebar, type RequestState } from "@/components/app-sidebar";
-import { ModeToggle } from "@/components/mode-toggle";
+import { SettingsDialog } from "@/components/settings-dialog";
 import { OperationDialog } from "@/components/operation-dialog";
 import {
   PolylineViewer,
@@ -1456,7 +1456,7 @@ function App() {
             <h2 className="text-sm font-semibold md:text-base">OpenCAM Viewer</h2>
           </div>
 
-          <ModeToggle />
+          <SettingsDialog />
         </header>
 
         <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">

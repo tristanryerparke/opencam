@@ -22,9 +22,7 @@ def pocket_request_payload() -> dict:
             "displayName": "2D Pocket 1",
             "controlGeometry": {
                 "driveGeometry": {
-                    "source": "selectedFaceBoundary",
                     "planeZ": 0.0,
-                    "selectionLabel": "Pocket face",
                     "vertices": [
                         {"x": 0.0, "y": 0.0},
                         {"x": 10.0, "y": 0.0},

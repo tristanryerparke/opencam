@@ -6,7 +6,7 @@ from pathlib import Path as FilePath
 from threading import Event, Lock, Thread
 from uuid import uuid4
 
-from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import ValidationError
 import numpy as np
@@ -26,6 +26,7 @@ from opencam.schemas.models import (
     SweptSimulationStatusResponse,
     ToolpathOperation,
 )
+from opencam.schemas.tool_library import Material, Tool
 from opencam.services.operations.config_adapter import build_toolpath_operation_from_config
 from opencam.services.operations.pocketing.operation import ClosedPocketingEngine
 from opencam.services.operations.profiling import ClosedProfilingEngine
@@ -35,6 +36,7 @@ from opencam.services.simulation.swept_volume import (
     SimulationCancelledError,
     simulate_swept_milling_frames,
 )
+from opencam.services.tool_library import ToolLibrary, get_tool_library
 
 app = FastAPI(title="OpenCAM API", version="0.2.0")
 
@@ -364,6 +366,66 @@ async def pocket_closed(engine: ClosedPocketingEngine):
 @app.get("/cam/schema", response_model=FrontendCamSchemaBundle)
 async def cam_schema():
     return build_frontend_cam_schema_bundle()
+
+
+@app.get("/cam/tools", response_model=list[Tool])
+def list_tools(tool_library: ToolLibrary = Depends(get_tool_library)):
+    return tool_library.list_tools()
+
+
+@app.post("/cam/tools", response_model=Tool, status_code=status.HTTP_201_CREATED)
+def add_tool(tool: Tool, tool_library: ToolLibrary = Depends(get_tool_library)):
+    try:
+        return tool_library.add_tool(tool)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+@app.get("/cam/tools/{tool_id}", response_model=Tool)
+def get_tool(tool_id: str, tool_library: ToolLibrary = Depends(get_tool_library)):
+    tool = tool_library.get_tool(tool_id)
+    if tool is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tool not found.")
+    return tool
+
+
+@app.put("/cam/tools/{tool_id}", response_model=Tool)
+def update_tool(tool_id: str, tool: Tool, tool_library: ToolLibrary = Depends(get_tool_library)):
+    if tool.id != tool_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Tool ID cannot be changed.")
+
+    updated_tool = tool_library.update_tool(tool_id, tool)
+    if updated_tool is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tool not found.")
+    return updated_tool
+
+
+@app.delete("/cam/tools/{tool_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_tool(tool_id: str, tool_library: ToolLibrary = Depends(get_tool_library)):
+    if not tool_library.delete_tool(tool_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tool not found.")
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.get("/cam/materials", response_model=list[Material])
+def list_materials(tool_library: ToolLibrary = Depends(get_tool_library)):
+    return tool_library.list_materials()
+
+
+@app.post("/cam/materials", response_model=Material, status_code=status.HTTP_201_CREATED)
+def add_material(material: Material, tool_library: ToolLibrary = Depends(get_tool_library)):
+    try:
+        return tool_library.add_material(material)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+@app.get("/cam/materials/{material_id}", response_model=Material)
+def get_material(material_id: str, tool_library: ToolLibrary = Depends(get_tool_library)):
+    material = tool_library.get_material(material_id)
+    if material is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Material not found.")
+    return material
 
 
 @app.post("/cam/toolpath", response_model=ToolpathOperation)

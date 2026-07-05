@@ -23,23 +23,16 @@ export const camSchemaBundle = {
         "title": "CamSetupConfig",
         "type": "object",
         "x-opencam": {
-          "hidden": true,
-          "tabId": "setup",
-          "tabTitle": "All Setups"
+          "hidden": true
         }
       },
       "ClosedCurveSelection": {
         "properties": {
-          "source": {
-            "const": "selectedFaceBoundary",
-            "default": "selectedFaceBoundary",
-            "title": "Geometry source",
-            "type": "string"
-          },
           "planeZ": {
             "title": "Drive geometry plane Z",
             "type": "number",
             "x-opencam": {
+              "hidden": true,
               "readOnly": true,
               "unit": "mm"
             }
@@ -53,21 +46,7 @@ export const camSchemaBundle = {
             "title": "Closed curve vertices",
             "type": "array",
             "x-opencam": {
-              "readOnly": true
-            }
-          },
-          "selectionLabel": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Selection label",
-            "x-opencam": {
+              "hidden": true,
               "readOnly": true
             }
           }
@@ -171,11 +150,7 @@ export const camSchemaBundle = {
           }
         },
         "title": "PocketAdvancedSection",
-        "type": "object",
-        "x-opencam": {
-          "tabId": "advanced",
-          "tabTitle": "Advanced"
-        }
+        "type": "object"
       },
       "PocketClearanceSection": {
         "properties": {
@@ -210,11 +185,7 @@ export const camSchemaBundle = {
           }
         },
         "title": "PocketClearanceSection",
-        "type": "object",
-        "x-opencam": {
-          "tabId": "clearance",
-          "tabTitle": "Clearence"
-        }
+        "type": "object"
       },
       "PocketControlGeometrySection": {
         "properties": {
@@ -227,11 +198,7 @@ export const camSchemaBundle = {
           "driveGeometry"
         ],
         "title": "PocketControlGeometrySection",
-        "type": "object",
-        "x-opencam": {
-          "tabId": "controlGeometry",
-          "tabTitle": "Control geometry"
-        }
+        "type": "object"
       },
       "PocketCutParametersSection": {
         "properties": {
@@ -274,11 +241,7 @@ export const camSchemaBundle = {
           }
         },
         "title": "PocketCutParametersSection",
-        "type": "object",
-        "x-opencam": {
-          "tabId": "cutParameters",
-          "tabTitle": "Cut parameters"
-        }
+        "type": "object"
       },
       "PocketLevelsSection": {
         "properties": {
@@ -319,11 +282,7 @@ export const camSchemaBundle = {
           }
         },
         "title": "PocketLevelsSection",
-        "type": "object",
-        "x-opencam": {
-          "tabId": "levels",
-          "tabTitle": "Levels"
-        }
+        "type": "object"
       },
       "PocketMaterialSection": {
         "properties": {
@@ -344,11 +303,7 @@ export const camSchemaBundle = {
           }
         },
         "title": "PocketMaterialSection",
-        "type": "object",
-        "x-opencam": {
-          "tabId": "material",
-          "tabTitle": "Material"
-        }
+        "type": "object"
       },
       "PocketToolSection": {
         "properties": {
@@ -383,11 +338,7 @@ export const camSchemaBundle = {
           }
         },
         "title": "PocketToolSection",
-        "type": "object",
-        "x-opencam": {
-          "tabId": "tool",
-          "tabTitle": "Tool"
-        }
+        "type": "object"
       },
       "Point2D": {
         "properties": {
@@ -420,9 +371,7 @@ export const camSchemaBundle = {
         "title": "SetupOrientation",
         "type": "object",
         "x-opencam": {
-          "hidden": true,
-          "tabId": "orientation",
-          "tabTitle": "Orientation"
+          "hidden": true
         }
       },
       "SetupOrigin": {
@@ -455,9 +404,7 @@ export const camSchemaBundle = {
         "title": "SetupOrigin",
         "type": "object",
         "x-opencam": {
-          "hidden": true,
-          "tabId": "origin",
-          "tabTitle": "Origin"
+          "hidden": true
         }
       },
       "SetupStock": {
@@ -475,9 +422,7 @@ export const camSchemaBundle = {
         "title": "SetupStock",
         "type": "object",
         "x-opencam": {
-          "hidden": true,
-          "tabId": "stock",
-          "tabTitle": "Stock"
+          "hidden": true
         }
       }
     },
@@ -511,16 +456,11 @@ export const camSchemaBundle = {
     "$defs": {
       "ClosedCurveSelection": {
         "properties": {
-          "source": {
-            "const": "selectedFaceBoundary",
-            "default": "selectedFaceBoundary",
-            "title": "Geometry source",
-            "type": "string"
-          },
           "planeZ": {
             "title": "Drive geometry plane Z",
             "type": "number",
             "x-opencam": {
+              "hidden": true,
               "readOnly": true,
               "unit": "mm"
             }
@@ -534,21 +474,7 @@ export const camSchemaBundle = {
             "title": "Closed curve vertices",
             "type": "array",
             "x-opencam": {
-              "readOnly": true
-            }
-          },
-          "selectionLabel": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Selection label",
-            "x-opencam": {
+              "hidden": true,
               "readOnly": true
             }
           }
@@ -594,11 +520,7 @@ export const camSchemaBundle = {
           }
         },
         "title": "PocketAdvancedSection",
-        "type": "object",
-        "x-opencam": {
-          "tabId": "advanced",
-          "tabTitle": "Advanced"
-        }
+        "type": "object"
       },
       "PocketClearanceSection": {
         "properties": {
@@ -633,11 +555,7 @@ export const camSchemaBundle = {
           }
         },
         "title": "PocketClearanceSection",
-        "type": "object",
-        "x-opencam": {
-          "tabId": "clearance",
-          "tabTitle": "Clearence"
-        }
+        "type": "object"
       },
       "PocketControlGeometrySection": {
         "properties": {
@@ -650,11 +568,7 @@ export const camSchemaBundle = {
           "driveGeometry"
         ],
         "title": "PocketControlGeometrySection",
-        "type": "object",
-        "x-opencam": {
-          "tabId": "controlGeometry",
-          "tabTitle": "Control geometry"
-        }
+        "type": "object"
       },
       "PocketCutParametersSection": {
         "properties": {
@@ -697,11 +611,7 @@ export const camSchemaBundle = {
           }
         },
         "title": "PocketCutParametersSection",
-        "type": "object",
-        "x-opencam": {
-          "tabId": "cutParameters",
-          "tabTitle": "Cut parameters"
-        }
+        "type": "object"
       },
       "PocketLevelsSection": {
         "properties": {
@@ -742,11 +652,7 @@ export const camSchemaBundle = {
           }
         },
         "title": "PocketLevelsSection",
-        "type": "object",
-        "x-opencam": {
-          "tabId": "levels",
-          "tabTitle": "Levels"
-        }
+        "type": "object"
       },
       "PocketMaterialSection": {
         "properties": {
@@ -767,11 +673,7 @@ export const camSchemaBundle = {
           }
         },
         "title": "PocketMaterialSection",
-        "type": "object",
-        "x-opencam": {
-          "tabId": "material",
-          "tabTitle": "Material"
-        }
+        "type": "object"
       },
       "PocketToolSection": {
         "properties": {
@@ -806,11 +708,7 @@ export const camSchemaBundle = {
           }
         },
         "title": "PocketToolSection",
-        "type": "object",
-        "x-opencam": {
-          "tabId": "tool",
-          "tabTitle": "Tool"
-        }
+        "type": "object"
       },
       "Point2D": {
         "properties": {

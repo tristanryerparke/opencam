@@ -18,7 +18,6 @@ export type Operation = Pocket2DOperationConfig;
 export type OperationID = string;
 export type OperationKind = "pocket2d";
 export type OperationName = string;
-export type GeometrySource = "selectedFaceBoundary";
 export type DriveGeometryPlaneZ = number;
 /**
  * Closed curves or closed surface edges captured from the selected mesh face.
@@ -28,7 +27,6 @@ export type DriveGeometryPlaneZ = number;
 export type ClosedCurveVertices = [Point2D, Point2D, Point2D, ...Point2D[]];
 export type X = number;
 export type Y = number;
-export type SelectionLabel = string | null;
 export type ClimbConventional = "climb" | "conventional";
 export type Stepover = number;
 export type StockToLeave = number;
@@ -106,10 +104,8 @@ export interface ControlGeometry {
   [k: string]: unknown;
 }
 export interface DriveGeometries {
-  source?: GeometrySource;
   planeZ: DriveGeometryPlaneZ;
   vertices: ClosedCurveVertices;
-  selectionLabel?: SelectionLabel;
   [k: string]: unknown;
 }
 export interface Point2D {

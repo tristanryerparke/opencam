@@ -9,12 +9,8 @@ from opencam.schemas.base import CamelBaseModel
 from opencam.schemas.models import ClosedPolyline, Point2D
 
 
-def _ui_metadata(*, tab_id: str | None = None, tab_title: str | None = None, hidden: bool = False, unit: str | None = None, read_only: bool = False) -> dict[str, object]:
+def _ui_metadata(*, hidden: bool = False, unit: str | None = None, read_only: bool = False) -> dict[str, object]:
     metadata: dict[str, object] = {}
-    if tab_id is not None:
-        metadata["tabId"] = tab_id
-    if tab_title is not None:
-        metadata["tabTitle"] = tab_title
     if hidden:
         metadata["hidden"] = True
     if unit is not None:
@@ -25,13 +21,7 @@ def _ui_metadata(*, tab_id: str | None = None, tab_title: str | None = None, hid
 
 
 class SetupOrigin(CamelBaseModel):
-    model_config = ConfigDict(
-        json_schema_extra=_ui_metadata(
-            tab_id="origin",
-            tab_title="Origin",
-            hidden=True,
-        )
-    )
+    model_config = ConfigDict(json_schema_extra=_ui_metadata(hidden=True))
 
     x: float = Field(0.0, title="Origin X", json_schema_extra=_ui_metadata(unit="mm"))
     y: float = Field(0.0, title="Origin Y", json_schema_extra=_ui_metadata(unit="mm"))
@@ -39,13 +29,7 @@ class SetupOrigin(CamelBaseModel):
 
 
 class SetupOrientation(CamelBaseModel):
-    model_config = ConfigDict(
-        json_schema_extra=_ui_metadata(
-            tab_id="orientation",
-            tab_title="Orientation",
-            hidden=True,
-        )
-    )
+    model_config = ConfigDict(json_schema_extra=_ui_metadata(hidden=True))
 
     machine_z_axis: Literal["positiveZ"] = Field(
         default="positiveZ",
@@ -55,13 +39,7 @@ class SetupOrientation(CamelBaseModel):
 
 
 class SetupStock(CamelBaseModel):
-    model_config = ConfigDict(
-        json_schema_extra=_ui_metadata(
-            tab_id="stock",
-            tab_title="Stock",
-            hidden=True,
-        )
-    )
+    model_config = ConfigDict(json_schema_extra=_ui_metadata(hidden=True))
 
     max_z: float = Field(
         default=0.0,
@@ -74,13 +52,7 @@ class SetupStock(CamelBaseModel):
 class CamSetupConfig(CamelBaseModel):
     model_config = ConfigDict(
         title="CamSetupConfig",
-        json_schema_extra={
-            "x-opencam": {
-                "tabId": "setup",
-                "tabTitle": "All Setups",
-                "hidden": True,
-            }
-        },
+        json_schema_extra=_ui_metadata(hidden=True),
     )
 
     origin: SetupOrigin = Field(default_factory=SetupOrigin, title="Origin")
@@ -91,47 +63,26 @@ class CamSetupConfig(CamelBaseModel):
 class ClosedCurveSelection(CamelBaseModel):
     model_config = ConfigDict(title="ClosedCurveSelection")
 
-    source: Literal["selectedFaceBoundary"] = Field(
-        default="selectedFaceBoundary",
-        title="Geometry source",
-    )
     plane_z: float = Field(
         title="Drive geometry plane Z",
-        json_schema_extra=_ui_metadata(unit="mm", read_only=True),
+        json_schema_extra=_ui_metadata(unit="mm", hidden=True, read_only=True),
     )
     vertices: list[Point2D] = Field(
         min_length=3,
         title="Closed curve vertices",
         description="Closed curves or closed surface edges captured from the selected mesh face.",
-        json_schema_extra=_ui_metadata(read_only=True),
-    )
-    selection_label: str | None = Field(
-        default=None,
-        title="Selection label",
-        json_schema_extra=_ui_metadata(read_only=True),
+        json_schema_extra=_ui_metadata(hidden=True, read_only=True),
     )
 
 
 class PocketControlGeometrySection(CamelBaseModel):
-    model_config = ConfigDict(
-        title="PocketControlGeometrySection",
-        json_schema_extra=_ui_metadata(
-            tab_id="controlGeometry",
-            tab_title="Control geometry",
-        ),
-    )
+    model_config = ConfigDict(title="PocketControlGeometrySection")
 
     drive_geometry: ClosedCurveSelection = Field(title="Drive geometries")
 
 
 class PocketCutParametersSection(CamelBaseModel):
-    model_config = ConfigDict(
-        title="PocketCutParametersSection",
-        json_schema_extra=_ui_metadata(
-            tab_id="cutParameters",
-            tab_title="Cut parameters",
-        ),
-    )
+    model_config = ConfigDict(title="PocketCutParametersSection")
 
     cut_direction: Literal["climb", "conventional"] = Field(
         default="climb",
@@ -157,13 +108,7 @@ class PocketCutParametersSection(CamelBaseModel):
 
 
 class PocketMaterialSection(CamelBaseModel):
-    model_config = ConfigDict(
-        title="PocketMaterialSection",
-        json_schema_extra=_ui_metadata(
-            tab_id="material",
-            tab_title="Material",
-        ),
-    )
+    model_config = ConfigDict(title="PocketMaterialSection")
 
     feedrate: float = Field(
         default=500.0,
@@ -175,13 +120,7 @@ class PocketMaterialSection(CamelBaseModel):
 
 
 class PocketToolSection(CamelBaseModel):
-    model_config = ConfigDict(
-        title="PocketToolSection",
-        json_schema_extra=_ui_metadata(
-            tab_id="tool",
-            tab_title="Tool",
-        ),
-    )
+    model_config = ConfigDict(title="PocketToolSection")
 
     diameter: float = Field(
         default=12.0,
@@ -200,13 +139,7 @@ class PocketToolSection(CamelBaseModel):
 
 
 class PocketLevelsSection(CamelBaseModel):
-    model_config = ConfigDict(
-        title="PocketLevelsSection",
-        json_schema_extra=_ui_metadata(
-            tab_id="levels",
-            tab_title="Levels",
-        ),
-    )
+    model_config = ConfigDict(title="PocketLevelsSection")
 
     drive_geometry_reference: Literal["top", "bottom"] = Field(
         default="top",
@@ -238,13 +171,7 @@ class PocketLevelsSection(CamelBaseModel):
 
 
 class PocketClearanceSection(CamelBaseModel):
-    model_config = ConfigDict(
-        title="PocketClearanceSection",
-        json_schema_extra=_ui_metadata(
-            tab_id="clearance",
-            tab_title="Clearence",
-        ),
-    )
+    model_config = ConfigDict(title="PocketClearanceSection")
 
     clearance_plane_height: float = Field(
         default=25.4,
@@ -267,13 +194,7 @@ class PocketClearanceSection(CamelBaseModel):
 
 
 class PocketAdvancedSection(CamelBaseModel):
-    model_config = ConfigDict(
-        title="PocketAdvancedSection",
-        json_schema_extra=_ui_metadata(
-            tab_id="advanced",
-            tab_title="Advanced",
-        ),
-    )
+    model_config = ConfigDict(title="PocketAdvancedSection")
 
     operation_sorting: Literal["shortestTravel"] = Field(
         default="shortestTravel",

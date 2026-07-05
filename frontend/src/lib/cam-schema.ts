@@ -12,8 +12,6 @@ export type DraftObject = { [key: string]: DraftValue | undefined };
 export type OpenCamUiMetadata = {
   hidden?: boolean;
   readOnly?: boolean;
-  tabId?: string;
-  tabTitle?: string;
   unit?: string;
 };
 
@@ -75,7 +73,7 @@ export function getVisibleSections(rootSchema: JsonSchema = pocketOperationSchem
       {
         key,
         schema: resolvedChild,
-        title: metadata.tabTitle ?? getSchemaTitle(childSchema, key, rootSchema),
+        title: getSchemaTitle(childSchema, key, rootSchema),
       },
     ];
   });
@@ -290,7 +288,7 @@ export function parseDraftValue(schema: JsonSchema, draft: DraftValue | undefine
   throw new Error(`${path} is required.`);
 }
 
-export function setDraftValueAtPath(draft: DraftObject, path: readonly string[], value: DraftValue): DraftObject {
+export function setDraftValueAtPath(draft: DraftObject, path: readonly string[], value: DraftValue | undefined): DraftObject {
   if (path.length === 0) {
     return draft;
   }
@@ -325,10 +323,8 @@ export function createDriveGeometryFromSelection(selection: MeshFaceSelection) {
   }
 
   return {
-    source: "selectedFaceBoundary" as const,
     planeZ: selection.planeZ,
     vertices: selection.boundaryLoop.map(([x, y]) => ({ x, y })),
-    selectionLabel: selection.label,
   };
 }
 

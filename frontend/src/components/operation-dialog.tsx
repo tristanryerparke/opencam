@@ -1,22 +1,37 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import IntegerInput from "@/components/ui/integer-input";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import NumberInput from "@/components/ui/number-input";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Sidebar,
   SidebarContent,
   SidebarGroup,
   SidebarGroupContent,
-  SidebarGroupLabel,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
@@ -34,9 +49,6 @@ import {
   setDraftValueAtPath,
 } from "@/lib/cam-schema";
 
-const SELECT_CLASSNAME =
-  "border-input focus-visible:border-ring focus-visible:ring-ring/50 dark:bg-input/30 h-9 w-full rounded-md border bg-transparent px-3 py-1 text-sm shadow-xs outline-none focus-visible:ring-[3px]";
-
 function formatReadOnlyValue(value: DraftValue | undefined) {
   if (typeof value === "string" || typeof value === "number") {
     return String(value);
@@ -47,25 +59,99 @@ function formatReadOnlyValue(value: DraftValue | undefined) {
   return "—";
 }
 
-function GeometrySummary({ value }: { value: DraftValue | undefined }) {
+function getControlGeometryRows(value: DraftValue | undefined): DraftObject[] {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return <p className="text-sm text-muted-foreground">No drive geometry captured yet.</p>;
+    return [];
   }
 
-  const geometry = value as {
-    selectionLabel?: string | null;
-    planeZ?: number;
-    vertices?: Array<unknown>;
-  };
+  const driveGeometry = (value as DraftObject).driveGeometry;
+  if (!driveGeometry || typeof driveGeometry !== "object" || Array.isArray(driveGeometry)) {
+    return [];
+  }
+
+  const geometry = driveGeometry as DraftObject;
+  const hasPlaneZ = typeof geometry.planeZ === "number" || typeof geometry.planeZ === "string";
+  const hasVertices = Array.isArray(geometry.vertices) && geometry.vertices.length > 0;
+
+  return hasPlaneZ && hasVertices ? [geometry] : [];
+}
+
+function formatGeometryZ(value: DraftValue | undefined) {
+  if (typeof value === "number") {
+    return value.toFixed(3);
+  }
+
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed.toFixed(3) : value;
+  }
+
+  return "—";
+}
+
+function getNumericValue(value: DraftValue | undefined): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+
+  return undefined;
+}
+
+type ControlGeometryPanelProps = {
+  value: DraftValue | undefined;
+  onStartGeometrySelection: () => void;
+  onDeleteGeometry: () => void;
+};
+
+function ControlGeometryPanel({
+  value,
+  onStartGeometrySelection,
+  onDeleteGeometry,
+}: ControlGeometryPanelProps) {
+  const rows = getControlGeometryRows(value);
 
   return (
-    <div className="rounded-md border bg-muted/40 p-3 text-sm">
-      <div className="font-medium">{geometry.selectionLabel ?? "Selected face boundary"}</div>
-      <div className="mt-1 text-muted-foreground">
-        Plane Z: {typeof geometry.planeZ === "number" ? geometry.planeZ.toFixed(3) : "—"}
-      </div>
-      <div className="text-muted-foreground">
-        Vertices: {Array.isArray(geometry.vertices) ? geometry.vertices.length : 0}
+    <div className="space-y-3">
+      <Button type="button" onClick={onStartGeometrySelection}>
+        select xy-coplanar-face
+      </Button>
+
+      <div className="rounded-md border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Geometry</TableHead>
+              <TableHead>Z coordinate</TableHead>
+              <TableHead className="w-24 text-right">Action</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.length > 0 ? (
+              rows.map((geometry, index) => (
+                <TableRow key={index}>
+                  <TableCell className="font-medium">Coplanar Face {index + 1}</TableCell>
+                  <TableCell>{formatGeometryZ(geometry.planeZ)}</TableCell>
+                  <TableCell className="text-right">
+                    <Button type="button" variant="destructive" size="sm" onClick={onDeleteGeometry}>
+                      Delete
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))
+            ) : (
+              <TableRow>
+                <TableCell colSpan={3} className="text-muted-foreground">
+                  No coplanar faces selected.
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
       </div>
     </div>
   );
@@ -76,7 +162,7 @@ type SchemaFieldsProps = {
   schema: JsonSchema;
   value: DraftValue | undefined;
   path: readonly string[];
-  onChange: (path: readonly string[], value: DraftValue) => void;
+  onChange: (path: readonly string[], value: DraftValue | undefined) => void;
   onStartGeometrySelection?: () => void;
 };
 
@@ -92,18 +178,6 @@ function SchemaFields({ rootSchema, schema, value, path, onChange, onStartGeomet
   const unit = metadata.unit ? ` (${metadata.unit})` : "";
 
   if (metadata.readOnly) {
-    if (resolved.type === "object" || resolved.properties) {
-      return (
-        <div className="space-y-1">
-          <Label>{label}</Label>
-          <GeometrySummary value={value} />
-          {resolved.description ? (
-            <p className="text-xs leading-5 text-muted-foreground">{resolved.description}</p>
-          ) : null}
-        </div>
-      );
-    }
-
     return (
       <div className="space-y-1">
         <Label>{label}</Label>
@@ -116,20 +190,18 @@ function SchemaFields({ rootSchema, schema, value, path, onChange, onStartGeomet
   }
 
   if (resolved.properties) {
+    if (path.length === 1 && path[0] === "controlGeometry" && onStartGeometrySelection) {
+      return (
+        <ControlGeometryPanel
+          value={value}
+          onStartGeometrySelection={onStartGeometrySelection}
+          onDeleteGeometry={() => onChange([...path, "driveGeometry"], undefined)}
+        />
+      );
+    }
+
     return (
       <div className="space-y-4">
-        {path.length === 1 && path[0] === "controlGeometry" && onStartGeometrySelection ? (
-          <div className="rounded-md border bg-muted/30 p-3">
-            <div className="text-sm font-medium">Control geometry</div>
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">
-              Pick an XY-coplanar face from the viewport. The dialog will hide while you select it.
-            </p>
-            <Button type="button" variant="outline" className="mt-3" onClick={onStartGeometrySelection}>
-              Select XY-coplanar face
-            </Button>
-          </div>
-        ) : null}
-
         {Object.entries(resolved.properties).map(([key, childSchema]) => (
           <SchemaFields
             key={[...path, key].join(".")}
@@ -156,18 +228,22 @@ function SchemaFields({ rootSchema, schema, value, path, onChange, onStartGeomet
     return (
       <div className="space-y-1">
         <Label>{label}</Label>
-        <select
+        <Select
           value={currentValue}
-          onChange={(event) => onChange(path, event.target.value)}
-          className={SELECT_CLASSNAME}
+          onValueChange={(nextValue) => onChange(path, nextValue)}
           disabled={resolved.const !== undefined}
         >
-          {options.map((option) => (
-            <option key={option} value={option}>
-              {option}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger className="w-full">
+            <SelectValue placeholder="Select an option" />
+          </SelectTrigger>
+          <SelectContent position="popper">
+            {options.map((option) => (
+              <SelectItem key={option} value={option}>
+                {option}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         {resolved.description ? (
           <p className="text-xs leading-5 text-muted-foreground">{resolved.description}</p>
         ) : null}
@@ -196,16 +272,29 @@ function SchemaFields({ rootSchema, schema, value, path, onChange, onStartGeomet
   }
 
   if (resolved.type === "number" || resolved.type === "integer") {
-    const currentValue = typeof value === "string" ? value : value == null ? "" : String(value);
+    const numericValue = getNumericValue(value);
+    const min = resolved.minimum ?? resolved.exclusiveMinimum;
+    const allowNegative = min === undefined || min < 0;
+
     return (
       <div className="space-y-1">
         <Label>{`${label}${unit}`}</Label>
-        <Input
-          type="text"
-          inputMode="decimal"
-          value={currentValue}
-          onChange={(event) => onChange(path, event.target.value)}
-        />
+        {resolved.type === "integer" ? (
+          <IntegerInput
+            value={numericValue}
+            min={min}
+            allowNegative={allowNegative}
+            onValueChange={(nextValue) => onChange(path, nextValue)}
+          />
+        ) : (
+          <NumberInput
+            value={numericValue}
+            min={min}
+            allowNegative={allowNegative}
+            decimalScale={4}
+            onValueChange={(nextValue) => onChange(path, nextValue)}
+          />
+        )}
         {resolved.description ? (
           <p className="text-xs leading-5 text-muted-foreground">{resolved.description}</p>
         ) : null}
@@ -247,22 +336,21 @@ export function OperationDialog({
   onStartGeometrySelection,
 }: OperationDialogProps) {
   const sections = useMemo(() => getVisibleSections(rootSchema), [rootSchema]);
-  const [requestedSectionKey, setRequestedSectionKey] = useState(sections[0]?.key ?? "");
-  const activeSection = sections.find((section) => section.key === requestedSectionKey) ?? sections[0];
-
-  useEffect(() => {
-    if (!open) {
-      return;
+  const defaultSectionKey = useMemo(() => {
+    if (mode === "create" && sections.some((section) => section.key === "controlGeometry")) {
+      return "controlGeometry";
     }
 
-    setRequestedSectionKey((currentKey) => {
-      const fallbackKey = sections[0]?.key ?? "";
-      if (mode === "create" && sections.some((section) => section.key === "controlGeometry")) {
-        return "controlGeometry";
-      }
-      return sections.some((section) => section.key === currentKey) ? currentKey : fallbackKey;
-    });
-  }, [mode, open, sections]);
+    return sections[0]?.key ?? "";
+  }, [mode, sections]);
+  const draftSessionKey = `${mode}:${typeof draft?.id === "string" ? draft.id : ""}`;
+  const [requestedSection, setRequestedSection] = useState<{
+    sectionKey: string;
+    sessionKey: string;
+  } | null>(null);
+  const requestedSectionKey =
+    requestedSection?.sessionKey === draftSessionKey ? requestedSection.sectionKey : defaultSectionKey;
+  const activeSection = sections.find((section) => section.key === requestedSectionKey) ?? sections[0];
 
   const validationMessage = useMemo(() => {
     if (!draft) {
@@ -283,20 +371,16 @@ export function OperationDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="grid h-[85vh] max-h-[90vh] w-full max-w-5xl grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden sm:max-w-5xl">
+      <DialogContent className="grid h-[85vh] max-h-[90vh] w-[calc(100%-2rem)] max-w-5xl grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden sm:max-w-5xl">
         <DialogHeader>
-          <DialogTitle>{mode === "create" ? "Add pocket operation" : "Edit pocket operation"}</DialogTitle>
-          <DialogDescription>
-            Fill out the operation form generated from the backend Pydantic schema.
-          </DialogDescription>
+          <DialogTitle>2.5D Pocketing</DialogTitle>
         </DialogHeader>
 
         <SidebarProvider defaultOpen>
           <div className="flex min-h-0 flex-1 overflow-hidden rounded-md border">
-            <Sidebar className="bg-muted/30" style={{ "--sidebar-width": "12rem" } as React.CSSProperties}>
+            <Sidebar className="bg-muted/30" style={{ "--sidebar-width": "10rem" } as React.CSSProperties}>
               <SidebarContent>
                 <SidebarGroup>
-                  <SidebarGroupLabel>Operation sections</SidebarGroupLabel>
                   <SidebarGroupContent>
                     <SidebarMenu>
                       {sections.map((section) => (
@@ -304,7 +388,7 @@ export function OperationDialog({
                           <SidebarMenuButton
                             type="button"
                             isActive={section.key === activeSection?.key}
-                            onClick={() => setRequestedSectionKey(section.key)}
+                            onClick={() => setRequestedSection({ sectionKey: section.key, sessionKey: draftSessionKey })}
                           >
                             <span>{section.title}</span>
                           </SidebarMenuButton>
@@ -316,7 +400,7 @@ export function OperationDialog({
               </SidebarContent>
             </Sidebar>
 
-            <div className="min-h-0 flex-1 overflow-y-auto p-4">
+            <div className="min-h-0 flex-1 overflow-y-auto p-2">
               {activeSection ? (
                 <div className="space-y-4">
                   <SchemaFields

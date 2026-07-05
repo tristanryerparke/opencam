@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-type Theme = "dark" | "light" | "system";
+export type Theme = "dark" | "light" | "system";
 
 type ThemeState = {
   theme: Theme;
@@ -25,7 +25,7 @@ const applyTheme = (theme: Theme) => {
   }
 };
 
-const useTheme = create<ThemeState>()(
+export const useTheme = create<ThemeState>()(
   persist(
     (set) => ({
       theme: "system",

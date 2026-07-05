@@ -58,5 +58,8 @@ htmlcov/
 # Generated simulation outputs
 output/
 
+# Local backend data
+opencam-tinydb.json
+
 
 **/.DS_Store

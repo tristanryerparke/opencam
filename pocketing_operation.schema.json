@@ -1,0 +1,383 @@
+{
+  "$defs": {
+    "AbsoluteClearance": {
+      "properties": {
+        "clearenceHeightType": {
+          "const": "absolute",
+          "title": "Clearenceheighttype",
+          "type": "string"
+        },
+        "absoluteHeight": {
+          "title": "Absoluteheight",
+          "type": "number"
+        }
+      },
+      "required": [
+        "clearenceHeightType",
+        "absoluteHeight"
+      ],
+      "title": "AbsoluteClearance",
+      "type": "object"
+    },
+    "CAMAdvancedParameters": {
+      "properties": {
+        "operationsSorting": {
+          "enum": [
+            "selection",
+            "shortest_distance"
+          ],
+          "title": "Operationssorting",
+          "type": "string"
+        },
+        "chordalTolerance": {
+          "default": 0.01,
+          "title": "Chordaltolerance",
+          "type": "number"
+        }
+      },
+      "required": [
+        "operationsSorting"
+      ],
+      "title": "CAMAdvancedParameters",
+      "type": "object"
+    },
+    "CAMLevels": {
+      "properties": {
+        "driveGeometryPosition": {
+          "enum": [
+            "at_top",
+            "at_bottom"
+          ],
+          "title": "Drivegeometryposition",
+          "type": "string"
+        },
+        "depthOfCut": {
+          "title": "Depthofcut",
+          "type": "number"
+        },
+        "maxStepdown": {
+          "title": "Maxstepdown",
+          "type": "number"
+        },
+        "zMin": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Zmin"
+        },
+        "zMax": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Zmax"
+        }
+      },
+      "required": [
+        "driveGeometryPosition",
+        "depthOfCut",
+        "maxStepdown",
+        "zMin",
+        "zMax"
+      ],
+      "title": "CAMLevels",
+      "type": "object"
+    },
+    "ClosedPolyline": {
+      "properties": {
+        "vertices": {
+          "items": {
+            "$ref": "#/$defs/Point2D"
+          },
+          "title": "Vertices",
+          "type": "array"
+        }
+      },
+      "required": [
+        "vertices"
+      ],
+      "title": "ClosedPolyline",
+      "type": "object"
+    },
+    "FeedsAndSpeeds": {
+      "properties": {
+        "spindleRpm": {
+          "title": "Spindlerpm",
+          "type": "integer"
+        },
+        "plungeFeedrate": {
+          "title": "Plungefeedrate",
+          "type": "number"
+        },
+        "leadInFeedrate": {
+          "title": "Leadinfeedrate",
+          "type": "number"
+        },
+        "cutFeedrate": {
+          "title": "Cutfeedrate",
+          "type": "number"
+        },
+        "leadOutFeedrate": {
+          "title": "Leadoutfeedrate",
+          "type": "number"
+        },
+        "departureFeedrate": {
+          "title": "Departurefeedrate",
+          "type": "number"
+        }
+      },
+      "required": [
+        "spindleRpm",
+        "plungeFeedrate",
+        "leadInFeedrate",
+        "cutFeedrate",
+        "leadOutFeedrate",
+        "departureFeedrate"
+      ],
+      "title": "FeedsAndSpeeds",
+      "type": "object"
+    },
+    "ManualFeedsAndSpeedsSelection": {
+      "description": "Operation-specific manually entered feeds/speeds.",
+      "properties": {
+        "mode": {
+          "const": "manual",
+          "default": "manual",
+          "title": "Mode",
+          "type": "string"
+        },
+        "feedsAndSpeeds": {
+          "$ref": "#/$defs/FeedsAndSpeeds"
+        }
+      },
+      "required": [
+        "feedsAndSpeeds"
+      ],
+      "title": "ManualFeedsAndSpeedsSelection",
+      "type": "object"
+    },
+    "PartMaxZPlusOffsetClearance": {
+      "properties": {
+        "clearenceHeightType": {
+          "const": "part_max_z_plus_offset",
+          "title": "Clearenceheighttype",
+          "type": "string"
+        },
+        "offset": {
+          "title": "Offset",
+          "type": "number"
+        }
+      },
+      "required": [
+        "clearenceHeightType",
+        "offset"
+      ],
+      "title": "PartMaxZPlusOffsetClearance",
+      "type": "object"
+    },
+    "PocketingCutSettings": {
+      "properties": {
+        "cutDirection": {
+          "enum": [
+            "climb",
+            "conventional"
+          ],
+          "title": "Cutdirection",
+          "type": "string"
+        },
+        "stepover": {
+          "$ref": "#/$defs/StepoverMode"
+        },
+        "stockToLeave": {
+          "title": "Stocktoleave",
+          "type": "number"
+        }
+      },
+      "required": [
+        "cutDirection",
+        "stepover",
+        "stockToLeave"
+      ],
+      "title": "PocketingCutSettings",
+      "type": "object"
+    },
+    "PocketingDriveGeometry": {
+      "properties": {
+        "cutAreas": {
+          "items": {
+            "$ref": "#/$defs/ClosedPolyline"
+          },
+          "title": "Cutareas",
+          "type": "array"
+        }
+      },
+      "required": [
+        "cutAreas"
+      ],
+      "title": "PocketingDriveGeometry",
+      "type": "object"
+    },
+    "Point2D": {
+      "properties": {
+        "x": {
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "title": "Y",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y"
+      ],
+      "title": "Point2D",
+      "type": "object"
+    },
+    "StepoverMode": {
+      "properties": {
+        "mode": {
+          "enum": [
+            "percentage_of_tool_diameter",
+            "absolute"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "number"
+        }
+      },
+      "required": [
+        "mode",
+        "value"
+      ],
+      "title": "StepoverMode",
+      "type": "object"
+    },
+    "StockMaxZPlusOffsetClearance": {
+      "properties": {
+        "clearenceHeightType": {
+          "const": "stock_max_z_plus_offset",
+          "title": "Clearenceheighttype",
+          "type": "string"
+        },
+        "offset": {
+          "title": "Offset",
+          "type": "number"
+        }
+      },
+      "required": [
+        "clearenceHeightType",
+        "offset"
+      ],
+      "title": "StockMaxZPlusOffsetClearance",
+      "type": "object"
+    },
+    "ToolMaterialFeedsAndSpeedsSelection": {
+      "description": "Operation feeds/speeds selected from the backend tool/material database.",
+      "properties": {
+        "mode": {
+          "const": "tool_material",
+          "default": "tool_material",
+          "title": "Mode",
+          "type": "string"
+        },
+        "materialId": {
+          "title": "Materialid",
+          "type": "string"
+        },
+        "toolMaterialFeedsAndSpeedsId": {
+          "title": "Toolmaterialfeedsandspeedsid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "materialId",
+        "toolMaterialFeedsAndSpeedsId"
+      ],
+      "title": "ToolMaterialFeedsAndSpeedsSelection",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "toolId": {
+      "title": "Toolid",
+      "type": "string"
+    },
+    "feedsAndSpeeds": {
+      "discriminator": {
+        "mapping": {
+          "manual": "#/$defs/ManualFeedsAndSpeedsSelection",
+          "tool_material": "#/$defs/ToolMaterialFeedsAndSpeedsSelection"
+        },
+        "propertyName": "mode"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ManualFeedsAndSpeedsSelection"
+        },
+        {
+          "$ref": "#/$defs/ToolMaterialFeedsAndSpeedsSelection"
+        }
+      ],
+      "title": "Feedsandspeeds"
+    },
+    "clearence": {
+      "discriminator": {
+        "mapping": {
+          "absolute": "#/$defs/AbsoluteClearance",
+          "part_max_z_plus_offset": "#/$defs/PartMaxZPlusOffsetClearance",
+          "stock_max_z_plus_offset": "#/$defs/StockMaxZPlusOffsetClearance"
+        },
+        "propertyName": "clearenceHeightType"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/StockMaxZPlusOffsetClearance"
+        },
+        {
+          "$ref": "#/$defs/PartMaxZPlusOffsetClearance"
+        },
+        {
+          "$ref": "#/$defs/AbsoluteClearance"
+        }
+      ],
+      "title": "Clearence"
+    },
+    "levels": {
+      "$ref": "#/$defs/CAMLevels"
+    },
+    "advanced": {
+      "$ref": "#/$defs/CAMAdvancedParameters"
+    },
+    "driveGeometry": {
+      "$ref": "#/$defs/PocketingDriveGeometry"
+    },
+    "cutParameters": {
+      "$ref": "#/$defs/PocketingCutSettings"
+    }
+  },
+  "required": [
+    "toolId",
+    "feedsAndSpeeds",
+    "clearence",
+    "levels",
+    "advanced",
+    "driveGeometry",
+    "cutParameters"
+  ],
+  "title": "PocketingOperation",
+  "type": "object"
+}

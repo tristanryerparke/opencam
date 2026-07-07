@@ -1,6 +1,7 @@
 
 
 import json
+import subprocess
 import uuid
 from pathlib import Path
 
@@ -156,8 +157,28 @@ class PocketingOperation(BaseCAMOperation):
 
 
 if __name__ == "__main__":
-    schema_path = Path(__file__).with_name("pocketing_operation.schema.json")
+    root = Path(__file__).resolve().parent
+    schema_path = root / "pocketing_operation.schema.json"
+    ts_path = root / "pocketing_operation.ts"
+
     schema_path.write_text(
         json.dumps(PocketingOperation.model_json_schema(), indent=2) + "\n"
     )
-    print(f"Wrote {schema_path}")
+    print(f"Wrote {schema_path}", flush=True)
+
+    subprocess.run(
+        [
+            "uv",
+            "run",
+            "--with",
+            "pydantic-to-typescript",
+            "pydantic2ts",
+            "--module",
+            str(root / Path(__file__).name),
+            "--output",
+            str(ts_path),
+            "--json2ts-cmd",
+            str(root / "frontend/node_modules/.bin/json2ts"),
+        ],
+        check=True,
+    )

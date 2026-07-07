@@ -58,36 +58,12 @@
         "maxStepdown": {
           "title": "Maxstepdown",
           "type": "number"
-        },
-        "zMin": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Zmin"
-        },
-        "zMax": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Zmax"
         }
       },
       "required": [
         "driveGeometryPosition",
         "depthOfCut",
-        "maxStepdown",
-        "zMin",
-        "zMax"
+        "maxStepdown"
       ],
       "title": "CAMLevels",
       "type": "object"
@@ -195,10 +171,11 @@
           "type": "string"
         },
         "stepover": {
-          "$ref": "#/$defs/StepoverMode"
+          "$ref": "#/$defs/StepoverMode",
+          "title": "Stepover"
         },
         "stockToLeave": {
-          "title": "Stocktoleave",
+          "title": "Stock to Leave",
           "type": "number"
         }
       },
@@ -354,7 +331,8 @@
           "$ref": "#/$defs/AbsoluteClearance"
         }
       ],
-      "title": "Clearence"
+      "title": "Clearence",
+      "ui_row_type": "radio_number_rows"
     },
     "levels": {
       "$ref": "#/$defs/CAMLevels"

@@ -21,15 +21,17 @@ def pocket_request_payload() -> dict:
             "kind": "pocket2d",
             "displayName": "2D Pocket 1",
             "controlGeometry": {
-                "driveGeometry": {
-                    "planeZ": 0.0,
-                    "vertices": [
-                        {"x": 0.0, "y": 0.0},
-                        {"x": 10.0, "y": 0.0},
-                        {"x": 10.0, "y": 6.0},
-                        {"x": 0.0, "y": 6.0},
-                    ],
-                },
+                "driveGeometry": [
+                    {
+                        "planeZ": 0.0,
+                        "vertices": [
+                            {"x": 0.0, "y": 0.0},
+                            {"x": 10.0, "y": 0.0},
+                            {"x": 10.0, "y": 6.0},
+                            {"x": 0.0, "y": 6.0},
+                        ],
+                    },
+                ],
             },
             "cutParameters": {
                 "cutDirection": "climb",
@@ -92,3 +94,54 @@ def test_generate_cam_toolpath_endpoint_returns_toolpaths(pocket_request_payload
     assert len(payload["paths"]) >= 3
     assert payload["paths"][0]["kind"] == "clearance"
     assert payload["paths"][1]["kind"] == "cut"
+
+
+def test_generate_cam_toolpath_connects_multiple_pockets_with_xy_travel(pocket_request_payload: dict):
+    pocket_request_payload["operation"]["controlGeometry"]["driveGeometry"].append(
+        {
+            "planeZ": 0.0,
+            "vertices": [
+                {"x": 20.0, "y": 0.0},
+                {"x": 30.0, "y": 0.0},
+                {"x": 30.0, "y": 6.0},
+                {"x": 20.0, "y": 6.0},
+            ],
+        }
+    )
+
+    response = client.post("/cam/toolpath", json=pocket_request_payload)
+
+    assert response.status_code == 200
+    paths = response.json()["paths"]
+    travel = next(path for path in paths if path["name"] == "Travel between pockets")
+    assert travel["kind"] == "clearance"
+    assert len(travel["locations"]) == 2
+    assert travel["locations"][0]["z"] == travel["locations"][1]["z"]
+
+
+def test_generate_cam_toolpath_shifts_pockets_without_changing_cut_depth(pocket_request_payload: dict):
+    pocket_request_payload["operation"]["controlGeometry"]["driveGeometry"].append(
+        {
+            "planeZ": 3.0,
+            "vertices": [
+                {"x": 20.0, "y": 0.0},
+                {"x": 30.0, "y": 0.0},
+                {"x": 30.0, "y": 6.0},
+                {"x": 20.0, "y": 6.0},
+            ],
+        }
+    )
+
+    response = client.post("/cam/toolpath", json=pocket_request_payload)
+
+    assert response.status_code == 200
+    cut_locations = [
+        location
+        for path in response.json()["paths"]
+        if path["kind"] == "cut"
+        for location in path["locations"]
+    ]
+    first_pocket_z = {location["z"] for location in cut_locations if location["x"] < 20.0}
+    second_pocket_z = {location["z"] for location in cut_locations if location["x"] >= 20.0}
+    assert first_pocket_z == {-2.0, -1.0}
+    assert second_pocket_z == {1.0, 2.0}

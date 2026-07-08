@@ -56,7 +56,7 @@ function ThemeSelect() {
 
   return (
     <Select value={theme} onValueChange={(value) => setTheme(value as Theme)}>
-      <SelectTrigger className="min-h-9 w-36">
+      <SelectTrigger className="w-36">
         <SelectValue placeholder="Select theme" />
       </SelectTrigger>
       <SelectContent>
@@ -154,13 +154,13 @@ function ToolsSettingsTab() {
       </div>
 
       {toolsQuery.isError ? (
-        <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-sm text-destructive">
           {toolsQuery.error instanceof Error ? toolsQuery.error.message : "Failed to load tools."}
         </div>
       ) : null}
 
       {mutationError ? (
-        <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-sm text-destructive">
           {mutationError}
         </div>
       ) : null}
@@ -196,7 +196,7 @@ function ToolsSettingsTab() {
                     <div className="flex justify-end gap-1">
                       <Button
                         type="button"
-                        size="icon-sm"
+                        size="icon"
                         variant="outline"
                         aria-label={`Edit ${getToolDisplayName(tool)}`}
                         onClick={() => handleEditTool(tool)}
@@ -205,7 +205,7 @@ function ToolsSettingsTab() {
                       </Button>
                       <Button
                         type="button"
-                        size="icon-sm"
+                        size="icon"
                         variant="destructive"
                         aria-label={`Delete ${getToolDisplayName(tool)}`}
                         disabled={deleteToolMutation.isPending}
@@ -248,7 +248,7 @@ function ToolsSettingsTab() {
 function GeneralSettingsTab() {
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-4 rounded-md border p-3">
+      <div className="flex items-center justify-between gap-4 rounded-md border p-2">
         <div>
           <div className="text-sm font-medium">Theme</div>
           <p className="text-xs text-muted-foreground">Choose light, dark, or follow the system preference.</p>
@@ -263,7 +263,7 @@ export function SettingsDialog() {
   return (
     <Dialog>
       <DialogTrigger asChild>
-        <Button size="icon-sm" variant="outline" aria-label="Open settings">
+        <Button size="icon" variant="outline" aria-label="Open settings">
           <Settings className="size-4" />
           <span className="sr-only">Open settings</span>
         </Button>

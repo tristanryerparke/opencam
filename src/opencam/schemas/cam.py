@@ -78,7 +78,7 @@ class ClosedCurveSelection(CamelBaseModel):
 class PocketControlGeometrySection(CamelBaseModel):
     model_config = ConfigDict(title="PocketControlGeometrySection")
 
-    drive_geometry: ClosedCurveSelection = Field(title="Drive geometries")
+    drive_geometry: list[ClosedCurveSelection] = Field(min_length=1, title="Drive geometries")
 
 
 class PocketCutParametersSection(CamelBaseModel):
@@ -279,8 +279,11 @@ class GenerateToolpathRequest(CamelBaseModel):
 
         return self
 
-    def to_closed_polyline(self) -> ClosedPolyline:
-        return ClosedPolyline(vertices=self.operation.control_geometry.drive_geometry.vertices)
+    def to_closed_polylines(self) -> list[ClosedPolyline]:
+        return [
+            ClosedPolyline(vertices=geometry.vertices)
+            for geometry in self.operation.control_geometry.drive_geometry
+        ]
 
 
 class FrontendCamSchemaBundle(CamelBaseModel):

@@ -65,15 +65,17 @@ function getControlGeometryRows(value: DraftValue | undefined): DraftObject[] {
   }
 
   const driveGeometry = (value as DraftObject).driveGeometry;
-  if (!driveGeometry || typeof driveGeometry !== "object" || Array.isArray(driveGeometry)) {
-    return [];
-  }
+  const geometries = Array.isArray(driveGeometry) ? driveGeometry : driveGeometry ? [driveGeometry] : [];
 
-  const geometry = driveGeometry as DraftObject;
-  const hasPlaneZ = typeof geometry.planeZ === "number" || typeof geometry.planeZ === "string";
-  const hasVertices = Array.isArray(geometry.vertices) && geometry.vertices.length > 0;
+  return geometries.filter((geometry): geometry is DraftObject => {
+    if (!geometry || typeof geometry !== "object" || Array.isArray(geometry)) {
+      return false;
+    }
 
-  return hasPlaneZ && hasVertices ? [geometry] : [];
+    const hasPlaneZ = typeof geometry.planeZ === "number" || typeof geometry.planeZ === "string";
+    const hasVertices = Array.isArray(geometry.vertices) && geometry.vertices.length > 0;
+    return hasPlaneZ && hasVertices;
+  });
 }
 
 function formatGeometryZ(value: DraftValue | undefined) {
@@ -105,7 +107,7 @@ function getNumericValue(value: DraftValue | undefined): number | undefined {
 type ControlGeometryPanelProps = {
   value: DraftValue | undefined;
   onStartGeometrySelection: () => void;
-  onDeleteGeometry: () => void;
+  onDeleteGeometry: (index: number) => void;
 };
 
 function ControlGeometryPanel({
@@ -118,7 +120,7 @@ function ControlGeometryPanel({
   return (
     <div className="space-y-3">
       <Button type="button" onClick={onStartGeometrySelection}>
-        select xy-coplanar-face
+        Add XY-coplanar face
       </Button>
 
       <div className="rounded-md border">
@@ -137,7 +139,7 @@ function ControlGeometryPanel({
                   <TableCell className="font-medium">Coplanar Face {index + 1}</TableCell>
                   <TableCell>{formatGeometryZ(geometry.planeZ)}</TableCell>
                   <TableCell className="text-right">
-                    <Button type="button" variant="destructive" size="sm" onClick={onDeleteGeometry}>
+                    <Button type="button" variant="destructive" onClick={() => onDeleteGeometry(index)}>
                       Delete
                     </Button>
                   </TableCell>
@@ -181,7 +183,7 @@ function SchemaFields({ rootSchema, schema, value, path, onChange, onStartGeomet
     return (
       <div className="space-y-1">
         <Label>{label}</Label>
-        <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm">{formatReadOnlyValue(value)}</div>
+        <div className="rounded-md border bg-muted/40 px-2 py-2 text-sm">{formatReadOnlyValue(value)}</div>
         {resolved.description ? (
           <p className="text-xs leading-5 text-muted-foreground">{resolved.description}</p>
         ) : null}
@@ -195,7 +197,10 @@ function SchemaFields({ rootSchema, schema, value, path, onChange, onStartGeomet
         <ControlGeometryPanel
           value={value}
           onStartGeometrySelection={onStartGeometrySelection}
-          onDeleteGeometry={() => onChange([...path, "driveGeometry"], undefined)}
+          onDeleteGeometry={(index) => {
+            const rows = getControlGeometryRows(value);
+            onChange([...path, "driveGeometry"], rows.filter((_, rowIndex) => rowIndex !== index));
+          }}
         />
       );
     }
@@ -254,7 +259,7 @@ function SchemaFields({ rootSchema, schema, value, path, onChange, onStartGeomet
   if (resolved.type === "boolean") {
     const checked = typeof value === "boolean" ? value : Boolean(resolved.default);
     return (
-      <label className="flex items-center justify-between gap-3 rounded-md border p-3">
+      <label className="flex items-center justify-between gap-3 rounded-md border p-2">
         <div>
           <div className="text-sm font-medium">{label}</div>
           {resolved.description ? (
@@ -371,7 +376,10 @@ export function OperationDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="grid h-[85vh] max-h-[90vh] w-[calc(100%-2rem)] max-w-5xl grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden sm:max-w-5xl">
+      <DialogContent
+        showCloseButton={mode !== "create"}
+        className="grid h-[85vh] max-h-[90vh] w-[calc(100%-2rem)] max-w-5xl grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden sm:max-w-5xl"
+      >
         <DialogHeader>
           <DialogTitle>2.5D Pocketing</DialogTitle>
         </DialogHeader>
@@ -418,14 +426,11 @@ export function OperationDialog({
         </SidebarProvider>
 
         <DialogFooter>
-          {validationMessage ? (
-            <p className="mr-auto text-xs leading-5 text-destructive">{validationMessage}</p>
-          ) : null}
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>
           <Button type="button" onClick={onSave} disabled={validationMessage !== null}>
-            {mode === "create" ? "Add operation" : "Save changes"}
+            Generate
           </Button>
         </DialogFooter>
       </DialogContent>

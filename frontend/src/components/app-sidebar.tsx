@@ -1,45 +1,85 @@
+import { ChevronDown, ChevronRight, Folder, Milestone } from "lucide-react";
+
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Sidebar, SidebarContent } from "@/components/ui/sidebar";
+import { Sidebar, SidebarContent, SidebarMenuButton } from "@/components/ui/sidebar";
+import { TreeView, type TreeNodeNested, type TreeNodeRenderProps } from "@/components/tree-view/tree-view";
 import { type Pocket2DOperationConfig } from "@/generated/cam-types";
+import { cn } from "@/lib/utils";
 
 export type RequestState = "idle" | "submitting" | "success" | "error";
+
+type OperationTreeItem = {
+  label: string;
+  summary?: string;
+  operationId?: string;
+};
 
 type AppSidebarProps = {
   meshLoaded: boolean;
   meshStatusLabel: string;
   meshCacheStatusLabel: string;
   operations: Pocket2DOperationConfig[];
-  selectedOperationId: string | null;
-  canGenerate: boolean;
+  selectedNodeId: string;
   requestState: RequestState;
   requestMessage: string;
-  generateButtonLabel: string;
   generatedPathCount: number;
   generatedPathPointCount: number;
   generatedPathLength: number;
   onMeshUpload: (file: File | null) => void;
-  onAddPocketOperation: () => void;
-  onEditSelectedOperation: () => void;
-  onSelectOperation: (operationId: string) => void;
-  onRemoveOperation: (operationId: string) => void;
-  onGenerateOperation: () => void;
+  onAddOperation: () => void;
+  onSelectNode: (nodeId: string) => void;
   canCancelGeneration: boolean;
   onCancelGeneration: () => void;
 };
 
 function getOperationSummary(operation: Pocket2DOperationConfig) {
-  const vertexCount = operation.controlGeometry?.driveGeometry?.vertices?.length ?? 0;
   const bottomZ = operation.levels?.bottomZ;
   const topZ = operation.levels?.topZ;
 
-  const zLabel =
-    typeof topZ === "number" && typeof bottomZ === "number"
-      ? `Z ${bottomZ.toFixed(2)} → ${topZ.toFixed(2)}`
-      : "Z range not set";
+  return typeof topZ === "number" && typeof bottomZ === "number"
+    ? `Z ${bottomZ.toFixed(2)} → ${topZ.toFixed(2)}`
+    : "Z range not set";
+}
 
-  return `${vertexCount} pts · ${zLabel}`;
+function renderTreeNode({
+  node,
+  isExpanded,
+  isSelected,
+  depth,
+  hasChildren,
+  toggle,
+  select,
+}: TreeNodeRenderProps<OperationTreeItem>) {
+  return (
+    <SidebarMenuButton
+      type="button"
+      isActive={isSelected}
+      className={cn("h-auto items-start gap-1.5 py-1")}
+      style={{ paddingLeft: depth * 16 + 8 }}
+      onClick={(event) => {
+        event.stopPropagation();
+        if (hasChildren) {
+          toggle();
+        }
+        select(event);
+      }}
+    >
+      <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center">
+        {hasChildren ? (
+          isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />
+        ) : null}
+      </span>
+      {node.isGroup ? <Folder className="mt-0.5 h-4 w-4 shrink-0" /> : <Milestone className="mt-0.5 h-4 w-4 shrink-0" />}
+      <span className="min-w-0">
+        <span className="block truncate font-medium">{node.data.label}</span>
+        {node.data.summary ? (
+          <span className="block truncate text-xs text-sidebar-foreground/65">{node.data.summary}</span>
+        ) : null}
+      </span>
+    </SidebarMenuButton>
+  );
 }
 
 export function AppSidebar({
@@ -47,32 +87,44 @@ export function AppSidebar({
   meshStatusLabel,
   meshCacheStatusLabel,
   operations,
-  selectedOperationId,
-  canGenerate,
+  selectedNodeId,
   requestState,
   requestMessage,
-  generateButtonLabel,
   generatedPathCount,
   generatedPathPointCount,
   generatedPathLength,
   onMeshUpload,
-  onAddPocketOperation,
-  onEditSelectedOperation,
-  onSelectOperation,
-  onRemoveOperation,
-  onGenerateOperation,
+  onAddOperation,
+  onSelectNode,
   canCancelGeneration,
   onCancelGeneration,
 }: AppSidebarProps) {
+  const treeItems: TreeNodeNested<OperationTreeItem>[] = [
+    {
+      id: "setup-1",
+      data: { label: "Setup 1" },
+      isGroup: true,
+      children: operations.map((operation, index) => ({
+        id: operation.id ?? `operation-${index}`,
+        data: {
+          label: operation.displayName ?? `2.5D Pocketing ${index + 1}`,
+          summary: getOperationSummary(operation),
+          operationId: operation.id,
+        },
+      })),
+    },
+  ];
+
   return (
     <Sidebar>
-      <SidebarContent className="gap-3 p-3">
+      <SidebarContent className="gap-3 p-2">
         <div className="space-y-1">
           <Label htmlFor="mesh-upload">Upload STL</Label>
           <Input
             id="mesh-upload"
             type="file"
             accept=".stl,model/stl"
+            className="py-0 file:h-full file:py-0"
             onChange={(event) => onMeshUpload(event.target.files?.[0] ?? null)}
           />
         </div>
@@ -83,103 +135,32 @@ export function AppSidebar({
           <p className="text-xs leading-5 text-sidebar-foreground/65">{meshCacheStatusLabel}</p>
         ) : null}
 
-        <div className="space-y-2 rounded-md border p-3">
-          <div className="flex items-center justify-between gap-2">
-            <div>
-              <div className="text-sm font-medium">Setup operations</div>
-              <p className="text-xs leading-5 text-sidebar-foreground/65">
-                Add and manage 2D pocket operations.
-              </p>
-            </div>
-
-            <Button type="button" size="sm" onClick={onAddPocketOperation} disabled={!meshLoaded}>
-              Add pocket
-            </Button>
-          </div>
-
-          {operations.length > 0 ? (
-            <div className="space-y-2">
-              {operations.map((operation, index) => {
-                const isSelected = operation.id === selectedOperationId;
-                return (
-                  <div
-                    key={operation.id ?? `${operation.kind ?? "pocket2d"}-${index}`}
-                    className={`rounded-md border p-2 ${isSelected ? "border-primary bg-primary/5" : "border-border"}`}
-                  >
-                    <button
-                      type="button"
-                      className="w-full text-left"
-                      onClick={() => {
-                        if (operation.id) {
-                          onSelectOperation(operation.id);
-                        }
-                      }}
-                    >
-                      <div className="text-sm font-medium">
-                        {operation.displayName ?? `2D Pocket ${index + 1}`}
-                      </div>
-                      <div className="text-xs leading-5 text-sidebar-foreground/65">
-                        {getOperationSummary(operation)}
-                      </div>
-                    </button>
-
-                    <div className="mt-2 flex gap-2">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="flex-1"
-                        onClick={onEditSelectedOperation}
-                        disabled={!isSelected}
-                      >
-                        Edit
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          if (operation.id) {
-                            onRemoveOperation(operation.id);
-                          }
-                        }}
-                      >
-                        Remove
-                      </Button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <p className="text-xs leading-5 text-sidebar-foreground/65">
-              No operations yet. Add a pocket operation, then choose control geometry in the dialog.
-            </p>
-          )}
-        </div>
-
-        <div className="flex gap-2">
-          <Button
-            type="button"
-            className="flex-1"
-            disabled={!canGenerate || requestState === "submitting"}
-            onClick={onGenerateOperation}
-          >
-            {generateButtonLabel}
+        <div className="space-y-2 rounded-md border p-2">
+          <Button type="button" className="w-full" onClick={onAddOperation} disabled={!meshLoaded}>
+            Add Operation
           </Button>
 
-          {canCancelGeneration ? (
-            <Button type="button" variant="outline" onClick={onCancelGeneration}>
-              Cancel
-            </Button>
-          ) : null}
+          <TreeView<OperationTreeItem>
+            items={treeItems}
+            defaultExpandedIds={["setup-1"]}
+            selectedIds={[selectedNodeId]}
+            onSelectedIdsChange={(ids) => onSelectNode(ids.at(-1) ?? "setup-1")}
+            renderNode={renderTreeNode}
+            aria-label="CAM setup tree"
+          />
         </div>
+
+        {requestState === "submitting" && canCancelGeneration ? (
+          <Button type="button" variant="outline" onClick={onCancelGeneration}>
+            Cancel generation
+          </Button>
+        ) : null}
 
         {requestMessage ? (
           <p className="text-xs leading-5 text-sidebar-foreground/65">{requestMessage}</p>
         ) : (
           <p className="text-xs leading-5 text-sidebar-foreground/65">
-            Upload an STL, add a pocket operation, choose XY-coplanar control geometry in the dialog, then generate the toolpath and swept stock simulation.
+            Upload an STL, add an operation, choose XY-coplanar control geometry, then generate.
           </p>
         )}
 

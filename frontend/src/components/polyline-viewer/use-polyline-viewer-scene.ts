@@ -68,6 +68,7 @@ export function usePolylineViewerScene(
     polylines,
     faceSelectionMode = false,
     selectedMeshFace = null,
+    selectedMeshFaces = [],
     simulationTool = null,
     simulationSamples = [],
     simulationStep = 0,
@@ -106,7 +107,7 @@ export function usePolylineViewerScene(
   const simulationToolRotationRef = useRef(0);
   const faceSelectionModeRef = useRef(faceSelectionMode);
   const onMeshFaceSelectRef = useRef(onMeshFaceSelect);
-  const selectedMeshFaceRef = useRef(selectedMeshFace);
+  const selectedMeshFacesRef = useRef<ReadonlyArray<MeshFaceSelection>>(selectedMeshFaces.length > 0 ? selectedMeshFaces : selectedMeshFace ? [selectedMeshFace] : []);
   const simulationToolRef = useRef(simulationTool);
   const simulationSamplesRef = useRef(simulationSamples);
   const simulationStepRef = useRef(simulationStep);
@@ -133,8 +134,8 @@ export function usePolylineViewerScene(
   }, [onMeshFaceSelect]);
 
   useEffect(() => {
-    selectedMeshFaceRef.current = selectedMeshFace;
-  }, [selectedMeshFace]);
+    selectedMeshFacesRef.current = selectedMeshFaces.length > 0 ? selectedMeshFaces : selectedMeshFace ? [selectedMeshFace] : [];
+  }, [selectedMeshFace, selectedMeshFaces]);
 
   useEffect(() => {
     simulationToolPositionRef.current = simulationToolPosition;
@@ -600,7 +601,7 @@ export function usePolylineViewerScene(
     updateToolPreview();
   }, [simulationToolPosition, simulationToolRotation, showOriginalMesh, updateToolPreview]);
 
-  const renderSelectionHighlight = useCallback((selection: MeshFaceSelection | null) => {
+  const renderSelectionHighlight = useCallback((selections: ReadonlyArray<MeshFaceSelection>) => {
     const mesh = meshRef.current;
     const selectionHighlightGroup = selectionHighlightGroupRef.current;
     const renderer = rendererRef.current;
@@ -613,36 +614,33 @@ export function usePolylineViewerScene(
     clearGroup(selectionHighlightGroup);
     selectionOutlineMaterialRef.current = null;
 
-    if (!showOriginalMeshRef.current) {
+    if (!showOriginalMeshRef.current || !renderer) {
       return;
     }
 
-    if (
-      !mesh ||
-      !(mesh.geometry instanceof THREE.BufferGeometry) ||
-      !renderer ||
-      !selectionData
-    ) {
+    if (!mesh || !(mesh.geometry instanceof THREE.BufferGeometry)) {
       return;
     }
 
-    if (
-      !selection ||
-      selection.triangleIndices.some(
-        (triangleIndex) =>
-          triangleIndex < 0 || triangleIndex >= selectionData.triangles.length,
-      )
-    ) {
-      return;
-    }
+    for (const selection of selections) {
+      if (!selection.boundaryLoop) {
+        continue;
+      }
 
-    if (!selection.boundaryLoop) {
-      return;
-    }
+      if (
+        selectionData &&
+        selection.triangleIndices.some(
+          (triangleIndex) => triangleIndex < 0 || triangleIndex >= selectionData.triangles.length,
+        )
+      ) {
+        continue;
+      }
 
-    const boundaryPositions = createBoundarySegments(selection.boundaryLoop);
+      const boundaryPositions = createBoundarySegments(selection.boundaryLoop);
+      if (boundaryPositions.length === 0) {
+        continue;
+      }
 
-    if (boundaryPositions.length > 0) {
       const outlineGeometry = new LineSegmentsGeometry();
       outlineGeometry.setPositions(boundaryPositions);
 
@@ -675,7 +673,7 @@ export function usePolylineViewerScene(
     }
 
     meshGroup.visible = true;
-    renderSelectionHighlight(selectedMeshFaceRef.current);
+    renderSelectionHighlight(selectedMeshFacesRef.current);
   }, [faceSelectionMode, renderSelectionHighlight, showOriginalMesh]);
 
   useEffect(() => {
@@ -986,7 +984,7 @@ export function usePolylineViewerScene(
           fitCameraToBox(bounds, camera, controls);
         }
 
-        renderSelectionHighlight(selectedMeshFaceRef.current);
+        renderSelectionHighlight(selectedMeshFacesRef.current);
         rebuildSimulationResources();
       } catch (error) {
         if (!cancelled) {
@@ -1123,6 +1121,6 @@ export function usePolylineViewerScene(
   }, [polylines]);
 
   useEffect(() => {
-    renderSelectionHighlight(selectedMeshFace);
-  }, [renderSelectionHighlight, selectedMeshFace]);
+    renderSelectionHighlight(selectedMeshFacesRef.current);
+  }, [renderSelectionHighlight, selectedMeshFace, selectedMeshFaces]);
 }

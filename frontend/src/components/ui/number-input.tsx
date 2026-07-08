@@ -1,141 +1,141 @@
-import { ChevronDown, ChevronUp } from "lucide-react";
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { ChevronDown, ChevronUp } from "lucide-react"
+import { memo, useCallback, useEffect, useRef, useState } from "react"
 import {
   NumericFormat,
   type NumberFormatValues,
   type SourceInfo,
-} from "react-number-format";
+} from "react-number-format"
 
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { cn } from "@/lib/utils"
 
 export interface NumberInputProps {
-  value?: number;
-  onValueChange?: (value: number | undefined) => void;
-  disabled?: boolean;
-  invalid?: boolean;
-  placeholder?: string;
-  className?: string;
-  decimalScale?: number;
-  step?: number;
-  min?: number;
-  max?: number;
-  allowNegative?: boolean;
-  coerceValue?: (value: number | undefined) => number | undefined;
+  id?: string
+  value?: number
+  onValueChange?: (value: number | undefined) => void
+  disabled?: boolean
+  invalid?: boolean
+  placeholder?: string
+  className?: string
+  decimalScale?: number
+  step?: number
+  min?: number
+  max?: number
+  allowNegative?: boolean
+  coerceValue?: (value: number | undefined) => number | undefined
 }
 
 function getDisplayValue(value: number | undefined): string {
-  return value === undefined ? "" : String(value);
+  return value === undefined ? "" : String(value)
 }
 
-export default memo(function NumberInput({
+export const NumberInput = memo(function NumberInput({
+  id,
   value,
   onValueChange,
   disabled = false,
   invalid = false,
   placeholder = "Enter number",
   className,
-  decimalScale,
+  decimalScale = 0,
   step = 1,
   min,
   max,
   allowNegative = true,
   coerceValue,
 }: NumberInputProps) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [draftValue, setDraftValue] = useState(() => getDisplayValue(value));
-  const [isFocused, setIsFocused] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null)
+  const [draftValue, setDraftValue] = useState(() => getDisplayValue(value))
+  const [isFocused, setIsFocused] = useState(false)
 
   useEffect(() => {
     if (!isFocused) {
-      setDraftValue(getDisplayValue(value));
+      setDraftValue(getDisplayValue(value))
     }
-  }, [isFocused, value]);
+  }, [isFocused, value])
 
   const normalizeValue = useCallback(
     (nextValue: number | undefined) => {
-      let normalized = coerceValue ? coerceValue(nextValue) : nextValue;
+      const normalized = coerceValue ? coerceValue(nextValue) : nextValue
 
       if (normalized === undefined) {
-        return undefined;
+        return undefined
       }
       if (min !== undefined && normalized < min) {
-        return undefined;
+        return undefined
       }
       if (max !== undefined && normalized > max) {
-        return undefined;
+        return undefined
       }
 
-      return normalized;
+      return normalized
     },
-    [coerceValue, max, min],
-  );
+    [coerceValue, max, min]
+  )
 
   const handleIncrement = useCallback(() => {
-    const baseValue = value ?? 0;
-    const nextValue = normalizeValue(baseValue + step);
-    setDraftValue(getDisplayValue(nextValue));
-    onValueChange?.(nextValue);
-  }, [normalizeValue, onValueChange, step, value]);
+    const nextValue = value === undefined ? step : value + step
+    setDraftValue(String(nextValue))
+    onValueChange?.(normalizeValue(nextValue))
+  }, [normalizeValue, onValueChange, step, value])
 
   const handleDecrement = useCallback(() => {
-    const baseValue = value ?? 0;
-    const nextValue = normalizeValue(baseValue - step);
-    setDraftValue(getDisplayValue(nextValue));
-    onValueChange?.(nextValue);
-  }, [normalizeValue, onValueChange, step, value]);
+    const nextValue = value === undefined ? -step : value - step
+    setDraftValue(String(nextValue))
+    onValueChange?.(normalizeValue(nextValue))
+  }, [normalizeValue, onValueChange, step, value])
 
   useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
+    const handleKeyDown = (e: KeyboardEvent) => {
       if (document.activeElement !== inputRef.current) {
-        return;
+        return
       }
 
-      if (event.key === "ArrowUp") {
-        event.preventDefault();
-        handleIncrement();
-      } else if (event.key === "ArrowDown") {
-        event.preventDefault();
-        handleDecrement();
+      if (e.key === "ArrowUp") {
+        e.preventDefault()
+        handleIncrement()
+      } else if (e.key === "ArrowDown") {
+        e.preventDefault()
+        handleDecrement()
       }
-    };
+    }
 
-    window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [handleDecrement, handleIncrement]);
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [handleDecrement, handleIncrement])
 
   const handleValueChange = useCallback(
     (values: NumberFormatValues, sourceInfo: SourceInfo) => {
-      const eventTarget = sourceInfo.event?.target as HTMLInputElement | null;
+      const eventTarget = sourceInfo.event?.target as HTMLInputElement | null
       const nextDraftValue =
         sourceInfo.source === "event" && eventTarget
           ? eventTarget.value
-          : values.formattedValue;
-      const nextValue = normalizeValue(values.floatValue);
+          : values.formattedValue
+      const nextValue = normalizeValue(values.floatValue)
 
-      setDraftValue(nextDraftValue);
+      setDraftValue(nextDraftValue)
 
       if (sourceInfo.source === "event") {
-        onValueChange?.(nextValue);
+        onValueChange?.(nextValue)
       }
     },
-    [normalizeValue, onValueChange],
-  );
+    [normalizeValue, onValueChange]
+  )
 
   return (
     <div
+      data-disabled={disabled}
       className={cn(
-        "flex h-7 flex-1 items-center overflow-hidden rounded-md border border-input bg-transparent shadow-xs transition-[color,box-shadow]",
-        "focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50",
-        invalid && "border-destructive focus-within:border-destructive",
-        disabled && "opacity-50",
-        className,
+        "flex items-center rounded-md border border-input bg-transparent transition-[color,box-shadow] dark:bg-input/20 data-[disabled=true]:opacity-30",
+        isFocused && "border-ring ring-[2px] ring-ring/50",
+        invalid && !disabled && "border-destructive",
+        invalid && !disabled && isFocused && "border-destructive ring-destructive/20 dark:ring-destructive/40",
+        className
       )}
     >
       <NumericFormat
+        id={id}
         value={draftValue}
         onValueChange={handleValueChange}
         decimalScale={decimalScale}
@@ -145,32 +145,34 @@ export default memo(function NumberInput({
         onBlur={() => setIsFocused(false)}
         customInput={Input}
         placeholder={placeholder}
-        className="relative h-full rounded-none border-0 shadow-none [appearance:textfield] focus-visible:border-transparent focus-visible:ring-0 aria-invalid:border-0 aria-invalid:ring-0 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+        className="rounded-l-md rounded-r-none !bg-transparent dark:!bg-transparent border-0 disabled:opacity-100 focus-visible:!border-transparent focus-visible:!ring-0 aria-invalid:border-0 aria-invalid:ring-0 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
         getInputRef={inputRef}
         disabled={disabled}
       />
-      <div className="flex h-7 flex-col">
+      <div className="flex h-6 flex-col">
         <Button
           aria-label="Increase value"
-          className="h-3.5 min-h-0 w-4 rounded-none border-0 border-b border-l border-input bg-transparent px-0.5 py-0 shadow-none focus-visible:relative focus-visible:border-input focus-visible:ring-0"
+          className="h-3 w-4 min-h-0 rounded-none rounded-tr-md border-0 border-l border-b border-input bg-transparent px-0 py-0 disabled:opacity-100 focus-visible:relative focus-visible:z-10 focus-visible:border-ring focus-visible:bg-accent focus-visible:text-accent-foreground focus-visible:ring-[2px] focus-visible:ring-ring/50"
           variant="outline"
-          type="button"
           onClick={handleIncrement}
           disabled={disabled}
+          type="button"
         >
-          <ChevronUp size={8} />
+          <ChevronUp size={9} />
         </Button>
         <Button
           aria-label="Decrease value"
-          className="h-3.5 min-h-0 w-4 rounded-none border-0 border-l border-input bg-transparent px-0.5 py-0 shadow-none focus-visible:relative focus-visible:border-input focus-visible:ring-0"
+          className="h-3 w-4 min-h-0 rounded-none rounded-br-md border-0 border-l border-input bg-transparent px-0 py-0 disabled:opacity-100 focus-visible:relative focus-visible:z-10 focus-visible:border-ring focus-visible:bg-accent focus-visible:text-accent-foreground focus-visible:ring-[2px] focus-visible:ring-ring/50"
           variant="outline"
-          type="button"
           onClick={handleDecrement}
           disabled={disabled}
+          type="button"
         >
-          <ChevronDown size={8} />
+          <ChevronDown size={9} />
         </Button>
       </div>
     </div>
-  );
-});
+  )
+})
+
+export default NumberInput

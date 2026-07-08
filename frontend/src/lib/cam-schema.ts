@@ -328,6 +328,13 @@ export function createDriveGeometryFromSelection(selection: MeshFaceSelection) {
   };
 }
 
+function getDriveGeometryList(value: DraftValue | undefined): DraftValue[] {
+  if (Array.isArray(value)) {
+    return value;
+  }
+  return value ? [value] : [];
+}
+
 export function createPocketOperationDraft(
   operationIndex: number,
   selection: MeshFaceSelection | null,
@@ -344,14 +351,13 @@ export function createPocketOperationDraft(
     } satisfies DraftObject);
 
   const driveGeometry = selection ? createDriveGeometryFromSelection(selection) : null;
+  const existingDriveGeometry = (((actualOperation as DraftObject).controlGeometry as DraftObject | undefined)
+    ?.driveGeometry as DraftValue | undefined);
   const hydratedOperation = {
     ...(actualOperation as DraftObject),
     controlGeometry: {
       ...(((actualOperation as DraftObject).controlGeometry as DraftObject | undefined) ?? {}),
-      driveGeometry:
-        driveGeometry
-        ?? (((actualOperation as DraftObject).controlGeometry as DraftObject | undefined)
-          ?.driveGeometry as DraftValue | undefined),
+      driveGeometry: driveGeometry ? [driveGeometry] : existingDriveGeometry,
     },
     levels: {
       ...(((actualOperation as DraftObject).levels as DraftObject | undefined) ?? {}),
@@ -376,19 +382,26 @@ export function applySelectionToPocketOperationDraft(
   meshMaxZ: number | null,
 ): DraftObject {
   const driveGeometry = createDriveGeometryFromSelection(selection);
+  const controlGeometry = (draft.controlGeometry as DraftObject | undefined) ?? {};
+  const existingDriveGeometries = getDriveGeometryList(controlGeometry.driveGeometry);
+  const driveGeometries = [
+    ...existingDriveGeometries,
+    ...(driveGeometry ? [driveGeometry] : []),
+  ];
+  const levels = (draft.levels as DraftObject | undefined) ?? {};
 
   return schemaValueToDraft(
     pocketOperationSchema,
     {
       ...draft,
       controlGeometry: {
-        ...((draft.controlGeometry as DraftObject | undefined) ?? {}),
-        driveGeometry,
+        ...controlGeometry,
+        driveGeometry: driveGeometries,
       },
-      levels: {
-        ...((draft.levels as DraftObject | undefined) ?? {}),
-        topZ: meshMaxZ ?? selection.planeZ ?? ((draft.levels as DraftObject | undefined)?.topZ as DraftValue | undefined),
-        bottomZ: selection.planeZ ?? ((draft.levels as DraftObject | undefined)?.bottomZ as DraftValue | undefined),
+      levels: existingDriveGeometries.length > 0 ? levels : {
+        ...levels,
+        topZ: meshMaxZ ?? selection.planeZ ?? (levels.topZ as DraftValue | undefined),
+        bottomZ: selection.planeZ ?? (levels.bottomZ as DraftValue | undefined),
       },
     },
     pocketOperationSchema,

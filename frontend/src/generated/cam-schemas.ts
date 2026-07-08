@@ -190,8 +190,12 @@ export const camSchemaBundle = {
       "PocketControlGeometrySection": {
         "properties": {
           "driveGeometry": {
-            "$ref": "#/$defs/ClosedCurveSelection",
-            "title": "Drive geometries"
+            "items": {
+              "$ref": "#/$defs/ClosedCurveSelection"
+            },
+            "minItems": 1,
+            "title": "Drive geometries",
+            "type": "array"
           }
         },
         "required": [
@@ -560,8 +564,12 @@ export const camSchemaBundle = {
       "PocketControlGeometrySection": {
         "properties": {
           "driveGeometry": {
-            "$ref": "#/$defs/ClosedCurveSelection",
-            "title": "Drive geometries"
+            "items": {
+              "$ref": "#/$defs/ClosedCurveSelection"
+            },
+            "minItems": 1,
+            "title": "Drive geometries",
+            "type": "array"
           }
         },
         "required": [

@@ -1,8 +1,31 @@
 import * as React from "react"
+import { cva, type VariantProps } from "class-variance-authority"
 
 import { cn } from "@/lib/utils"
 
-function Table({ className, ...props }: React.ComponentProps<"table">) {
+const tableVariants = cva("w-full caption-bottom", {
+  variants: {
+    size: {
+      default:
+        "text-sm [&_[data-slot=table-head]]:h-9 [&_[data-slot=table-head]]:px-2 [&_[data-slot=table-cell]]:p-2 [&_[data-slot=table-caption]]:mt-4",
+      xs:
+        "text-xs [&_[data-slot=table-head]]:h-6 [&_[data-slot=table-head]]:px-2 [&_[data-slot=table-cell]]:px-2 [&_[data-slot=table-cell]]:py-1 [&_[data-slot=table-caption]]:mt-2",
+      sm:
+        "text-sm [&_[data-slot=table-head]]:h-8 [&_[data-slot=table-head]]:px-2 [&_[data-slot=table-cell]]:px-2 [&_[data-slot=table-cell]]:py-1.5 [&_[data-slot=table-caption]]:mt-3",
+      lg:
+        "text-base [&_[data-slot=table-head]]:h-10 [&_[data-slot=table-head]]:px-2 [&_[data-slot=table-cell]]:px-2 [&_[data-slot=table-cell]]:py-2 [&_[data-slot=table-caption]]:mt-4",
+    },
+  },
+  defaultVariants: {
+    size: "xs",
+  },
+})
+
+function Table({
+  className,
+  size = "xs",
+  ...props
+}: React.ComponentProps<"table"> & VariantProps<typeof tableVariants>) {
   return (
     <div
       data-slot="table-container"
@@ -10,7 +33,8 @@ function Table({ className, ...props }: React.ComponentProps<"table">) {
     >
       <table
         data-slot="table"
-        className={cn("w-full caption-bottom text-sm", className)}
+        data-size={size}
+        className={cn(tableVariants({ size, className }))}
         {...props}
       />
     </div>
@@ -68,7 +92,7 @@ function TableHead({ className, ...props }: React.ComponentProps<"th">) {
     <th
       data-slot="table-head"
       className={cn(
-        "h-10 px-2 text-left align-middle font-medium whitespace-nowrap text-foreground [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]",
+        "text-left align-middle font-medium whitespace-nowrap text-foreground [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]",
         className
       )}
       {...props}
@@ -81,7 +105,7 @@ function TableCell({ className, ...props }: React.ComponentProps<"td">) {
     <td
       data-slot="table-cell"
       className={cn(
-        "p-2 align-middle whitespace-nowrap [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]",
+        "align-middle whitespace-nowrap [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]",
         className
       )}
       {...props}
@@ -96,7 +120,7 @@ function TableCaption({
   return (
     <caption
       data-slot="table-caption"
-      className={cn("mt-4 text-sm text-muted-foreground", className)}
+      className={cn("text-muted-foreground", className)}
       {...props}
     />
   )
@@ -111,4 +135,5 @@ export {
   TableRow,
   TableCell,
   TableCaption,
+  tableVariants,
 }

@@ -38,6 +38,7 @@ export type PolylineViewerProps = {
   className?: string;
   faceSelectionMode?: boolean;
   selectedMeshFace?: MeshFaceSelection | null;
+  selectedMeshFaces?: ReadonlyArray<MeshFaceSelection>;
   simulationTool?: ToolData | null;
   simulationSamples?: ReadonlyArray<SimulationSamplePoint>;
   simulationStep?: number;

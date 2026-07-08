@@ -18,6 +18,10 @@ export type Operation = Pocket2DOperationConfig;
 export type OperationID = string;
 export type OperationKind = "pocket2d";
 export type OperationName = string;
+/**
+ * @minItems 1
+ */
+export type DriveGeometries = [ClosedCurveSelection, ...ClosedCurveSelection[]];
 export type DriveGeometryPlaneZ = number;
 /**
  * Closed curves or closed surface edges captured from the selected mesh face.
@@ -103,7 +107,7 @@ export interface ControlGeometry {
   driveGeometry: DriveGeometries;
   [k: string]: unknown;
 }
-export interface DriveGeometries {
+export interface ClosedCurveSelection {
   planeZ: DriveGeometryPlaneZ;
   vertices: ClosedCurveVertices;
   [k: string]: unknown;

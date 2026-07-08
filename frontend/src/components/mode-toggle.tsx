@@ -55,7 +55,7 @@ export function ModeToggle() {
 
   return (
     <Button
-      size="icon-sm"
+      size="icon"
       onClick={() => setTheme(nextMode)}
       aria-label="Toggle theme"
     >

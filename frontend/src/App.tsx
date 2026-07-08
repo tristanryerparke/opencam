@@ -4,6 +4,7 @@ import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
 import { AppSidebar, type RequestState } from "@/components/app-sidebar";
 import { SettingsDialog } from "@/components/settings-dialog";
 import { OperationDialog } from "@/components/operation-dialog";
+import { OperationTypeDialog } from "@/components/operation-type-dialog";
 import {
   PolylineViewer,
   type MeshFaceSelection,
@@ -23,7 +24,7 @@ import {
   pocketOperationSchema,
 } from "@/lib/cam-schema";
 import { getBackendUrl } from "@/hooks/useBackendConnection";
-import type { Pocket2DOperationConfig } from "@/generated/cam-types";
+import type { ClosedCurveSelection, Pocket2DOperationConfig } from "@/generated/cam-types";
 import { sampleToolpathLocations, type ToolpathOperation } from "@/simulation/toolpath";
 
 type GeneratedPathResponse = ToolpathOperation["paths"][number];
@@ -154,11 +155,12 @@ type CachedMeshPayload = {
 
 type SidebarSettingsPayload = {
   selectedOperationId: string | null;
+  selectedTreeNodeId?: string;
   operations: Pocket2DOperationConfig[];
 };
 
 const CACHED_MESH_STORAGE_KEY = "opencam.cached-stl";
-const SIDEBAR_SETTINGS_STORAGE_KEY = "opencam.sidebar-settings.v2";
+const SIDEBAR_SETTINGS_STORAGE_KEY = "opencam.sidebar-settings.v3";
 const ORIGINAL_MESH_COLOR = 0x94a3b8;
 const ORIGINAL_MESH_EDGE_COLOR = 0x334155;
 const MILLED_STOCK_MESH_COLOR = 0xfb923c;
@@ -307,6 +309,60 @@ function toolPositionToPoint(position: ToolPositionResponse): PolylinePoint {
   return [position.x, position.y, position.z] as const;
 }
 
+function geometryToMeshFaceSelection(geometry: ClosedCurveSelection, index: number): MeshFaceSelection {
+  return {
+    id: `geometry-${index}`,
+    label: `Coplanar Face ${index + 1}`,
+    normal: [0, 0, 1],
+    triangleIndices: [],
+    triangleCount: 0,
+    area: 0,
+    isParallelToXY: true,
+    planeZ: geometry.planeZ,
+    boundaryLoop: geometry.vertices.map(({ x, y }) => [x, y, geometry.planeZ] as const),
+    validationError: null,
+  };
+}
+
+function operationToMeshFaceSelections(operation: Pocket2DOperationConfig | null): MeshFaceSelection[] {
+  const driveGeometry = operation?.controlGeometry?.driveGeometry;
+  const geometries = Array.isArray(driveGeometry) ? driveGeometry : driveGeometry ? [driveGeometry] : [];
+  return geometries.map(geometryToMeshFaceSelection);
+}
+
+function draftToMeshFaceSelections(draft: DraftObject | null): MeshFaceSelection[] {
+  const driveGeometry = (draft?.controlGeometry as DraftObject | undefined)?.driveGeometry;
+  const geometries = Array.isArray(driveGeometry) ? driveGeometry : driveGeometry ? [driveGeometry] : [];
+
+  return geometries.flatMap((geometry, index) => {
+    if (!geometry || typeof geometry !== "object" || Array.isArray(geometry)) {
+      return [];
+    }
+
+    const planeZ = Number((geometry as DraftObject).planeZ);
+    const vertices = (geometry as DraftObject).vertices;
+    if (!Number.isFinite(planeZ) || !Array.isArray(vertices)) {
+      return [];
+    }
+
+    const parsedVertices = vertices.flatMap((vertex) => {
+      if (!vertex || typeof vertex !== "object" || Array.isArray(vertex)) {
+        return [];
+      }
+
+      const x = Number((vertex as DraftObject).x);
+      const y = Number((vertex as DraftObject).y);
+      return Number.isFinite(x) && Number.isFinite(y) ? [{ x, y }] : [];
+    });
+
+    if (parsedVertices.length === 0) {
+      return [];
+    }
+
+    return [geometryToMeshFaceSelection({ planeZ, vertices: parsedVertices as ClosedCurveSelection["vertices"] }, index)];
+  });
+}
+
 function parsePositiveNumber(value: string, label: string) {
   const parsed = Number(value);
 
@@ -331,12 +387,15 @@ function App() {
   const [meshMaxZ, setMeshMaxZ] = useState<number | null>(null);
   const [operations, setOperations] = useState<Pocket2DOperationConfig[]>([]);
   const [selectedOperationId, setSelectedOperationId] = useState<string | null>(null);
+  const [selectedTreeNodeId, setSelectedTreeNodeId] = useState("setup-1");
+  const [isOperationTypeDialogOpen, setIsOperationTypeDialogOpen] = useState(false);
   const [isOperationDialogOpen, setIsOperationDialogOpen] = useState(false);
   const [operationDialogMode, setOperationDialogMode] = useState<"create" | "edit">("create");
   const [resumeOperationDialogAfterSelection, setResumeOperationDialogAfterSelection] = useState(false);
   const [operationDraft, setOperationDraft] = useState<DraftObject | null>(null);
   const [generatedOperation, setGeneratedOperation] =
     useState<GeneratedOperationResponse | null>(null);
+  const [generatedOperationsById, setGeneratedOperationsById] = useState<Record<string, GeneratedOperationResponse>>({});
   const [simulationActiveMeshUrl, setSimulationActiveMeshUrl] = useState<string | null>(null);
   const [simulationCachedMeshUrl, setSimulationCachedMeshUrl] = useState<string | null>(null);
   const [simulationToolMeshUrl, setSimulationToolMeshUrl] = useState<string | null>(null);
@@ -398,6 +457,7 @@ function App() {
       }
 
       setSelectedOperationId(parsed.selectedOperationId);
+      setSelectedTreeNodeId(parsed.selectedTreeNodeId ?? parsed.selectedOperationId ?? "setup-1");
       setOperations(parsed.operations);
     } catch {
       window.localStorage.removeItem(SIDEBAR_SETTINGS_STORAGE_KEY);
@@ -413,6 +473,7 @@ function App() {
 
     const payload: SidebarSettingsPayload = {
       selectedOperationId,
+      selectedTreeNodeId,
       operations,
     };
 
@@ -424,7 +485,7 @@ function App() {
     } catch (error: unknown) {
       console.error("Failed to persist sidebar settings", error);
     }
-  }, [operations, selectedOperationId]);
+  }, [operations, selectedOperationId, selectedTreeNodeId]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -448,7 +509,7 @@ function App() {
         dataUrlToFile(parsed.dataUrl, parsed.name, parsed.type, parsed.lastModified),
       );
       setMeshCacheState("ready");
-      setMeshCacheMessage("Restored from local storage.");
+      setMeshCacheMessage("");
     } catch {
       preserveMeshCacheMessageRef.current = true;
       window.localStorage.removeItem(CACHED_MESH_STORAGE_KEY);
@@ -602,9 +663,17 @@ function App() {
     setIsSimulationPlaying(false);
   }
 
+  const visibleOperations = useMemo(() => {
+    if (selectedTreeNodeId === "setup-1") {
+      return operations;
+    }
+
+    return operations.filter((operation) => operation.id === selectedTreeNodeId);
+  }, [operations, selectedTreeNodeId]);
+
   const generatedPaths = useMemo<GeneratedPathResponse[]>(
-    () => generatedOperation?.paths ?? [],
-    [generatedOperation],
+    () => visibleOperations.flatMap((operation) => operation.id ? (generatedOperationsById[operation.id]?.paths ?? []) : []),
+    [generatedOperationsById, visibleOperations],
   );
   const simulationSamples = useMemo(
     () => sampleToolpathLocations(generatedPaths, SIMULATION_SAMPLE_SPACING),
@@ -660,9 +729,13 @@ function App() {
   );
 
   const operationLabel = selectedOperation?.displayName ?? "2D Pocket";
-  const generateButtonLabel = requestState === "submitting" ? "Generating..." : "Generate pocket";
+  const highlightedMeshFaces = useMemo(() => {
+    if (isOperationDialogOpen || faceSelectionMode) {
+      return draftToMeshFaceSelections(operationDraft);
+    }
 
-  const canGenerate = Boolean(meshUrl && meshFile && selectedOperation);
+    return visibleOperations.flatMap(operationToMeshFaceSelections);
+  }, [faceSelectionMode, isOperationDialogOpen, operationDraft, visibleOperations]);
 
   const meshStatusLabel = meshFile ? meshFile.name : "No mesh loaded.";
   const meshCacheStatusLabel =
@@ -1106,6 +1179,16 @@ function App() {
     return () => window.removeEventListener("keydown", handleSelectionCancel);
   }, [faceSelectionMode, resumeOperationDialogAfterSelection]);
 
+  function handleAddOperation() {
+    if (!meshUrl) {
+      setRequestState("error");
+      setRequestMessage("Upload an STL before adding an operation.");
+      return;
+    }
+
+    setIsOperationTypeDialogOpen(true);
+  }
+
   function handleAddPocketOperation() {
     if (!meshUrl) {
       setRequestState("error");
@@ -1113,31 +1196,14 @@ function App() {
       return;
     }
 
+    setIsOperationTypeDialogOpen(false);
     setOperationDialogMode("create");
     setResumeOperationDialogAfterSelection(false);
     setOperationDraft(createPocketOperationDraft(operations.length + 1, null, meshMaxZ));
     setIsOperationDialogOpen(true);
   }
 
-  function handleEditSelectedOperation() {
-    if (!selectedOperation) {
-      return;
-    }
-
-    setOperationDialogMode("edit");
-    setResumeOperationDialogAfterSelection(false);
-    setOperationDraft(
-      createPocketOperationDraft(
-        operations.findIndex((operation) => operation.id === selectedOperation.id) + 1,
-        null,
-        meshMaxZ,
-        selectedOperation,
-      ),
-    );
-    setIsOperationDialogOpen(true);
-  }
-
-  function handleOperationDialogSave() {
+  async function handleOperationDialogSave() {
     if (!operationDraft) {
       return;
     }
@@ -1147,20 +1213,21 @@ function App() {
 
       if (operationDialogMode === "create") {
         setOperations((current) => [...current, parsedOperation]);
-        setSelectedOperationId(parsedOperation.id ?? null);
       } else {
         setOperations((current) =>
           current.map((operation) =>
             operation.id === parsedOperation.id ? parsedOperation : operation,
           ),
         );
-        setSelectedOperationId(parsedOperation.id ?? null);
       }
 
-      resetGeneratedPreview();
+      setSelectedOperationId(parsedOperation.id ?? null);
+      setSelectedTreeNodeId(parsedOperation.id ?? "setup-1");
+
       setIsOperationDialogOpen(false);
       setResumeOperationDialogAfterSelection(false);
       setOperationDraft(null);
+      await handleGenerateOperation(parsedOperation);
     } catch (error) {
       setRequestState("error");
       setRequestMessage(
@@ -1169,15 +1236,9 @@ function App() {
     }
   }
 
-  function handleRemoveOperation(operationId: string) {
-    setOperations((current) => current.filter((operation) => operation.id !== operationId));
-    setSelectedOperationId((current) => (current === operationId ? null : current));
-    resetGeneratedPreview();
-  }
-
-  function handleSelectOperation(operationId: string) {
-    setSelectedOperationId(operationId);
-    resetGeneratedPreview();
+  function handleSelectTreeNode(nodeId: string) {
+    setSelectedTreeNodeId(nodeId);
+    setSelectedOperationId(nodeId === "setup-1" ? null : nodeId);
   }
 
   function handleSimulationFrameChange(values: number[]) {
@@ -1317,8 +1378,8 @@ function App() {
     };
   }, [applyCompletedSimulation, operationLabel, requestState, simulationTaskId]);
 
-  async function handleGenerateOperation() {
-    if (!selectedOperation) {
+  async function handleGenerateOperation(operationToGenerate = selectedOperation) {
+    if (!operationToGenerate) {
       setRequestState("error");
       setRequestMessage("Add and select a pocket operation before generating a toolpath.");
       return;
@@ -1331,16 +1392,24 @@ function App() {
     }
 
     try {
-      const requestBody = buildGenerateToolpathRequest(selectedOperation, meshMaxZ);
+      const requestBody = buildGenerateToolpathRequest(operationToGenerate, meshMaxZ);
       const parsedMaxSimDistance = parsePositiveNumber(maxSimDistance, "Max sim distance");
+      const nextOperationLabel = operationToGenerate.displayName ?? "2D Pocket";
 
       setGeneratedOperation(null);
+      if (operationToGenerate.id) {
+        setGeneratedOperationsById((current) => {
+          const next = { ...current };
+          delete next[operationToGenerate.id!];
+          return next;
+        });
+      }
       setSimulationActiveMeshUrl(null);
       setSimulationCachedMeshUrl(null);
       resetSimulationPlaybackState();
       setShowOriginalMesh(true);
       setRequestState("submitting");
-      setRequestMessage(`Generating ${operationLabel.toLowerCase()} toolpath...`);
+      setRequestMessage(`Generating ${nextOperationLabel.toLowerCase()} toolpath...`);
 
       const response = await fetch(`${getBackendUrl()}/cam/toolpath`, {
         method: "POST",
@@ -1371,6 +1440,9 @@ function App() {
       simulationRequest.append("chunk_padding_z", String(CHUNK_PADDING_Z));
 
       setGeneratedOperation(operation);
+      if (operationToGenerate.id) {
+        setGeneratedOperationsById((current) => ({ ...current, [operationToGenerate.id!]: operation }));
+      }
       setRequestMessage("Starting chunked swept milling simulation...");
 
       const simulationResponse = await fetch(`${getBackendUrl()}/simulate/swept`, {
@@ -1434,7 +1506,9 @@ function App() {
     setSelectedMeshFace(null);
     setOperations([]);
     setSelectedOperationId(null);
+    setSelectedTreeNodeId("setup-1");
     setGeneratedOperation(null);
+    setGeneratedOperationsById({});
     setSimulationActiveMeshUrl(null);
     setSimulationCachedMeshUrl(null);
     resetSimulationPlaybackState();
@@ -1442,6 +1516,7 @@ function App() {
     setRequestMessage("");
     setShowOriginalMesh(true);
     setFaceSelectionMode(false);
+    setIsOperationTypeDialogOpen(false);
     setIsOperationDialogOpen(false);
     setResumeOperationDialogAfterSelection(false);
     setOperationDraft(null);
@@ -1450,7 +1525,7 @@ function App() {
   return (
     <SidebarProvider defaultOpen>
       <div className="flex h-svh w-full flex-col overflow-hidden bg-background text-foreground">
-        <header className="flex shrink-0 items-center justify-between gap-3 border-b px-2 py-1.5 md:px-3">
+        <header className="flex shrink-0 items-center justify-between gap-3 border-b px-2 py-1.5 md:px-2">
           <div className="flex items-center gap-2">
             <SidebarTrigger />
             <h2 className="text-sm font-semibold md:text-base">OpenCAM Viewer</h2>
@@ -1465,20 +1540,15 @@ function App() {
             meshStatusLabel={meshStatusLabel}
             meshCacheStatusLabel={meshCacheStatusLabel}
             operations={operations}
-            selectedOperationId={selectedOperationId}
-            canGenerate={canGenerate}
+            selectedNodeId={selectedTreeNodeId}
             requestState={requestState}
             requestMessage={requestMessage}
-            generateButtonLabel={generateButtonLabel}
             generatedPathCount={generatedPaths.length}
             generatedPathPointCount={generatedPathPointCount}
             generatedPathLength={generatedPathLength}
             onMeshUpload={handleMeshUpload}
-            onAddPocketOperation={handleAddPocketOperation}
-            onEditSelectedOperation={handleEditSelectedOperation}
-            onSelectOperation={handleSelectOperation}
-            onRemoveOperation={handleRemoveOperation}
-            onGenerateOperation={handleGenerateOperation}
+            onAddOperation={handleAddOperation}
+            onSelectNode={handleSelectTreeNode}
             canCancelGeneration={requestState === "submitting" && simulationTaskId !== null}
             onCancelGeneration={handleCancelGeneration}
           />
@@ -1493,7 +1563,8 @@ function App() {
               secondaryMeshEdgeColor={null}
               polylines={operationPolylines}
               faceSelectionMode={faceSelectionMode}
-              selectedMeshFace={selectedMeshFace}
+              selectedMeshFace={null}
+              selectedMeshFaces={highlightedMeshFaces}
               simulationToolMeshUrl={simulationToolMeshUrl}
               simulationToolPosition={simulationToolPosition}
               simulationToolRotation={simulationToolRotation}
@@ -1504,7 +1575,7 @@ function App() {
 
             {simulationId && simulationFrameCount > 0 ? (
               <div className="pointer-events-none absolute inset-x-4 bottom-4 z-20">
-                <div className="pointer-events-auto mx-auto flex max-w-3xl items-center gap-3 rounded-md border bg-background/95 px-3 py-2 shadow">
+                <div className="pointer-events-auto mx-auto flex max-w-3xl items-center gap-3 rounded-md border bg-background/95 px-2 py-2 shadow">
                   <Button
                     type="button"
                     variant="outline"
@@ -1544,6 +1615,12 @@ function App() {
             ) : null}
           </main>
         </div>
+
+        <OperationTypeDialog
+          open={isOperationTypeDialogOpen}
+          onOpenChange={setIsOperationTypeDialogOpen}
+          onSelectPocketing={handleAddPocketOperation}
+        />
 
         <OperationDialog
           open={isOperationDialogOpen}

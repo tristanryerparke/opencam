@@ -6,8 +6,8 @@ import {
   type SourceInfo,
 } from "react-number-format"
 
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
+import { Button } from "t-components/button"
+import { Input } from "t-components/input"
 import { cn } from "@/lib/utils"
 
 export interface NumberInputProps {

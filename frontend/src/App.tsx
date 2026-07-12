@@ -11,9 +11,9 @@ import {
   type PolylineDefinition,
   type PolylinePoint,
 } from "@/components/polyline-viewer";
-import { Button } from "@/components/ui/button";
+import { Button } from "t-components/button";
 import { Slider } from "@/components/ui/slider";
-import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { SidebarProvider, SidebarTrigger } from "t-components/sidebar";
 import { getOpenCamBootstrap, sendRhinoUiDebug } from "@/bootstrap";
 import type { DraftObject } from "@/lib/cam-schema";
 import {

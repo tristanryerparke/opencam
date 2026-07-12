@@ -1,12 +1,12 @@
 import pocketingIconUrl from "../../../graphics/pocketing-1.svg";
 
-import { Button } from "@/components/ui/button";
+import { Button } from "t-components/button";
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
+} from "t-components/dialog";
 
 export function OperationTypeDialog({
   open,

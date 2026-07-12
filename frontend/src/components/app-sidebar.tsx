@@ -1,9 +1,9 @@
 import { ChevronDown, ChevronRight, Folder, Milestone } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Sidebar, SidebarContent, SidebarMenuButton } from "@/components/ui/sidebar";
+import { Button } from "t-components/button";
+import { Input } from "t-components/input";
+import { Label } from "t-components/label";
+import { Sidebar, SidebarContent, SidebarMenuButton } from "t-components/sidebar";
 import { TreeView, type TreeNodeNested, type TreeNodeRenderProps } from "@/components/tree-view/tree-view";
 import { type Pocket2DOperationConfig } from "@/generated/cam-types";
 import { cn } from "@/lib/utils";

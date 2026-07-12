@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 
-import { Button } from "@/components/ui/button";
+import { Button } from "t-components/button";
 import {
   Dialog,
   DialogContent,
@@ -8,13 +8,13 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
+} from "t-components/dialog";
 import { GroupBox } from "@/components/ui/group-box";
 import IntegerInput from "@/components/ui/integer-input";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Input } from "t-components/input";
+import { Label } from "t-components/label";
 import NumberInput from "@/components/ui/number-input";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { RadioGroup, RadioGroupItem } from "t-components/radio-group";
 import type { ToolLibraryTool, ToolLibraryToolInput } from "@/lib/tool-library-api";
 
 type ToolNumberMode = "number" | "manual";

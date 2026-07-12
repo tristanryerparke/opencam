@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Monitor, Moon, Pencil, Plus, Settings, Sun, Trash2 } from "lucide-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { Button } from "@/components/ui/button";
+import { Button } from "t-components/button";
 import {
   Dialog,
   DialogContent,
@@ -10,14 +10,14 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from "@/components/ui/dialog";
+} from "t-components/dialog";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
+} from "t-components/select";
 import {
   Table,
   TableBody,
@@ -25,8 +25,8 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@/components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+} from "t-components/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "t-components/tabs";
 import { useTheme, type Theme } from "@/components/mode-toggle";
 import { ToolEditorDialog } from "@/components/tool-editor-dialog";
 import {

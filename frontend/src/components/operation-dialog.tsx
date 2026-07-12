@@ -1,16 +1,16 @@
 import { useMemo, useState } from "react";
 
-import { Button } from "@/components/ui/button";
+import { Button } from "t-components/button";
 import {
   Dialog,
   DialogContent,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from "@/components/ui/dialog";
+} from "t-components/dialog";
 import IntegerInput from "@/components/ui/integer-input";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { Input } from "t-components/input";
+import { Label } from "t-components/label";
 import NumberInput from "@/components/ui/number-input";
 import {
   Table,
@@ -19,14 +19,14 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from "@/components/ui/table";
+} from "t-components/table";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
+} from "t-components/select";
 import {
   Sidebar,
   SidebarContent,
@@ -36,7 +36,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarProvider,
-} from "@/components/ui/sidebar";
+} from "t-components/sidebar";
 import {
   type DraftObject,
   type DraftValue,

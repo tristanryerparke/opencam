@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 from shapely.geometry import Polygon
 
-import opencam.engine.closed_polyline as cp
+from opencam.engine.closed_polyline.offset import offset
 from opencam.services.operations.pocketing.models import PocketTreeNode
 
 
@@ -27,7 +27,7 @@ class PocketTreeMixin:
         layers: list[list[PocketTreeNode]] = []
 
         while True:
-            polylines = cp.offset(
+            polylines = offset(
                 base_polyline,
                 -offset_distance,
             )

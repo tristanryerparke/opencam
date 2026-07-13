@@ -13,20 +13,17 @@ import numpy as np
 import rhino3dm
 import trimesh
 
-from opencam.schemas.cam import (
-    FrontendCamSchemaBundle,
-    GenerateToolpathRequest,
-    build_frontend_cam_schema_bundle,
-)
+from opencam.schemas.cam import GenerateToolpathRequest
+from opencam.schemas.cl_data import OperationRecord3D
 from opencam.schemas.models import (
     SweptSimulationFrameResponse,
     SweptSimulationFramesResponse,
     SweptSimulationResponse,
     SweptSimulationStartResponse,
     SweptSimulationStatusResponse,
-    ToolpathOperation,
+    Tool as SimulationTool,
 )
-from opencam.schemas.tool_library import Material, Tool
+from opencam.schemas.tool_library import Material, Tool, ToolMaterialFeedsAndSpeeds
 from opencam.services.operations.config_adapter import build_toolpath_operation_from_config
 from opencam.services.operations.pocketing.operation import ClosedPocketingEngine
 from opencam.services.operations.profiling import ClosedProfilingEngine
@@ -76,12 +73,12 @@ SIMULATION_TASKS: dict[str, SimulationTask] = {}
 SIMULATION_TASKS_LOCK = Lock()
 
 
-def _log_frontend_paths(endpoint: str, operation: ToolpathOperation) -> None:
+def _log_frontend_operation(endpoint: str, operation: OperationRecord3D) -> None:
     try:
         entry = {
             "timestamp": datetime.now().isoformat(),
             "endpoint": endpoint,
-            "paths": operation.model_dump(mode="json", by_alias=True)["paths"],
+            "operation": operation.model_dump(mode="json", by_alias=True),
         }
 
         with FRONTEND_PATH_LOG_LOCK:
@@ -103,9 +100,13 @@ def _log_frontend_paths(endpoint: str, operation: ToolpathOperation) -> None:
         pass
 
 
-def _build_toolpath_operation(engine, endpoint: str) -> ToolpathOperation:
-    operation = ToolpathOperation(tool=engine.tool, paths=engine.process())
-    _log_frontend_paths(endpoint, operation)
+def _build_operation_record(engine, endpoint: str) -> OperationRecord3D:
+    operation = OperationRecord3D(
+        tool_id=engine.tool_id,
+        clearance_plane_height=engine.clearance_plane_height,
+        records=engine.process(),
+    )
+    _log_frontend_operation(endpoint, operation)
     return operation
 
 
@@ -259,7 +260,8 @@ def _update_simulation_task(
 def _run_swept_simulation_task(
     task_id: str,
     mesh_bytes: bytes,
-    parsed_operation: ToolpathOperation,
+    parsed_operation: OperationRecord3D,
+    tool: SimulationTool,
     max_sim_distance: float,
     chunk_padding_x: float,
     chunk_padding_y: float,
@@ -288,6 +290,7 @@ def _run_swept_simulation_task(
         tool_mesh_bytes, simulation_chunks, frame_meshes = simulate_swept_milling_frames(
             mesh_bytes,
             parsed_operation,
+            tool,
             max_sim_distance=max_sim_distance,
             chunk_padding=(chunk_padding_x, chunk_padding_y, chunk_padding_z),
             progress_callback=progress_callback,
@@ -347,25 +350,20 @@ async def ping():
     return {"status": "ok", "timestamp": datetime.now().isoformat()}
 
 
-@app.post("/profile/closed", response_model=ToolpathOperation)
+@app.post("/profile/closed", response_model=OperationRecord3D)
 async def profile_closed(engine: ClosedProfilingEngine):
     try:
-        return _build_toolpath_operation(engine, "/profile/closed")
+        return _build_operation_record(engine, "/profile/closed")
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
-@app.post("/pocket/closed", response_model=ToolpathOperation)
+@app.post("/pocket/closed", response_model=OperationRecord3D)
 async def pocket_closed(engine: ClosedPocketingEngine):
     try:
-        return _build_toolpath_operation(engine, "/pocket/closed")
+        return _build_operation_record(engine, "/pocket/closed")
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@app.get("/cam/schema", response_model=FrontendCamSchemaBundle)
-async def cam_schema():
-    return build_frontend_cam_schema_bundle()
 
 
 @app.get("/cam/tools", response_model=list[Tool])
@@ -428,11 +426,36 @@ def get_material(material_id: str, tool_library: ToolLibrary = Depends(get_tool_
     return material
 
 
-@app.post("/cam/toolpath", response_model=ToolpathOperation)
-async def generate_cam_toolpath(request: GenerateToolpathRequest):
+@app.get("/cam/tool-material-feeds-and-speeds", response_model=list[ToolMaterialFeedsAndSpeeds])
+def list_tool_material_feeds_and_speeds(
+    tool_library: ToolLibrary = Depends(get_tool_library),
+):
+    return tool_library.list_tool_material_feeds_and_speeds()
+
+
+@app.post(
+    "/cam/tool-material-feeds-and-speeds",
+    response_model=ToolMaterialFeedsAndSpeeds,
+    status_code=status.HTTP_201_CREATED,
+)
+def add_tool_material_feeds_and_speeds(
+    record: ToolMaterialFeedsAndSpeeds,
+    tool_library: ToolLibrary = Depends(get_tool_library),
+):
     try:
-        operation = build_toolpath_operation_from_config(request)
-        _log_frontend_paths("/cam/toolpath", operation)
+        return tool_library.add_tool_material_feeds_and_speeds(record)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+@app.post("/cam/toolpath", response_model=OperationRecord3D)
+async def generate_cam_toolpath(
+    request: GenerateToolpathRequest,
+    tool_library: ToolLibrary = Depends(get_tool_library),
+):
+    try:
+        operation = build_toolpath_operation_from_config(request, tool_library)
+        _log_frontend_operation("/cam/toolpath", operation)
         return operation
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -446,11 +469,20 @@ async def simulate_swept(
     chunk_padding_x: float = Form(5.0),
     chunk_padding_y: float = Form(5.0),
     chunk_padding_z: float = Form(1.0),
+    tool_library: ToolLibrary = Depends(get_tool_library),
 ):
     try:
-        parsed_operation = ToolpathOperation.model_validate_json(operation)
+        parsed_operation = OperationRecord3D.model_validate_json(operation)
     except ValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    library_tool = tool_library.get_tool(parsed_operation.tool_id)
+    if library_tool is None:
+        raise HTTPException(status_code=400, detail=f"Tool {parsed_operation.tool_id!r} does not exist.")
+    tool = SimulationTool(
+        diameter=library_tool.diameter,
+        cutting_height=library_tool.flute_length,
+    )
 
     mesh_bytes = await mesh.read()
     if not mesh_bytes:
@@ -472,6 +504,7 @@ async def simulate_swept(
             task_id,
             mesh_bytes,
             parsed_operation,
+            tool,
             max_sim_distance,
             chunk_padding_x,
             chunk_padding_y,

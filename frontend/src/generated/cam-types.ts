@@ -11,17 +11,41 @@ export type OriginZ = number;
  */
 export type MachineZAxis = "positiveZ";
 /**
- * Used when transfer height is computed from stock height.
+ * Used when clearance height is computed from stock height.
  */
 export type StockMaxZ = number;
 export type Operation = Pocket2DOperationConfig;
 export type OperationID = string;
-export type OperationKind = "pocket2d";
 export type OperationName = string;
+export type Tool = string;
+export type FeedsAndSpeeds = ManualFeedsAndSpeedsSelection | ToolMaterialFeedsAndSpeedsSelection;
+export type Mode = "manual";
+export type SpindleRPM = number;
+export type PlungeFeedrate = number;
+export type LeadInFeedrate = number;
+export type CutFeedrate = number;
+export type LeadOutFeedrate = number;
+export type DepartureFeedrate = number;
+export type Mode1 = "tool_material";
+export type Materialid = string;
+export type Toolmaterialfeedsandspeedsid = string;
+export type Clearance = AbsoluteClearance | StockMaxZPlusOffsetClearance | PartMaxZPlusOffsetClearance;
+export type Clearanceheighttype = "absolute";
+export type AbsoluteHeight = number;
+export type Clearanceheighttype1 = "stock_max_z_plus_offset";
+export type Offset = number;
+export type Clearanceheighttype2 = "part_max_z_plus_offset";
+export type Offset1 = number;
+export type DriveGeometryAt = "at_top" | "at_bottom";
+export type DepthOfCut = number;
+export type MaxStepdown = number;
+export type OperationSorting = "selection" | "shortest_distance";
+export type ChordalTolerance = number;
+export type OperationKind = "pocket2d";
 /**
  * @minItems 1
  */
-export type DriveGeometries = [ClosedCurveSelection, ...ClosedCurveSelection[]];
+export type CutAreas = [ClosedCurveSelection, ...ClosedCurveSelection[]];
 export type DriveGeometryPlaneZ = number;
 /**
  * Closed curves or closed surface edges captured from the selected mesh face.
@@ -32,38 +56,9 @@ export type ClosedCurveVertices = [Point2D, Point2D, Point2D, ...Point2D[]];
 export type X = number;
 export type Y = number;
 export type ClimbConventional = "climb" | "conventional";
-export type Stepover = number;
+export type Mode2 = "percentage_of_tool_diameter" | "absolute";
+export type Value = number;
 export type StockToLeave = number;
-export type PocketFromInsideOutside = "inside" | "outside";
-export type Feedrate = number;
-export type RPM = number;
-export type Diameter = number;
-export type FluteLength = number;
-export type Tool1 = number;
-export type ManualChange = boolean;
-export type DriveGeometryAtTopBottom = "top" | "bottom";
-export type HeightOfCutTopZ = number;
-export type BottomZ = number;
-/**
- * Maximum layer depth per pass.
- */
-export type MaxCutDepth = number;
-/**
- * Absolute clearance plane height used for retracts and transfers when selected.
- */
-export type ClearancePlaneHeight = number;
-/**
- * Use the clearance plane directly, or compute transfer height as stock max Z plus an offset.
- */
-export type TransferHeight = "clearancePlane" | "stockTopPlusOffset";
-/**
- * Only used when transfer height comes from stock max Z + X.
- */
-export type TransferHeightOffset = number;
-export type OperationSorting = "shortestTravel";
-export type CutTransitions = "clearance";
-export type LayerOrder = "perArea" | "perLayer";
-export type ChordalTolerance = number;
 
 export interface GenerateToolpathRequest {
   setup?: Setup;
@@ -92,19 +87,65 @@ export interface Stock {
 }
 export interface Pocket2DOperationConfig {
   id?: OperationID;
-  kind?: OperationKind;
   displayName?: OperationName;
-  controlGeometry?: ControlGeometry;
-  cutParameters?: CutParameters;
-  material?: Material;
-  tool?: Tool;
+  toolId: Tool;
+  feedsAndSpeeds?: FeedsAndSpeeds;
+  clearance?: Clearance;
   levels?: Levels;
-  clearance?: Clearence;
   advanced?: Advanced;
+  kind?: OperationKind;
+  driveGeometry: DriveGeometry;
+  cutParameters?: CutParameters;
   [k: string]: unknown;
 }
-export interface ControlGeometry {
-  driveGeometry: DriveGeometries;
+export interface ManualFeedsAndSpeedsSelection {
+  mode?: Mode;
+  feedsAndSpeeds?: FeedsAndSpeeds1;
+  [k: string]: unknown;
+}
+export interface FeedsAndSpeeds1 {
+  spindleRpm?: SpindleRPM;
+  plungeFeedrate?: PlungeFeedrate;
+  leadInFeedrate?: LeadInFeedrate;
+  cutFeedrate?: CutFeedrate;
+  leadOutFeedrate?: LeadOutFeedrate;
+  departureFeedrate?: DepartureFeedrate;
+  [k: string]: unknown;
+}
+export interface ToolMaterialFeedsAndSpeedsSelection {
+  mode?: Mode1;
+  materialId: Materialid;
+  toolMaterialFeedsAndSpeedsId: Toolmaterialfeedsandspeedsid;
+  [k: string]: unknown;
+}
+export interface AbsoluteClearance {
+  clearanceHeightType?: Clearanceheighttype;
+  absoluteHeight?: AbsoluteHeight;
+  [k: string]: unknown;
+}
+export interface StockMaxZPlusOffsetClearance {
+  clearanceHeightType?: Clearanceheighttype1;
+  offset?: Offset;
+  [k: string]: unknown;
+}
+export interface PartMaxZPlusOffsetClearance {
+  clearanceHeightType?: Clearanceheighttype2;
+  offset?: Offset1;
+  [k: string]: unknown;
+}
+export interface Levels {
+  driveGeometryPosition?: DriveGeometryAt;
+  depthOfCut?: DepthOfCut;
+  maxStepdown?: MaxStepdown;
+  [k: string]: unknown;
+}
+export interface Advanced {
+  operationsSorting?: OperationSorting;
+  chordalTolerance?: ChordalTolerance;
+  [k: string]: unknown;
+}
+export interface DriveGeometry {
+  cutAreas: CutAreas;
   [k: string]: unknown;
 }
 export interface ClosedCurveSelection {
@@ -121,38 +162,10 @@ export interface CutParameters {
   cutDirection?: ClimbConventional;
   stepover?: Stepover;
   stockToLeave?: StockToLeave;
-  pocketStrategy?: PocketFromInsideOutside;
   [k: string]: unknown;
 }
-export interface Material {
-  feedrate?: Feedrate;
-  rpm?: RPM;
-  [k: string]: unknown;
-}
-export interface Tool {
-  diameter?: Diameter;
-  fluteLength?: FluteLength;
-  toolNumber?: Tool1;
-  manualChange?: ManualChange;
-  [k: string]: unknown;
-}
-export interface Levels {
-  driveGeometryReference?: DriveGeometryAtTopBottom;
-  topZ?: HeightOfCutTopZ;
-  bottomZ?: BottomZ;
-  maxCutDepth?: MaxCutDepth;
-  [k: string]: unknown;
-}
-export interface Clearence {
-  clearancePlaneHeight?: ClearancePlaneHeight;
-  transferHeightMode?: TransferHeight;
-  transferHeightOffset?: TransferHeightOffset;
-  [k: string]: unknown;
-}
-export interface Advanced {
-  operationSorting?: OperationSorting;
-  cutTransitions?: CutTransitions;
-  layerOrder?: LayerOrder;
-  chordalTolerance?: ChordalTolerance;
+export interface Stepover {
+  mode?: Mode2;
+  value?: Value;
   [k: string]: unknown;
 }

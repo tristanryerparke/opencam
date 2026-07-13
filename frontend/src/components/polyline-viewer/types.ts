@@ -1,8 +1,4 @@
-import {
-  type SimulationSamplePoint,
-  type ToolData,
-  type ToolpathKind,
-} from "@/simulation/toolpath";
+import { type FeedType, type SimulationSamplePoint, type ToolData } from "@/simulation/toolpath";
 
 export type PolylinePoint = readonly [number, number, number];
 
@@ -11,7 +7,7 @@ export type PolylineDefinition = {
   name: string;
   points: ReadonlyArray<PolylinePoint>;
   color?: string;
-  kind?: ToolpathKind;
+  kind?: FeedType;
 };
 
 export type MeshFaceSelection = {

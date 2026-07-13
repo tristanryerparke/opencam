@@ -1088,7 +1088,7 @@ export function usePolylineViewerScene(
 
     polylines.forEach((polyline, index) => {
       const color = polyline.color ?? POLYLINE_COLORS[index % POLYLINE_COLORS.length];
-      const isClearanceMove = polyline.kind === "clearance";
+      const isClearanceMove = polyline.kind === "rapid";
 
       if (polyline.points.length < 2) {
         return;

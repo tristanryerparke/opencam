@@ -63,10 +63,33 @@ def test_cam_tool_and_material_endpoints_add_and_list_records(tmp_path):
             assert tool_response.status_code == 201
             assert tool_response.json() == tool_payload
 
+            feeds_and_speeds_payload = {
+                "id": "tool-manual-1-walnut",
+                "toolId": "tool-manual-1",
+                "materialId": "material-walnut",
+                "feedsAndSpeeds": {
+                    "spindleRpm": 18000,
+                    "plungeFeedrate": 250.0,
+                    "leadInFeedrate": 500.0,
+                    "cutFeedrate": 600.0,
+                    "leadOutFeedrate": 500.0,
+                    "departureFeedrate": 500.0,
+                },
+            }
+            feeds_and_speeds_response = client.post(
+                "/cam/tool-material-feeds-and-speeds",
+                json=feeds_and_speeds_payload,
+            )
+            assert feeds_and_speeds_response.status_code == 201
+            assert feeds_and_speeds_response.json() == feeds_and_speeds_payload
+
             assert client.get("/cam/materials").json() == [
                 {"id": "material-walnut", "name": "Walnut"}
             ]
             assert client.get("/cam/tools").json() == [tool_payload]
+            assert client.get("/cam/tool-material-feeds-and-speeds").json() == [
+                feeds_and_speeds_payload
+            ]
     finally:
         app.dependency_overrides.clear()
         library.close()

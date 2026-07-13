@@ -5,6 +5,83 @@
 export const camSchemaBundle = {
   "generateToolpathRequest": {
     "$defs": {
+      "AbsoluteClearance": {
+        "properties": {
+          "clearanceHeightType": {
+            "const": "absolute",
+            "default": "absolute",
+            "title": "Clearanceheighttype",
+            "type": "string"
+          },
+          "absoluteHeight": {
+            "default": 25.4,
+            "title": "Absolute height",
+            "type": "number",
+            "x-opencam": {
+              "unit": "mm"
+            }
+          }
+        },
+        "title": "AbsoluteClearance",
+        "type": "object"
+      },
+      "CAMAdvancedParameters": {
+        "properties": {
+          "operationsSorting": {
+            "default": "selection",
+            "enum": [
+              "selection",
+              "shortest_distance"
+            ],
+            "title": "Operation sorting",
+            "type": "string"
+          },
+          "chordalTolerance": {
+            "default": 0.01,
+            "exclusiveMinimum": 0,
+            "title": "Chordal tolerance",
+            "type": "number",
+            "x-opencam": {
+              "unit": "mm"
+            }
+          }
+        },
+        "title": "CAMAdvancedParameters",
+        "type": "object"
+      },
+      "CAMLevels": {
+        "properties": {
+          "driveGeometryPosition": {
+            "default": "at_top",
+            "enum": [
+              "at_top",
+              "at_bottom"
+            ],
+            "title": "Drive geometry at",
+            "type": "string"
+          },
+          "depthOfCut": {
+            "default": 5,
+            "exclusiveMinimum": 0,
+            "title": "Depth of cut",
+            "type": "number",
+            "x-opencam": {
+              "unit": "mm"
+            }
+          },
+          "maxStepdown": {
+            "default": 20,
+            "exclusiveMinimum": 0,
+            "title": "Max stepdown",
+            "type": "number",
+            "x-opencam": {
+              "unit": "mm"
+            }
+          }
+        },
+        "title": "CAMLevels",
+        "type": "object"
+      },
       "CamSetupConfig": {
         "properties": {
           "origin": {
@@ -58,19 +135,103 @@ export const camSchemaBundle = {
         "title": "ClosedCurveSelection",
         "type": "object"
       },
+      "FeedsAndSpeeds": {
+        "properties": {
+          "spindleRpm": {
+            "default": 12000,
+            "exclusiveMinimum": 0,
+            "title": "Spindle RPM",
+            "type": "integer"
+          },
+          "plungeFeedrate": {
+            "default": 250,
+            "exclusiveMinimum": 0,
+            "title": "Plunge feedrate",
+            "type": "number",
+            "x-opencam": {
+              "unit": "mm/min"
+            }
+          },
+          "leadInFeedrate": {
+            "default": 500,
+            "exclusiveMinimum": 0,
+            "title": "Lead-in feedrate",
+            "type": "number",
+            "x-opencam": {
+              "unit": "mm/min"
+            }
+          },
+          "cutFeedrate": {
+            "default": 500,
+            "exclusiveMinimum": 0,
+            "title": "Cut feedrate",
+            "type": "number",
+            "x-opencam": {
+              "unit": "mm/min"
+            }
+          },
+          "leadOutFeedrate": {
+            "default": 500,
+            "exclusiveMinimum": 0,
+            "title": "Lead-out feedrate",
+            "type": "number",
+            "x-opencam": {
+              "unit": "mm/min"
+            }
+          },
+          "departureFeedrate": {
+            "default": 500,
+            "exclusiveMinimum": 0,
+            "title": "Departure feedrate",
+            "type": "number",
+            "x-opencam": {
+              "unit": "mm/min"
+            }
+          }
+        },
+        "title": "FeedsAndSpeeds",
+        "type": "object"
+      },
+      "ManualFeedsAndSpeedsSelection": {
+        "properties": {
+          "mode": {
+            "const": "manual",
+            "default": "manual",
+            "title": "Mode",
+            "type": "string"
+          },
+          "feedsAndSpeeds": {
+            "$ref": "#/$defs/FeedsAndSpeeds"
+          }
+        },
+        "title": "ManualFeedsAndSpeedsSelection",
+        "type": "object"
+      },
+      "PartMaxZPlusOffsetClearance": {
+        "properties": {
+          "clearanceHeightType": {
+            "const": "part_max_z_plus_offset",
+            "default": "part_max_z_plus_offset",
+            "title": "Clearanceheighttype",
+            "type": "string"
+          },
+          "offset": {
+            "default": 5,
+            "minimum": 0,
+            "title": "Offset",
+            "type": "number",
+            "x-opencam": {
+              "unit": "mm"
+            }
+          }
+        },
+        "title": "PartMaxZPlusOffsetClearance",
+        "type": "object"
+      },
       "Pocket2DOperationConfig": {
         "properties": {
           "id": {
             "title": "Operation ID",
-            "type": "string",
-            "x-opencam": {
-              "hidden": true
-            }
-          },
-          "kind": {
-            "const": "pocket2d",
-            "default": "pocket2d",
-            "title": "Operation kind",
             "type": "string",
             "x-opencam": {
               "hidden": true
@@ -84,127 +245,88 @@ export const camSchemaBundle = {
               "hidden": true
             }
           },
-          "controlGeometry": {
-            "$ref": "#/$defs/PocketControlGeometrySection",
-            "title": "Control geometry"
+          "toolId": {
+            "minLength": 1,
+            "title": "Tool",
+            "type": "string",
+            "x-opencam": {
+              "widget": "tool-select"
+            }
           },
-          "cutParameters": {
-            "$ref": "#/$defs/PocketCutParametersSection",
-            "title": "Cut parameters"
-          },
-          "material": {
-            "$ref": "#/$defs/PocketMaterialSection",
-            "title": "Material"
-          },
-          "tool": {
-            "$ref": "#/$defs/PocketToolSection",
-            "title": "Tool"
-          },
-          "levels": {
-            "$ref": "#/$defs/PocketLevelsSection",
-            "title": "Levels"
+          "feedsAndSpeeds": {
+            "discriminator": {
+              "mapping": {
+                "manual": "#/$defs/ManualFeedsAndSpeedsSelection",
+                "tool_material": "#/$defs/ToolMaterialFeedsAndSpeedsSelection"
+              },
+              "propertyName": "mode"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/ManualFeedsAndSpeedsSelection"
+              },
+              {
+                "$ref": "#/$defs/ToolMaterialFeedsAndSpeedsSelection"
+              }
+            ],
+            "title": "Feeds and speeds"
           },
           "clearance": {
-            "$ref": "#/$defs/PocketClearanceSection",
-            "title": "Clearence"
+            "discriminator": {
+              "mapping": {
+                "absolute": "#/$defs/AbsoluteClearance",
+                "part_max_z_plus_offset": "#/$defs/PartMaxZPlusOffsetClearance",
+                "stock_max_z_plus_offset": "#/$defs/StockMaxZPlusOffsetClearance"
+              },
+              "propertyName": "clearanceHeightType"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/AbsoluteClearance"
+              },
+              {
+                "$ref": "#/$defs/StockMaxZPlusOffsetClearance"
+              },
+              {
+                "$ref": "#/$defs/PartMaxZPlusOffsetClearance"
+              }
+            ],
+            "title": "Clearance"
+          },
+          "levels": {
+            "$ref": "#/$defs/CAMLevels",
+            "title": "Levels"
           },
           "advanced": {
-            "$ref": "#/$defs/PocketAdvancedSection",
+            "$ref": "#/$defs/CAMAdvancedParameters",
             "title": "Advanced"
-          }
-        },
-        "title": "Pocket2DOperationConfig",
-        "type": "object"
-      },
-      "PocketAdvancedSection": {
-        "properties": {
-          "operationSorting": {
-            "const": "shortestTravel",
-            "default": "shortestTravel",
-            "title": "Operation sorting",
-            "type": "string"
           },
-          "cutTransitions": {
-            "const": "clearance",
-            "default": "clearance",
-            "title": "Cut transitions",
-            "type": "string"
-          },
-          "layerOrder": {
-            "default": "perLayer",
-            "enum": [
-              "perArea",
-              "perLayer"
-            ],
-            "title": "Layer order",
-            "type": "string"
-          },
-          "chordalTolerance": {
-            "default": 0.01,
-            "exclusiveMinimum": 0,
-            "title": "Chordal tolerance",
-            "type": "number",
+          "kind": {
+            "const": "pocket2d",
+            "default": "pocket2d",
+            "title": "Operation kind",
+            "type": "string",
             "x-opencam": {
-              "unit": "mm"
-            }
-          }
-        },
-        "title": "PocketAdvancedSection",
-        "type": "object"
-      },
-      "PocketClearanceSection": {
-        "properties": {
-          "clearancePlaneHeight": {
-            "default": 25.4,
-            "description": "Absolute clearance plane height used for retracts and transfers when selected.",
-            "title": "Clearance plane height",
-            "type": "number",
-            "x-opencam": {
-              "unit": "mm"
+              "hidden": true
             }
           },
-          "transferHeightMode": {
-            "default": "clearancePlane",
-            "description": "Use the clearance plane directly, or compute transfer height as stock max Z plus an offset.",
-            "enum": [
-              "clearancePlane",
-              "stockTopPlusOffset"
-            ],
-            "title": "Transfer height",
-            "type": "string"
-          },
-          "transferHeightOffset": {
-            "default": 5,
-            "description": "Only used when transfer height comes from stock max Z + X.",
-            "minimum": 0,
-            "title": "Transfer height offset",
-            "type": "number",
-            "x-opencam": {
-              "unit": "mm"
-            }
-          }
-        },
-        "title": "PocketClearanceSection",
-        "type": "object"
-      },
-      "PocketControlGeometrySection": {
-        "properties": {
           "driveGeometry": {
-            "items": {
-              "$ref": "#/$defs/ClosedCurveSelection"
-            },
-            "minItems": 1,
-            "title": "Drive geometries",
-            "type": "array"
+            "$ref": "#/$defs/PocketingDriveGeometry",
+            "title": "Drive geometry"
+          },
+          "cutParameters": {
+            "$ref": "#/$defs/PocketingCutSettings",
+            "title": "Cut parameters"
           }
         },
         "required": [
+          "toolId",
           "driveGeometry"
         ],
-        "title": "PocketControlGeometrySection",
+        "title": "Pocket2DOperationConfig",
         "type": "object"
       },
-      "PocketCutParametersSection": {
+      "PocketingCutSettings": {
         "properties": {
           "cutDirection": {
             "default": "climb",
@@ -216,14 +338,8 @@ export const camSchemaBundle = {
             "type": "string"
           },
           "stepover": {
-            "default": 25,
-            "exclusiveMinimum": 0,
-            "maximum": 100,
-            "title": "Stepover",
-            "type": "number",
-            "x-opencam": {
-              "unit": "%"
-            }
+            "$ref": "#/$defs/StepoverMode",
+            "title": "Stepover"
           },
           "stockToLeave": {
             "default": 0,
@@ -233,115 +349,26 @@ export const camSchemaBundle = {
             "x-opencam": {
               "unit": "mm"
             }
-          },
-          "pocketStrategy": {
-            "default": "inside",
-            "enum": [
-              "inside",
-              "outside"
-            ],
-            "title": "Pocket from inside/outside",
-            "type": "string"
           }
         },
-        "title": "PocketCutParametersSection",
+        "title": "PocketingCutSettings",
         "type": "object"
       },
-      "PocketLevelsSection": {
+      "PocketingDriveGeometry": {
         "properties": {
-          "driveGeometryReference": {
-            "default": "top",
-            "enum": [
-              "top",
-              "bottom"
-            ],
-            "title": "Drive geometry at top/bottom",
-            "type": "string"
-          },
-          "topZ": {
-            "default": 0,
-            "title": "Height of cut (top Z)",
-            "type": "number",
-            "x-opencam": {
-              "unit": "mm"
-            }
-          },
-          "bottomZ": {
-            "default": -5,
-            "title": "Bottom Z",
-            "type": "number",
-            "x-opencam": {
-              "unit": "mm"
-            }
-          },
-          "maxCutDepth": {
-            "default": 20,
-            "description": "Maximum layer depth per pass.",
-            "exclusiveMinimum": 0,
-            "title": "Max cut depth",
-            "type": "number",
-            "x-opencam": {
-              "unit": "mm"
-            }
+          "cutAreas": {
+            "items": {
+              "$ref": "#/$defs/ClosedCurveSelection"
+            },
+            "minItems": 1,
+            "title": "Cut areas",
+            "type": "array"
           }
         },
-        "title": "PocketLevelsSection",
-        "type": "object"
-      },
-      "PocketMaterialSection": {
-        "properties": {
-          "feedrate": {
-            "default": 500,
-            "exclusiveMinimum": 0,
-            "title": "Feedrate",
-            "type": "number",
-            "x-opencam": {
-              "unit": "mm/min"
-            }
-          },
-          "rpm": {
-            "default": 12000,
-            "exclusiveMinimum": 0,
-            "title": "RPM",
-            "type": "integer"
-          }
-        },
-        "title": "PocketMaterialSection",
-        "type": "object"
-      },
-      "PocketToolSection": {
-        "properties": {
-          "diameter": {
-            "default": 12,
-            "exclusiveMinimum": 0,
-            "title": "Diameter",
-            "type": "number",
-            "x-opencam": {
-              "unit": "mm"
-            }
-          },
-          "fluteLength": {
-            "default": 30,
-            "exclusiveMinimum": 0,
-            "title": "Flute length",
-            "type": "number",
-            "x-opencam": {
-              "unit": "mm"
-            }
-          },
-          "toolNumber": {
-            "default": 1,
-            "minimum": 1,
-            "title": "Tool #",
-            "type": "integer"
-          },
-          "manualChange": {
-            "default": false,
-            "title": "Manual change",
-            "type": "boolean"
-          }
-        },
-        "title": "PocketToolSection",
+        "required": [
+          "cutAreas"
+        ],
+        "title": "PocketingDriveGeometry",
         "type": "object"
       },
       "Point2D": {
@@ -415,7 +442,7 @@ export const camSchemaBundle = {
         "properties": {
           "maxZ": {
             "default": 0,
-            "description": "Used when transfer height is computed from stock height.",
+            "description": "Used when clearance height is computed from stock height.",
             "title": "Stock max Z",
             "type": "number",
             "x-opencam": {
@@ -428,6 +455,77 @@ export const camSchemaBundle = {
         "x-opencam": {
           "hidden": true
         }
+      },
+      "StepoverMode": {
+        "properties": {
+          "mode": {
+            "default": "percentage_of_tool_diameter",
+            "enum": [
+              "percentage_of_tool_diameter",
+              "absolute"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "value": {
+            "default": 25,
+            "exclusiveMinimum": 0,
+            "title": "Value",
+            "type": "number",
+            "x-opencam": {
+              "unit": "%"
+            }
+          }
+        },
+        "title": "StepoverMode",
+        "type": "object"
+      },
+      "StockMaxZPlusOffsetClearance": {
+        "properties": {
+          "clearanceHeightType": {
+            "const": "stock_max_z_plus_offset",
+            "default": "stock_max_z_plus_offset",
+            "title": "Clearanceheighttype",
+            "type": "string"
+          },
+          "offset": {
+            "default": 5,
+            "minimum": 0,
+            "title": "Offset",
+            "type": "number",
+            "x-opencam": {
+              "unit": "mm"
+            }
+          }
+        },
+        "title": "StockMaxZPlusOffsetClearance",
+        "type": "object"
+      },
+      "ToolMaterialFeedsAndSpeedsSelection": {
+        "properties": {
+          "mode": {
+            "const": "tool_material",
+            "default": "tool_material",
+            "title": "Mode",
+            "type": "string"
+          },
+          "materialId": {
+            "minLength": 1,
+            "title": "Materialid",
+            "type": "string"
+          },
+          "toolMaterialFeedsAndSpeedsId": {
+            "minLength": 1,
+            "title": "Toolmaterialfeedsandspeedsid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "materialId",
+          "toolMaterialFeedsAndSpeedsId"
+        ],
+        "title": "ToolMaterialFeedsAndSpeedsSelection",
+        "type": "object"
       }
     },
     "properties": {
@@ -458,6 +556,83 @@ export const camSchemaBundle = {
   },
   "pocket2dOperation": {
     "$defs": {
+      "AbsoluteClearance": {
+        "properties": {
+          "clearanceHeightType": {
+            "const": "absolute",
+            "default": "absolute",
+            "title": "Clearanceheighttype",
+            "type": "string"
+          },
+          "absoluteHeight": {
+            "default": 25.4,
+            "title": "Absolute height",
+            "type": "number",
+            "x-opencam": {
+              "unit": "mm"
+            }
+          }
+        },
+        "title": "AbsoluteClearance",
+        "type": "object"
+      },
+      "CAMAdvancedParameters": {
+        "properties": {
+          "operationsSorting": {
+            "default": "selection",
+            "enum": [
+              "selection",
+              "shortest_distance"
+            ],
+            "title": "Operation sorting",
+            "type": "string"
+          },
+          "chordalTolerance": {
+            "default": 0.01,
+            "exclusiveMinimum": 0,
+            "title": "Chordal tolerance",
+            "type": "number",
+            "x-opencam": {
+              "unit": "mm"
+            }
+          }
+        },
+        "title": "CAMAdvancedParameters",
+        "type": "object"
+      },
+      "CAMLevels": {
+        "properties": {
+          "driveGeometryPosition": {
+            "default": "at_top",
+            "enum": [
+              "at_top",
+              "at_bottom"
+            ],
+            "title": "Drive geometry at",
+            "type": "string"
+          },
+          "depthOfCut": {
+            "default": 5,
+            "exclusiveMinimum": 0,
+            "title": "Depth of cut",
+            "type": "number",
+            "x-opencam": {
+              "unit": "mm"
+            }
+          },
+          "maxStepdown": {
+            "default": 20,
+            "exclusiveMinimum": 0,
+            "title": "Max stepdown",
+            "type": "number",
+            "x-opencam": {
+              "unit": "mm"
+            }
+          }
+        },
+        "title": "CAMLevels",
+        "type": "object"
+      },
       "ClosedCurveSelection": {
         "properties": {
           "planeZ": {
@@ -490,95 +665,100 @@ export const camSchemaBundle = {
         "title": "ClosedCurveSelection",
         "type": "object"
       },
-      "PocketAdvancedSection": {
+      "FeedsAndSpeeds": {
         "properties": {
-          "operationSorting": {
-            "const": "shortestTravel",
-            "default": "shortestTravel",
-            "title": "Operation sorting",
-            "type": "string"
-          },
-          "cutTransitions": {
-            "const": "clearance",
-            "default": "clearance",
-            "title": "Cut transitions",
-            "type": "string"
-          },
-          "layerOrder": {
-            "default": "perLayer",
-            "enum": [
-              "perArea",
-              "perLayer"
-            ],
-            "title": "Layer order",
-            "type": "string"
-          },
-          "chordalTolerance": {
-            "default": 0.01,
+          "spindleRpm": {
+            "default": 12000,
             "exclusiveMinimum": 0,
-            "title": "Chordal tolerance",
+            "title": "Spindle RPM",
+            "type": "integer"
+          },
+          "plungeFeedrate": {
+            "default": 250,
+            "exclusiveMinimum": 0,
+            "title": "Plunge feedrate",
             "type": "number",
             "x-opencam": {
-              "unit": "mm"
+              "unit": "mm/min"
+            }
+          },
+          "leadInFeedrate": {
+            "default": 500,
+            "exclusiveMinimum": 0,
+            "title": "Lead-in feedrate",
+            "type": "number",
+            "x-opencam": {
+              "unit": "mm/min"
+            }
+          },
+          "cutFeedrate": {
+            "default": 500,
+            "exclusiveMinimum": 0,
+            "title": "Cut feedrate",
+            "type": "number",
+            "x-opencam": {
+              "unit": "mm/min"
+            }
+          },
+          "leadOutFeedrate": {
+            "default": 500,
+            "exclusiveMinimum": 0,
+            "title": "Lead-out feedrate",
+            "type": "number",
+            "x-opencam": {
+              "unit": "mm/min"
+            }
+          },
+          "departureFeedrate": {
+            "default": 500,
+            "exclusiveMinimum": 0,
+            "title": "Departure feedrate",
+            "type": "number",
+            "x-opencam": {
+              "unit": "mm/min"
             }
           }
         },
-        "title": "PocketAdvancedSection",
+        "title": "FeedsAndSpeeds",
         "type": "object"
       },
-      "PocketClearanceSection": {
+      "ManualFeedsAndSpeedsSelection": {
         "properties": {
-          "clearancePlaneHeight": {
-            "default": 25.4,
-            "description": "Absolute clearance plane height used for retracts and transfers when selected.",
-            "title": "Clearance plane height",
-            "type": "number",
-            "x-opencam": {
-              "unit": "mm"
-            }
-          },
-          "transferHeightMode": {
-            "default": "clearancePlane",
-            "description": "Use the clearance plane directly, or compute transfer height as stock max Z plus an offset.",
-            "enum": [
-              "clearancePlane",
-              "stockTopPlusOffset"
-            ],
-            "title": "Transfer height",
+          "mode": {
+            "const": "manual",
+            "default": "manual",
+            "title": "Mode",
             "type": "string"
           },
-          "transferHeightOffset": {
+          "feedsAndSpeeds": {
+            "$ref": "#/$defs/FeedsAndSpeeds"
+          }
+        },
+        "title": "ManualFeedsAndSpeedsSelection",
+        "type": "object"
+      },
+      "PartMaxZPlusOffsetClearance": {
+        "properties": {
+          "clearanceHeightType": {
+            "const": "part_max_z_plus_offset",
+            "default": "part_max_z_plus_offset",
+            "title": "Clearanceheighttype",
+            "type": "string"
+          },
+          "offset": {
             "default": 5,
-            "description": "Only used when transfer height comes from stock max Z + X.",
             "minimum": 0,
-            "title": "Transfer height offset",
+            "title": "Offset",
             "type": "number",
             "x-opencam": {
               "unit": "mm"
             }
           }
         },
-        "title": "PocketClearanceSection",
+        "title": "PartMaxZPlusOffsetClearance",
         "type": "object"
       },
-      "PocketControlGeometrySection": {
-        "properties": {
-          "driveGeometry": {
-            "items": {
-              "$ref": "#/$defs/ClosedCurveSelection"
-            },
-            "minItems": 1,
-            "title": "Drive geometries",
-            "type": "array"
-          }
-        },
-        "required": [
-          "driveGeometry"
-        ],
-        "title": "PocketControlGeometrySection",
-        "type": "object"
-      },
-      "PocketCutParametersSection": {
+      "PocketingCutSettings": {
         "properties": {
           "cutDirection": {
             "default": "climb",
@@ -590,14 +770,8 @@ export const camSchemaBundle = {
             "type": "string"
           },
           "stepover": {
-            "default": 25,
-            "exclusiveMinimum": 0,
-            "maximum": 100,
-            "title": "Stepover",
-            "type": "number",
-            "x-opencam": {
-              "unit": "%"
-            }
+            "$ref": "#/$defs/StepoverMode",
+            "title": "Stepover"
           },
           "stockToLeave": {
             "default": 0,
@@ -607,115 +781,26 @@ export const camSchemaBundle = {
             "x-opencam": {
               "unit": "mm"
             }
-          },
-          "pocketStrategy": {
-            "default": "inside",
-            "enum": [
-              "inside",
-              "outside"
-            ],
-            "title": "Pocket from inside/outside",
-            "type": "string"
           }
         },
-        "title": "PocketCutParametersSection",
+        "title": "PocketingCutSettings",
         "type": "object"
       },
-      "PocketLevelsSection": {
+      "PocketingDriveGeometry": {
         "properties": {
-          "driveGeometryReference": {
-            "default": "top",
-            "enum": [
-              "top",
-              "bottom"
-            ],
-            "title": "Drive geometry at top/bottom",
-            "type": "string"
-          },
-          "topZ": {
-            "default": 0,
-            "title": "Height of cut (top Z)",
-            "type": "number",
-            "x-opencam": {
-              "unit": "mm"
-            }
-          },
-          "bottomZ": {
-            "default": -5,
-            "title": "Bottom Z",
-            "type": "number",
-            "x-opencam": {
-              "unit": "mm"
-            }
-          },
-          "maxCutDepth": {
-            "default": 20,
-            "description": "Maximum layer depth per pass.",
-            "exclusiveMinimum": 0,
-            "title": "Max cut depth",
-            "type": "number",
-            "x-opencam": {
-              "unit": "mm"
-            }
+          "cutAreas": {
+            "items": {
+              "$ref": "#/$defs/ClosedCurveSelection"
+            },
+            "minItems": 1,
+            "title": "Cut areas",
+            "type": "array"
           }
         },
-        "title": "PocketLevelsSection",
-        "type": "object"
-      },
-      "PocketMaterialSection": {
-        "properties": {
-          "feedrate": {
-            "default": 500,
-            "exclusiveMinimum": 0,
-            "title": "Feedrate",
-            "type": "number",
-            "x-opencam": {
-              "unit": "mm/min"
-            }
-          },
-          "rpm": {
-            "default": 12000,
-            "exclusiveMinimum": 0,
-            "title": "RPM",
-            "type": "integer"
-          }
-        },
-        "title": "PocketMaterialSection",
-        "type": "object"
-      },
-      "PocketToolSection": {
-        "properties": {
-          "diameter": {
-            "default": 12,
-            "exclusiveMinimum": 0,
-            "title": "Diameter",
-            "type": "number",
-            "x-opencam": {
-              "unit": "mm"
-            }
-          },
-          "fluteLength": {
-            "default": 30,
-            "exclusiveMinimum": 0,
-            "title": "Flute length",
-            "type": "number",
-            "x-opencam": {
-              "unit": "mm"
-            }
-          },
-          "toolNumber": {
-            "default": 1,
-            "minimum": 1,
-            "title": "Tool #",
-            "type": "integer"
-          },
-          "manualChange": {
-            "default": false,
-            "title": "Manual change",
-            "type": "boolean"
-          }
-        },
-        "title": "PocketToolSection",
+        "required": [
+          "cutAreas"
+        ],
+        "title": "PocketingDriveGeometry",
         "type": "object"
       },
       "Point2D": {
@@ -735,20 +820,82 @@ export const camSchemaBundle = {
         ],
         "title": "Point2D",
         "type": "object"
+      },
+      "StepoverMode": {
+        "properties": {
+          "mode": {
+            "default": "percentage_of_tool_diameter",
+            "enum": [
+              "percentage_of_tool_diameter",
+              "absolute"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "value": {
+            "default": 25,
+            "exclusiveMinimum": 0,
+            "title": "Value",
+            "type": "number",
+            "x-opencam": {
+              "unit": "%"
+            }
+          }
+        },
+        "title": "StepoverMode",
+        "type": "object"
+      },
+      "StockMaxZPlusOffsetClearance": {
+        "properties": {
+          "clearanceHeightType": {
+            "const": "stock_max_z_plus_offset",
+            "default": "stock_max_z_plus_offset",
+            "title": "Clearanceheighttype",
+            "type": "string"
+          },
+          "offset": {
+            "default": 5,
+            "minimum": 0,
+            "title": "Offset",
+            "type": "number",
+            "x-opencam": {
+              "unit": "mm"
+            }
+          }
+        },
+        "title": "StockMaxZPlusOffsetClearance",
+        "type": "object"
+      },
+      "ToolMaterialFeedsAndSpeedsSelection": {
+        "properties": {
+          "mode": {
+            "const": "tool_material",
+            "default": "tool_material",
+            "title": "Mode",
+            "type": "string"
+          },
+          "materialId": {
+            "minLength": 1,
+            "title": "Materialid",
+            "type": "string"
+          },
+          "toolMaterialFeedsAndSpeedsId": {
+            "minLength": 1,
+            "title": "Toolmaterialfeedsandspeedsid",
+            "type": "string"
+          }
+        },
+        "required": [
+          "materialId",
+          "toolMaterialFeedsAndSpeedsId"
+        ],
+        "title": "ToolMaterialFeedsAndSpeedsSelection",
+        "type": "object"
       }
     },
     "properties": {
       "id": {
         "title": "Operation ID",
-        "type": "string",
-        "x-opencam": {
-          "hidden": true
-        }
-      },
-      "kind": {
-        "const": "pocket2d",
-        "default": "pocket2d",
-        "title": "Operation kind",
         "type": "string",
         "x-opencam": {
           "hidden": true
@@ -762,35 +909,84 @@ export const camSchemaBundle = {
           "hidden": true
         }
       },
-      "controlGeometry": {
-        "$ref": "#/$defs/PocketControlGeometrySection",
-        "title": "Control geometry"
+      "toolId": {
+        "minLength": 1,
+        "title": "Tool",
+        "type": "string",
+        "x-opencam": {
+          "widget": "tool-select"
+        }
       },
-      "cutParameters": {
-        "$ref": "#/$defs/PocketCutParametersSection",
-        "title": "Cut parameters"
-      },
-      "material": {
-        "$ref": "#/$defs/PocketMaterialSection",
-        "title": "Material"
-      },
-      "tool": {
-        "$ref": "#/$defs/PocketToolSection",
-        "title": "Tool"
-      },
-      "levels": {
-        "$ref": "#/$defs/PocketLevelsSection",
-        "title": "Levels"
+      "feedsAndSpeeds": {
+        "discriminator": {
+          "mapping": {
+            "manual": "#/$defs/ManualFeedsAndSpeedsSelection",
+            "tool_material": "#/$defs/ToolMaterialFeedsAndSpeedsSelection"
+          },
+          "propertyName": "mode"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/ManualFeedsAndSpeedsSelection"
+          },
+          {
+            "$ref": "#/$defs/ToolMaterialFeedsAndSpeedsSelection"
+          }
+        ],
+        "title": "Feeds and speeds"
       },
       "clearance": {
-        "$ref": "#/$defs/PocketClearanceSection",
-        "title": "Clearence"
+        "discriminator": {
+          "mapping": {
+            "absolute": "#/$defs/AbsoluteClearance",
+            "part_max_z_plus_offset": "#/$defs/PartMaxZPlusOffsetClearance",
+            "stock_max_z_plus_offset": "#/$defs/StockMaxZPlusOffsetClearance"
+          },
+          "propertyName": "clearanceHeightType"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/AbsoluteClearance"
+          },
+          {
+            "$ref": "#/$defs/StockMaxZPlusOffsetClearance"
+          },
+          {
+            "$ref": "#/$defs/PartMaxZPlusOffsetClearance"
+          }
+        ],
+        "title": "Clearance"
+      },
+      "levels": {
+        "$ref": "#/$defs/CAMLevels",
+        "title": "Levels"
       },
       "advanced": {
-        "$ref": "#/$defs/PocketAdvancedSection",
+        "$ref": "#/$defs/CAMAdvancedParameters",
         "title": "Advanced"
+      },
+      "kind": {
+        "const": "pocket2d",
+        "default": "pocket2d",
+        "title": "Operation kind",
+        "type": "string",
+        "x-opencam": {
+          "hidden": true
+        }
+      },
+      "driveGeometry": {
+        "$ref": "#/$defs/PocketingDriveGeometry",
+        "title": "Drive geometry"
+      },
+      "cutParameters": {
+        "$ref": "#/$defs/PocketingCutSettings",
+        "title": "Cut parameters"
       }
     },
+    "required": [
+      "toolId",
+      "driveGeometry"
+    ],
     "title": "Pocket2DOperationConfig",
     "type": "object"
   }

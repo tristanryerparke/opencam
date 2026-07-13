@@ -10,7 +10,8 @@ import numpy as np
 import trimesh
 from manifold3d import Error, Manifold, Mesh64, OpType
 
-from opencam.schemas.models import CutterLocationData, ToolpathOperation
+from opencam.schemas.cl_data import OperationRecord3D, PositionRecord3D
+from opencam.schemas.models import Tool
 from opencam.services.mesh.planar_region_2d_reduction import simplify_mesh_data_2d
 
 TOOL_SEGMENTS = 16
@@ -33,7 +34,7 @@ class SimulatedChunk:
 @dataclass
 class SimulatedMeshFrame:
     active_mesh_bytes: bytes
-    tool_position: CutterLocationData
+    tool_position: PositionRecord3D
     chunk_index: int
 
 
@@ -273,22 +274,21 @@ def swept_volume_manifold(
     return ensure_no_manifold_error(hull_manifold, context=context)
 
 
-def load_tool_positions(operation: ToolpathOperation) -> list[np.ndarray]:
+def load_tool_positions(operation: OperationRecord3D) -> list[np.ndarray]:
     positions: list[np.ndarray] = []
     previous: np.ndarray | None = None
 
-    for path in operation.paths:
-        for location in path.locations:
-            position = np.array([location.x, location.y, location.z], dtype=np.float64)
-            if previous is not None and np.allclose(position, previous, atol=1e-9, rtol=0.0):
-                continue
-            positions.append(position)
-            previous = position
+    for record in operation.records:
+        position = np.array([record.x, record.y, record.z], dtype=np.float64)
+        if previous is not None and np.allclose(position, previous, atol=1e-9, rtol=0.0):
+            continue
+        positions.append(position)
+        previous = position
 
     return positions
 
 
-def locations_match(left: CutterLocationData, right: CutterLocationData, *, tolerance: float = 1e-6) -> bool:
+def positions_match(left: PositionRecord3D, right: PositionRecord3D, *, tolerance: float = 1e-6) -> bool:
     return (
         abs(left.x - right.x) <= tolerance
         and abs(left.y - right.y) <= tolerance
@@ -296,166 +296,127 @@ def locations_match(left: CutterLocationData, right: CutterLocationData, *, tole
     )
 
 
-def sample_locations(locations: list[CutterLocationData], step_distance: float) -> list[CutterLocationData]:
-    if not locations:
-        return []
-
-    sampled_positions = subdivide_tool_positions(
-        [np.array([location.x, location.y, location.z], dtype=np.float64) for location in locations],
-        step_distance,
-    )
-    sampled_locations: list[CutterLocationData] = []
-
-    for position in sampled_positions:
-        sampled_locations.append(position_to_location(position))
-
-    return sampled_locations
-
-
-def segment_parameter_for_location(
-    start: CutterLocationData,
-    end: CutterLocationData,
-    location: CutterLocationData,
+def segment_parameter_for_position(
+    start: PositionRecord3D,
+    end: PositionRecord3D,
+    position: PositionRecord3D,
     *,
     tolerance: float = 1e-6,
 ) -> float | None:
     start_vec = np.array([start.x, start.y, start.z], dtype=np.float64)
     end_vec = np.array([end.x, end.y, end.z], dtype=np.float64)
-    location_vec = np.array([location.x, location.y, location.z], dtype=np.float64)
+    position_vec = np.array([position.x, position.y, position.z], dtype=np.float64)
     segment = end_vec - start_vec
     segment_length_sq = float(np.dot(segment, segment))
 
     if segment_length_sq <= tolerance * tolerance:
-        return 0.0 if locations_match(start, location, tolerance=tolerance) else None
+        return 0.0 if positions_match(start, position, tolerance=tolerance) else None
 
-    parameter = float(np.dot(location_vec - start_vec, segment) / segment_length_sq)
+    parameter = float(np.dot(position_vec - start_vec, segment) / segment_length_sq)
     if parameter < -tolerance or parameter > 1.0 + tolerance:
         return None
 
     projected = start_vec + segment * min(max(parameter, 0.0), 1.0)
-    if np.linalg.norm(location_vec - projected) > tolerance:
+    if np.linalg.norm(position_vec - projected) > tolerance:
         return None
 
     return min(max(parameter, 0.0), 1.0)
 
 
 def sample_operation_points_with_progress(
-    operation: ToolpathOperation,
+    operation: OperationRecord3D,
     step_distance: float,
-) -> list[tuple[float, CutterLocationData]]:
-    sampled_points: list[tuple[float, CutterLocationData]] = []
+) -> list[tuple[float, PositionRecord3D]]:
+    if not operation.records:
+        return []
+
+    sampled_points: list[tuple[float, PositionRecord3D]] = [(0.0, operation.records[0])]
     traversed_distance = 0.0
     distance_since_sample = 0.0
-    final_location: CutterLocationData | None = None
 
-    for path in operation.paths:
-        if not path.locations:
+    for segment_start, segment_end in zip(operation.records, operation.records[1:], strict=False):
+        dx = segment_end.x - segment_start.x
+        dy = segment_end.y - segment_start.y
+        dz = segment_end.z - segment_start.z
+        segment_length = math.sqrt(dx * dx + dy * dy + dz * dz)
+
+        if segment_length <= 1e-9:
             continue
 
-        start = path.locations[0]
-        if not sampled_points or not locations_match(sampled_points[-1][1], start):
-            sampled_points.append((traversed_distance, start))
+        segment_traversed_start = traversed_distance
+        segment_consumed = 0.0
+        segment_remaining = segment_length
+
+        while step_distance > 0 and distance_since_sample + segment_remaining >= step_distance:
+            distance_to_sample = max(step_distance - distance_since_sample, 0.0)
+            segment_consumed += distance_to_sample
+            interpolation = min(segment_consumed / segment_length, 1.0)
+            position = PositionRecord3D(
+                x=float(segment_start.x + dx * interpolation),
+                y=float(segment_start.y + dy * interpolation),
+                z=float(segment_start.z + dz * interpolation),
+            )
+            progress = segment_traversed_start + segment_consumed
+
+            if positions_match(sampled_points[-1][1], position):
+                sampled_points[-1] = (progress, position)
+            else:
+                sampled_points.append((progress, position))
+
             distance_since_sample = 0.0
+            segment_remaining = segment_length - segment_consumed
+            if segment_remaining <= 1e-9:
+                segment_consumed = segment_length
+                break
 
-        final_location = path.locations[-1]
+        traversed_distance += segment_length
+        distance_since_sample += segment_length - segment_consumed
 
-        for index in range(1, len(path.locations)):
-            segment_start = path.locations[index - 1]
-            segment_end = path.locations[index]
-            dx = segment_end.x - segment_start.x
-            dy = segment_end.y - segment_start.y
-            dz = segment_end.z - segment_start.z
-            segment_length = math.sqrt(dx * dx + dy * dy + dz * dz)
-
-            if segment_length <= 1e-9:
-                continue
-
-            segment_traversed_start = traversed_distance
-            segment_consumed = 0.0
-            segment_remaining = segment_length
-
-            while step_distance > 0 and distance_since_sample + segment_remaining >= step_distance:
-                distance_to_sample = step_distance - distance_since_sample
-                if distance_to_sample <= 1e-9:
-                    distance_to_sample = 0.0
-
-                segment_consumed += distance_to_sample
-                interpolation = min(segment_consumed / segment_length, 1.0)
-                location = CutterLocationData(
-                    x=float(segment_start.x + dx * interpolation),
-                    y=float(segment_start.y + dy * interpolation),
-                    z=float(segment_start.z + dz * interpolation),
-                )
-                progress = segment_traversed_start + segment_consumed
-
-                if sampled_points and locations_match(sampled_points[-1][1], location):
-                    sampled_points[-1] = (progress, location)
-                else:
-                    sampled_points.append((progress, location))
-
-                distance_since_sample = 0.0
-                segment_remaining = segment_length - segment_consumed
-
-                if segment_remaining <= 1e-9:
-                    segment_consumed = segment_length
-                    segment_remaining = 0.0
-                    break
-
-            traversed_distance += segment_length
-            distance_since_sample += segment_length - segment_consumed
-
-    if final_location is not None:
-        if sampled_points and locations_match(sampled_points[-1][1], final_location):
-            sampled_points[-1] = (traversed_distance, final_location)
-        else:
-            sampled_points.append((traversed_distance, final_location))
+    final_position = operation.records[-1]
+    if positions_match(sampled_points[-1][1], final_position):
+        sampled_points[-1] = (traversed_distance, final_position)
+    else:
+        sampled_points.append((traversed_distance, final_position))
 
     return sampled_points
 
 
-def map_locations_to_path_progress(
-    operation: ToolpathOperation,
-    locations: list[CutterLocationData],
+def map_positions_to_operation_progress(
+    operation: OperationRecord3D,
+    positions: list[PositionRecord3D],
 ) -> list[float]:
-    if not locations:
+    if not positions:
         return []
 
     progress_values: list[float] = []
-    location_index = 0
+    position_index = 0
     traversed_distance = 0.0
 
-    for path in operation.paths:
-        if not path.locations:
+    for segment_start, segment_end in zip(operation.records, operation.records[1:], strict=False):
+        dx = segment_end.x - segment_start.x
+        dy = segment_end.y - segment_start.y
+        dz = segment_end.z - segment_start.z
+        segment_length = math.sqrt(dx * dx + dy * dy + dz * dz)
+        if segment_length <= 1e-9:
             continue
 
-        for index in range(1, len(path.locations)):
-            segment_start = path.locations[index - 1]
-            segment_end = path.locations[index]
-            dx = segment_end.x - segment_start.x
-            dy = segment_end.y - segment_start.y
-            dz = segment_end.z - segment_start.z
-            segment_length = math.sqrt(dx * dx + dy * dy + dz * dz)
+        while position_index < len(positions):
+            parameter = segment_parameter_for_position(segment_start, segment_end, positions[position_index])
+            if parameter is None:
+                break
+            progress_values.append(traversed_distance + segment_length * parameter)
+            position_index += 1
 
-            if segment_length <= 1e-9:
-                continue
-
-            while location_index < len(locations):
-                parameter = segment_parameter_for_location(segment_start, segment_end, locations[location_index])
-                if parameter is None:
-                    break
-                progress_values.append(traversed_distance + segment_length * parameter)
-                location_index += 1
-
-            traversed_distance += segment_length
-            if location_index >= len(locations):
-                return progress_values
+        traversed_distance += segment_length
+        if position_index >= len(positions):
+            return progress_values
 
     return progress_values
 
 
 def build_animation_frames(
     mesh_frames: list[SimulatedMeshFrame],
-    operation: ToolpathOperation,
+    operation: OperationRecord3D,
     initial_non_contact_frame: SimulatedMeshFrame | None = None,
 ) -> list[SimulatedMeshFrame]:
     if not mesh_frames:
@@ -465,7 +426,7 @@ def build_animation_frames(
     if not sampled_points:
         return mesh_frames
 
-    mesh_frame_progresses = map_locations_to_path_progress(
+    mesh_frame_progresses = map_positions_to_operation_progress(
         operation,
         [frame.tool_position for frame in mesh_frames],
     )
@@ -764,8 +725,8 @@ def mesh_to_data_url(vertices: np.ndarray, faces: np.ndarray) -> str:
     return encode_mesh_data_url(write_binary_stl(vertices, faces))
 
 
-def position_to_location(position: np.ndarray) -> CutterLocationData:
-    return CutterLocationData(
+def position_to_record(position: np.ndarray) -> PositionRecord3D:
+    return PositionRecord3D(
         x=float(position[0]),
         y=float(position[1]),
         z=float(position[2]),
@@ -1046,7 +1007,8 @@ def combine_glb_meshes(mesh_bytes_list: list[bytes]) -> trimesh.Trimesh:
 
 def simulate_swept_milling_frames(
     mesh_input: bytes | str,
-    operation: ToolpathOperation,
+    operation: OperationRecord3D,
+    tool: Tool,
     *,
     max_sim_distance: float = 30.0,
     chunk_padding: tuple[float, float, float] = DEFAULT_CHUNK_PADDING,
@@ -1067,8 +1029,8 @@ def simulate_swept_milling_frames(
     )
 
     tool_vertices, tool_faces = build_cylinder_mesh(
-        operation.tool.diameter,
-        operation.tool.cutting_height,
+        tool.diameter,
+        tool.cutting_height,
         TOOL_SEGMENTS,
     )
     tool_mesh_bytes = write_glb(tool_vertices, tool_faces)
@@ -1116,7 +1078,7 @@ def simulate_swept_milling_frames(
 
     print(f"[simulate/swept] Stock bounds: min={stock_min.tolist()} max={stock_max.tolist()}")
     print(
-        f"[simulate/swept] Tool: diameter={operation.tool.diameter} height={operation.tool.cutting_height} segments={TOOL_SEGMENTS}"
+        f"[simulate/swept] Tool: diameter={tool.diameter} height={tool.cutting_height} segments={TOOL_SEGMENTS}"
     )
     print(f"[simulate/swept] Original positions: {len(original_positions)}")
     print(f"[simulate/swept] Original swept segments: {max(len(original_positions) - 1, 0)}")
@@ -1158,7 +1120,7 @@ def simulate_swept_milling_frames(
                     np.zeros((0, 3), dtype=np.float64),
                     np.zeros((0, 3), dtype=np.int32),
                 ),
-                tool_position=CutterLocationData(x=0.0, y=0.0, z=0.0),
+                tool_position=PositionRecord3D(x=0.0, y=0.0, z=0.0),
                 chunk_index=0,
             )
         )
@@ -1224,7 +1186,7 @@ def simulate_swept_milling_frames(
                     context=f"extracting initial active mesh for chunk {chunk_index}",
                     stock_like_original_ids=stock_like_original_ids,
                 ),
-                tool_position=position_to_location(chunk_subdivided_positions[0]),
+                tool_position=position_to_record(chunk_subdivided_positions[0]),
                 chunk_index=chunk_index,
             )
         chunk_total_segments = max(len(chunk_subdivided_positions) - 1, 0)
@@ -1286,7 +1248,7 @@ def simulate_swept_milling_frames(
                         context=f"extracting active mesh for chunk {chunk_index} segment {step}",
                         stock_like_original_ids=stock_like_original_ids,
                     ),
-                    tool_position=position_to_location(pos_b),
+                    tool_position=position_to_record(pos_b),
                     chunk_index=chunk_index,
                 )
             )
@@ -1301,7 +1263,7 @@ def simulate_swept_milling_frames(
                         context=f"extracting fallback active mesh for chunk {chunk_index}",
                         stock_like_original_ids=stock_like_original_ids,
                     ),
-                    tool_position=position_to_location(fallback_position),
+                    tool_position=position_to_record(fallback_position),
                     chunk_index=chunk_index,
                 )
             )
@@ -1334,8 +1296,8 @@ def simulate_swept_milling_frames(
     return tool_mesh_bytes, chunks, frames
 
 
-def simulate_swept_milling(mesh_data_url: str, operation: ToolpathOperation) -> str:
-    _tool_mesh_bytes, chunks, frames = simulate_swept_milling_frames(mesh_data_url, operation)
+def simulate_swept_milling(mesh_data_url: str, operation: OperationRecord3D, tool: Tool) -> str:
+    _tool_mesh_bytes, chunks, frames = simulate_swept_milling_frames(mesh_data_url, operation, tool)
     final_frame = frames[-1]
     final_chunk = chunks[final_frame.chunk_index]
     final_mesh = combine_glb_meshes(

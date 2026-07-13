@@ -35,6 +35,7 @@ STEPOVER = 45
 STOCK_TO_LEAVE = 0.0
 FEEDRATE = 500.0
 RPM = 12000
+TOOL_ID = "rhino-pocket-tool"
 CLEARANCE_PLANE_HEIGHT = 50
 
 
@@ -91,6 +92,7 @@ def build_operation(points: list[tuple[float, float, float]]):
     engine = ClosedPocketingEngine(
         ring=closed_polyline_from_points(points),
         tool=Tool(diameter=TOOL_DIAMETER, cutting_height=CUTTING_HEIGHT),
+        tool_id=TOOL_ID,
         feedrate=FEEDRATE,
         rpm=RPM,
         clearance_plane_height=CLEARANCE_PLANE_HEIGHT,
@@ -115,27 +117,22 @@ def prompt_curve(client: FileClient):
         client.timeout_seconds = original_timeout_seconds
 
 
-def path_payload(document_path: str, paths) -> dict:
+def path_payload(document_path: str, records) -> dict:
     return {
         "document_path": document_path,
         "parent_layer_name": TOOLPATH_PARENT_LAYER_NAME,
         "layer_name": TOOLPATH_LAYER_NAME,
         "paths": [
             {
-                "name": path.name or f"Path {index}",
-                "points": [
-                    [float(location.x), float(location.y), float(location.z)]
-                    for location in path.locations
-                ],
+                "name": "Pocketing",
+                "points": [[float(record.x), float(record.y), float(record.z)] for record in records],
             }
-            for index, path in enumerate(paths, start=1)
-            if len(path.locations) >= 2
-        ],
+        ] if len(records) >= 2 else [],
     }
 
 
-def add_paths_to_rhino(document_path: str, paths) -> str:
-    REDIS.setex(PAYLOAD_KEY, 60, json.dumps(path_payload(document_path, paths)))
+def add_paths_to_rhino(document_path: str, records) -> str:
+    REDIS.setex(PAYLOAD_KEY, 60, json.dumps(path_payload(document_path, records)))
     result = run_script(RHINO_ADD_TOOLPATH_SCRIPT, capture_output=True, print_in_rhino=False)
     if not result["success"]:
         raise RuntimeError(result["output"].strip() or "Rhino failed to add toolpaths.")
@@ -170,15 +167,15 @@ def main():
         raise SystemExit("No curve returned from Rhino.")
 
     points = polyline_points_from_geometry(selected_curve)
-    paths = build_operation(points)
+    records = build_operation(points)
 
     current_path = current_document_path(pipe_id=client.pipe_id)
     if current_path != document_path:
         raise RuntimeError("Active Rhino document changed while the script was running.")
 
-    output = add_paths_to_rhino(document_path, paths)
+    output = add_paths_to_rhino(document_path, records)
     print(output or f"Added toolpaths to {TOOLPATH_PARENT_LAYER_NAME}->{TOOLPATH_LAYER_NAME}.")
-    print(f"Generated {len(paths)} toolpath polylines.")
+    print(f"Generated {len(records)} cutter-location records.")
 
 
 if __name__ == "__main__":

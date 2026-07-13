@@ -13,12 +13,18 @@ export type OpenCamUiMetadata = {
   hidden?: boolean;
   readOnly?: boolean;
   unit?: string;
+  widget?: "tool-select";
 };
 
 export type JsonSchema = {
   $defs?: Readonly<Record<string, JsonSchema>>;
   $ref?: string;
   anyOf?: readonly JsonSchema[];
+  oneOf?: readonly JsonSchema[];
+  discriminator?: {
+    propertyName: string;
+    mapping?: Readonly<Record<string, string>>;
+  };
   const?: JsonPrimitive;
   default?: DraftValue;
   description?: string;
@@ -83,6 +89,58 @@ function cloneValue<T>(value: T): T {
   return value === undefined ? value : structuredClone(value);
 }
 
+function getUnionOptions(schema: JsonSchema, rootSchema: JsonSchema) {
+  const resolved = resolveSchema(schema, rootSchema);
+  return (resolved.oneOf ?? resolved.anyOf ?? []).map((option) => resolveSchema(option, rootSchema));
+}
+
+function getDiscriminatorValue(schema: JsonSchema, propertyName: string, rootSchema: JsonSchema) {
+  const property = schema.properties?.[propertyName];
+  const resolvedProperty = property ? resolveSchema(property, rootSchema) : undefined;
+  const value = resolvedProperty?.const ?? resolvedProperty?.default;
+  return typeof value === "string" ? value : undefined;
+}
+
+export function getDiscriminatedUnionOptions(schema: JsonSchema, rootSchema: JsonSchema = pocketOperationSchema) {
+  const resolved = resolveSchema(schema, rootSchema);
+  const discriminator = resolved.discriminator;
+  if (!discriminator) {
+    return [];
+  }
+
+  return getUnionOptions(resolved, rootSchema).flatMap((option) => {
+    const value = getDiscriminatorValue(option, discriminator.propertyName, rootSchema);
+    return value ? [{ value, schema: option }] : [];
+  });
+}
+
+function getUnionSchemaForValue(
+  schema: JsonSchema,
+  value: DraftValue | undefined,
+  rootSchema: JsonSchema,
+) {
+  const resolved = resolveSchema(schema, rootSchema);
+  const options = getUnionOptions(resolved, rootSchema);
+  if (options.length === 0) {
+    return undefined;
+  }
+
+  const discriminator = resolved.discriminator;
+  if (discriminator) {
+    const selectedValue =
+      value && typeof value === "object" && !Array.isArray(value)
+        ? (value as DraftObject)[discriminator.propertyName]
+        : undefined;
+    if (typeof selectedValue === "string") {
+      return options.find(
+        (option) => getDiscriminatorValue(option, discriminator.propertyName, rootSchema) === selectedValue,
+      );
+    }
+  }
+
+  return options.find((option) => option.type !== "null") ?? options[0];
+}
+
 export function materializeDefaults(schema: JsonSchema, rootSchema: JsonSchema = pocketOperationSchema): DraftValue | undefined {
   const resolved = resolveSchema(schema, rootSchema);
 
@@ -94,9 +152,9 @@ export function materializeDefaults(schema: JsonSchema, rootSchema: JsonSchema =
     return cloneValue(resolved.default);
   }
 
-  if (resolved.anyOf) {
-    const preferredSchema = resolved.anyOf.find((option) => option.type !== "null") ?? resolved.anyOf[0];
-    return preferredSchema ? materializeDefaults(preferredSchema, rootSchema) : undefined;
+  const unionSchema = getUnionSchemaForValue(resolved, undefined, rootSchema);
+  if (unionSchema) {
+    return materializeDefaults(unionSchema, rootSchema);
   }
 
   if (resolved.properties) {
@@ -129,9 +187,9 @@ export function schemaValueToDraft(schema: JsonSchema, value: DraftValue | undef
     return cloneValue(value);
   }
 
-  if (resolved.anyOf) {
-    const preferredSchema = resolved.anyOf.find((option) => option.type !== "null") ?? resolved.anyOf[0];
-    return preferredSchema ? schemaValueToDraft(preferredSchema, value, rootSchema) : value;
+  const unionSchema = getUnionSchemaForValue(resolved, value, rootSchema);
+  if (unionSchema) {
+    return schemaValueToDraft(unionSchema, value, rootSchema);
   }
 
   if (resolved.type === "number" || resolved.type === "integer") {
@@ -174,15 +232,14 @@ export function parseDraftValue(schema: JsonSchema, draft: DraftValue | undefine
 
   if (resolved.anyOf) {
     const nullableOption = resolved.anyOf.find((option) => option.type === "null");
-    const nonNullableOption = resolved.anyOf.find((option) => option.type !== "null");
-
     if ((draft === "" || draft === undefined || draft === null) && nullableOption) {
       return null;
     }
+  }
 
-    if (nonNullableOption) {
-      return parseDraftValue(nonNullableOption, draft, rootSchema, path);
-    }
+  const unionSchema = getUnionSchemaForValue(resolved, draft, rootSchema);
+  if (unionSchema) {
+    return parseDraftValue(unionSchema, draft, rootSchema, path);
   }
 
   if (resolved.properties) {
@@ -328,7 +385,7 @@ export function createDriveGeometryFromSelection(selection: MeshFaceSelection) {
   };
 }
 
-function getDriveGeometryList(value: DraftValue | undefined): DraftValue[] {
+function getCutAreaList(value: DraftValue | undefined): DraftValue[] {
   if (Array.isArray(value)) {
     return value;
   }
@@ -338,7 +395,7 @@ function getDriveGeometryList(value: DraftValue | undefined): DraftValue[] {
 export function createPocketOperationDraft(
   operationIndex: number,
   selection: MeshFaceSelection | null,
-  meshMaxZ: number | null,
+  _meshMaxZ: number | null,
   existingOperation?: Pocket2DOperationConfig,
 ): DraftObject {
   const actualOperation =
@@ -350,26 +407,14 @@ export function createPocketOperationDraft(
       displayName: `2D Pocket ${operationIndex}`,
     } satisfies DraftObject);
 
-  const driveGeometry = selection ? createDriveGeometryFromSelection(selection) : null;
-  const existingDriveGeometry = (((actualOperation as DraftObject).controlGeometry as DraftObject | undefined)
-    ?.driveGeometry as DraftValue | undefined);
+  const cutArea = selection ? createDriveGeometryFromSelection(selection) : null;
+  const existingCutAreas = (((actualOperation as DraftObject).driveGeometry as DraftObject | undefined)
+    ?.cutAreas as DraftValue | undefined);
   const hydratedOperation = {
     ...(actualOperation as DraftObject),
-    controlGeometry: {
-      ...(((actualOperation as DraftObject).controlGeometry as DraftObject | undefined) ?? {}),
-      driveGeometry: driveGeometry ? [driveGeometry] : existingDriveGeometry,
-    },
-    levels: {
-      ...(((actualOperation as DraftObject).levels as DraftObject | undefined) ?? {}),
-      topZ:
-        existingOperation?.levels?.topZ ??
-        meshMaxZ ??
-        selection?.planeZ ??
-        (((actualOperation as DraftObject).levels as DraftObject | undefined)?.topZ as DraftValue | undefined),
-      bottomZ:
-        existingOperation?.levels?.bottomZ ??
-        selection?.planeZ ??
-        (((actualOperation as DraftObject).levels as DraftObject | undefined)?.bottomZ as DraftValue | undefined),
+    driveGeometry: {
+      ...(((actualOperation as DraftObject).driveGeometry as DraftObject | undefined) ?? {}),
+      cutAreas: cutArea ? [cutArea] : existingCutAreas,
     },
   } satisfies DraftObject;
 
@@ -379,29 +424,22 @@ export function createPocketOperationDraft(
 export function applySelectionToPocketOperationDraft(
   draft: DraftObject,
   selection: MeshFaceSelection,
-  meshMaxZ: number | null,
+  _meshMaxZ: number | null,
 ): DraftObject {
-  const driveGeometry = createDriveGeometryFromSelection(selection);
-  const controlGeometry = (draft.controlGeometry as DraftObject | undefined) ?? {};
-  const existingDriveGeometries = getDriveGeometryList(controlGeometry.driveGeometry);
-  const driveGeometries = [
-    ...existingDriveGeometries,
-    ...(driveGeometry ? [driveGeometry] : []),
+  const cutArea = createDriveGeometryFromSelection(selection);
+  const driveGeometry = (draft.driveGeometry as DraftObject | undefined) ?? {};
+  const cutAreas = [
+    ...getCutAreaList(driveGeometry.cutAreas),
+    ...(cutArea ? [cutArea] : []),
   ];
-  const levels = (draft.levels as DraftObject | undefined) ?? {};
 
   return schemaValueToDraft(
     pocketOperationSchema,
     {
       ...draft,
-      controlGeometry: {
-        ...controlGeometry,
-        driveGeometry: driveGeometries,
-      },
-      levels: existingDriveGeometries.length > 0 ? levels : {
-        ...levels,
-        topZ: meshMaxZ ?? selection.planeZ ?? (levels.topZ as DraftValue | undefined),
-        bottomZ: selection.planeZ ?? (levels.bottomZ as DraftValue | undefined),
+      driveGeometry: {
+        ...driveGeometry,
+        cutAreas,
       },
     },
     pocketOperationSchema,
@@ -420,7 +458,7 @@ export function buildGenerateToolpathRequest(
     setup: {
       origin: { x: 0, y: 0, z: 0 },
       orientation: { machineZAxis: "positiveZ" },
-      stock: { maxZ: meshMaxZ ?? operation.levels?.topZ ?? 0 },
+      stock: { maxZ: meshMaxZ ?? 0 },
     },
     operation,
   };

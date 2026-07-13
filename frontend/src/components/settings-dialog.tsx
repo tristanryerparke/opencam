@@ -196,7 +196,7 @@ function ToolsSettingsTab() {
                     <div className="flex justify-end gap-1">
                       <Button
                         type="button"
-                        size="icon"
+                        size="icon-xs"
                         variant="outline"
                         aria-label={`Edit ${getToolDisplayName(tool)}`}
                         onClick={() => handleEditTool(tool)}
@@ -205,7 +205,7 @@ function ToolsSettingsTab() {
                       </Button>
                       <Button
                         type="button"
-                        size="icon"
+                        size="icon-xs"
                         variant="destructive"
                         aria-label={`Delete ${getToolDisplayName(tool)}`}
                         disabled={deleteToolMutation.isPending}
@@ -263,7 +263,7 @@ export function SettingsDialog() {
   return (
     <Dialog>
       <DialogTrigger asChild>
-        <Button size="icon" variant="outline" aria-label="Open settings">
+        <Button size="icon-xs" variant="outline" aria-label="Open settings">
           <Settings className="size-4" />
           <span className="sr-only">Open settings</span>
         </Button>

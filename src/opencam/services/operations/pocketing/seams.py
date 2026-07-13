@@ -4,7 +4,8 @@ import math
 
 import numpy as np
 
-import opencam.engine.closed_polyline as cp
+from opencam.engine.closed_polyline.evaluate import evaluate_length
+from opencam.engine.closed_polyline.seam_shift import seam_shift
 from opencam.services.operations.pocketing.models import (
     Coordinate2D,
     StraightRunCandidate,
@@ -26,7 +27,7 @@ class PocketSeamMixin:
         if candidate is None:
             return self.shift_seam_to_longest_straight_edge_near_initial_seam(polyline)
 
-        return cp.seam_shift(polyline, candidate.midpoint_length)
+        return seam_shift(polyline, candidate.midpoint_length)
 
     def shift_seam_to_branch_side_projection(
         self,
@@ -52,7 +53,7 @@ class PocketSeamMixin:
             candidate.end_point,
             start_reference,
         )
-        return cp.seam_shift(polyline, candidate.start_length + projected_distance)
+        return seam_shift(polyline, candidate.start_length + projected_distance)
 
     def select_branch_side_run(
         self,
@@ -92,7 +93,7 @@ class PocketSeamMixin:
                     candidate.end_point,
                     start_reference,
                 )
-                target_point = cp.evaluate_length(
+                target_point = evaluate_length(
                     polyline,
                     candidate.start_length + projected_distance,
                 )
@@ -156,7 +157,7 @@ class PocketSeamMixin:
                 run_length += float(edge_lengths[run_end_index])
 
             midpoint_length = run_start_length + run_length / 2
-            midpoint = cp.evaluate_length(polyline, midpoint_length)
+            midpoint = evaluate_length(polyline, midpoint_length)
             candidates.append(
                 StraightRunCandidate(
                     start_index=segment_index,
@@ -194,7 +195,7 @@ class PocketSeamMixin:
         if target_length <= 0.0:
             return polyline
 
-        return cp.seam_shift(polyline, target_length)
+        return seam_shift(polyline, target_length)
 
     def longest_straight_edge_midpoint_length_near_initial_seam(
         self,
@@ -228,7 +229,7 @@ class PocketSeamMixin:
                 run_length += float(edge_lengths[run_end_index])
 
             midpoint_length = run_start_length + run_length / 2
-            midpoint = cp.evaluate_length(polyline, midpoint_length)
+            midpoint = evaluate_length(polyline, midpoint_length)
             dx = float(midpoint[0] - seam_x)
             dy = float(midpoint[1] - seam_y)
             distance_squared = dx * dx + dy * dy
@@ -292,7 +293,7 @@ class PocketSeamMixin:
         if target_length <= 0.0:
             return polyline
 
-        return cp.seam_shift(polyline, target_length)
+        return seam_shift(polyline, target_length)
 
     def nearest_point_on_longest_straight_edge_length(
         self,
@@ -333,7 +334,7 @@ class PocketSeamMixin:
                 start_reference,
             )
             target_length = run_start_length + projected_distance
-            target_point = cp.evaluate_length(polyline, target_length)
+            target_point = evaluate_length(polyline, target_length)
             dx = float(target_point[0] - reference_x)
             dy = float(target_point[1] - reference_y)
             distance_squared = dx * dx + dy * dy

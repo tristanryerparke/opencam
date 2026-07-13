@@ -35,12 +35,10 @@ type AppSidebarProps = {
 };
 
 function getOperationSummary(operation: Pocket2DOperationConfig) {
-  const bottomZ = operation.levels?.bottomZ;
-  const topZ = operation.levels?.topZ;
-
-  return typeof topZ === "number" && typeof bottomZ === "number"
-    ? `Z ${bottomZ.toFixed(2)} → ${topZ.toFixed(2)}`
-    : "Z range not set";
+  const depthOfCut = operation.levels?.depthOfCut;
+  return typeof depthOfCut === "number"
+    ? `Cut depth ${depthOfCut.toFixed(2)} mm`
+    : "Cut depth not set";
 }
 
 function renderTreeNode({

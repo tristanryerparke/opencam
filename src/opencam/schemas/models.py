@@ -1,11 +1,10 @@
 from typing import Literal
 
-from devtools import debug as d
 import numpy as np
-import uuid
+from shapely.geometry import LinearRing
+
 from opencam.schemas.base import CamelBaseModel
-from pydantic import Field
-from shapely.geometry import LineString, LinearRing
+from opencam.schemas.cl_data import PositionRecord3D
 
 
 class Tool(CamelBaseModel):
@@ -37,35 +36,6 @@ class ClosedPolyline(CamelBaseModel):
         return np.ascontiguousarray(vertices)
 
 
-class CutterLocationData(CamelBaseModel):
-    x: float
-    y: float
-    z: float
-    comment: str | None = None
-    metadata: dict | None = None
-
-    def as_numpy(self):
-        return np.array([self.x, self.y, self.z])
-
-
-class Path(CamelBaseModel):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    name: str | None = None
-    kind: Literal["cut", "clearance"] = "cut"
-    locations: list[CutterLocationData]
-
-    def as_numpy(self):
-        return np.array([loc.as_numpy() for loc in self.locations])
-
-    def as_shapely(self):
-        return LineString([(loc.x, loc.y, loc.z) for loc in self.locations])
-
-
-class ToolpathOperation(CamelBaseModel):
-    tool: Tool
-    paths: list[Path]
-
-
 class SweptSimulationResponse(CamelBaseModel):
     active_mesh_url: str
     cached_mesh_url: str
@@ -74,14 +44,14 @@ class SweptSimulationResponse(CamelBaseModel):
     chunk_count: int
     chunk_index: int
     tool_mesh_url: str
-    tool_position: CutterLocationData
+    tool_position: PositionRecord3D
 
 
 class SweptSimulationFrameResponse(CamelBaseModel):
     active_mesh_url: str
     cached_mesh_url: str
     chunk_index: int
-    tool_position: CutterLocationData
+    tool_position: PositionRecord3D
 
 
 class SweptSimulationFramesResponse(CamelBaseModel):
@@ -100,14 +70,3 @@ class SweptSimulationStatusResponse(CamelBaseModel):
     message: str | None = None
     error_detail: str | None = None
     result: SweptSimulationResponse | None = None
-
-
-if __name__ == "__main__":
-    start = CutterLocationData(x=0, y=0, z=0, comment="start")
-    end = CutterLocationData(x=10, y=5, z=-1)
-
-    path = Path(name="demo path", locations=[start, end])
-
-    d(path)
-    print(path.as_numpy())
-    print(path.as_shapely())

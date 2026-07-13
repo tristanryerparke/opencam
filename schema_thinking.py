@@ -58,6 +58,8 @@ class Tool(CamelBaseModel):
     shoulder_length: float
     tool_number: int | Literal["manual"]
 
+
+
 class ToolMaterialFeedsAndSpeeds(CamelBaseModel):
     """DB row for feeds/speeds for a specific tool cutting a specific material."""
 

@@ -24,10 +24,13 @@ import numpy as np
 import rhino3dm
 import trimesh
 
-from opencam.schemas.models import CutterLocationData
-from opencam.schemas.models import Path as CamPath
+from opencam.schemas.cl_data import (
+    FeedRatePositionRecord3D,
+    OperationRecord3D,
+    PositionRecord3D,
+    RapidPositionRecord3D,
+)
 from opencam.schemas.models import Tool
-from opencam.schemas.models import ToolpathOperation
 from opencam.services.simulation.swept_volume import SimulatedMeshFrame
 from opencam.services.simulation.swept_volume import load_stl_bounds
 from opencam.services.simulation.swept_volume import simulate_swept_milling_frames
@@ -47,7 +50,6 @@ CUT_PATH_COLOR = RGBColor(red=29, green=78, blue=216)
 CLEARANCE_PATH_COLOR = RGBColor(red=220, green=38, blue=38)
 CUT_PATH_LINE_WIDTH = 3.0
 CLEARANCE_PATH_LINE_WIDTH = 2.0
-POSITION_EPSILON = 1e-6
 
 
 def parse_args() -> argparse.Namespace:
@@ -59,7 +61,7 @@ def parse_args() -> argparse.Namespace:
         "--operation-json",
         type=Path,
         default=None,
-        help="JSON file containing a full ToolpathOperation payload.",
+        help="JSON file containing a full OperationRecord3D payload.",
     )
     parser.add_argument(
         "--frontend-path-log",
@@ -72,6 +74,7 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Ignore frontend-paths.json and generate a synthetic raster operation instead of using frontend CL data.",
     )
+    parser.add_argument("--tool-id", default="rhino-demo-tool")
     parser.add_argument("--tool-diameter", type=float, default=12.0)
     parser.add_argument("--cutting-height", type=float, default=30.0)
     parser.add_argument("--max-sim-distance", type=float, default=40.0)
@@ -138,12 +141,11 @@ def positive_float(value: float, name: str) -> float:
     return float(value)
 
 
-def load_operation_from_json(path: Path) -> ToolpathOperation:
-    payload = json.loads(path.read_text())
-    return ToolpathOperation.model_validate(payload)
+def load_operation_from_json(path: Path) -> OperationRecord3D:
+    return OperationRecord3D.model_validate_json(path.read_text())
 
 
-def load_latest_frontend_operation(path_log: Path, tool: Tool) -> ToolpathOperation | None:
+def load_latest_frontend_operation(path_log: Path) -> OperationRecord3D | None:
     if not path_log.exists():
         return None
 
@@ -152,39 +154,32 @@ def load_latest_frontend_operation(path_log: Path, tool: Tool) -> ToolpathOperat
         return None
 
     for entry in reversed(payload):
-        if not isinstance(entry, dict):
-            continue
-        paths_payload = entry.get("paths")
-        if not isinstance(paths_payload, list) or not paths_payload:
-            continue
-        paths = [CamPath.model_validate(path_payload) for path_payload in paths_payload]
-        return ToolpathOperation(tool=tool, paths=paths)
-
+        if isinstance(entry, dict) and isinstance(entry.get("operation"), dict):
+            return OperationRecord3D.model_validate(entry["operation"])
     return None
 
 
-def operation_overlaps_stock(operation: ToolpathOperation, mesh_bytes: bytes) -> bool:
-    positions = [location for path in operation.paths for location in path.locations]
-    if not positions:
+def operation_overlaps_stock(operation: OperationRecord3D, tool: Tool, mesh_bytes: bytes) -> bool:
+    if not operation.records:
         return False
 
     stock_min, stock_max = load_stl_bounds(mesh_bytes)
-    radius = float(operation.tool.diameter) / 2.0
-    x_values = [float(location.x) for location in positions]
-    y_values = [float(location.y) for location in positions]
-    z_values = [float(location.z) for location in positions]
+    radius = float(tool.diameter) / 2.0
+    x_values = [float(record.x) for record in operation.records]
+    y_values = [float(record.y) for record in operation.records]
+    z_values = [float(record.z) for record in operation.records]
 
     return not (
         max(x_values) < stock_min[0] - radius
         or min(x_values) > stock_max[0] + radius
         or max(y_values) < stock_min[1] - radius
         or min(y_values) > stock_max[1] + radius
-        or max(z_values) < stock_min[2] - float(operation.tool.cutting_height)
-        or min(z_values) > stock_max[2] + float(operation.tool.cutting_height)
+        or max(z_values) < stock_min[2] - float(tool.cutting_height)
+        or min(z_values) > stock_max[2] + float(tool.cutting_height)
     )
 
 
-def build_synthetic_raster_operation(mesh_bytes: bytes, tool: Tool) -> ToolpathOperation:
+def build_synthetic_raster_operation(mesh_bytes: bytes, tool: Tool, tool_id: str) -> OperationRecord3D:
     stock_min, stock_max = load_stl_bounds(mesh_bytes)
     x_min, y_min, z_min = stock_min.tolist()
     x_max, y_max, z_max = stock_max.tolist()
@@ -207,9 +202,9 @@ def build_synthetic_raster_operation(mesh_bytes: bytes, tool: Tool) -> ToolpathO
         y_values = np.array([(y0 + y1) * 0.5], dtype=np.float64)
     y_values[-1] = min(float(y_values[-1]), y1)
 
-    locations: list[CutterLocationData] = [
-        CutterLocationData(x=float(x0), y=float(y_values[0]), z=float(clearance_z), comment="start at clearance"),
-        CutterLocationData(x=float(x0), y=float(y_values[0]), z=float(cut_z), comment="plunge"),
+    records: list[RapidPositionRecord3D | FeedRatePositionRecord3D] = [
+        RapidPositionRecord3D(x=float(x0), y=float(y_values[0]), z=float(clearance_z), comment="start at clearance"),
+        RapidPositionRecord3D(x=float(x0), y=float(y_values[0]), z=float(cut_z), comment="plunge"),
     ]
 
     for row_index, y in enumerate(y_values):
@@ -217,31 +212,18 @@ def build_synthetic_raster_operation(mesh_bytes: bytes, tool: Tool) -> ToolpathO
         first_x = x0 if left_to_right else x1
         second_x = x1 if left_to_right else x0
         if row_index > 0:
-            locations.append(CutterLocationData(x=float(first_x), y=float(y), z=float(cut_z)))
-        locations.append(CutterLocationData(x=float(second_x), y=float(y), z=float(cut_z)))
+            records.append(FeedRatePositionRecord3D(x=float(first_x), y=float(y), z=float(cut_z), feedrate=1000))
+        records.append(FeedRatePositionRecord3D(x=float(second_x), y=float(y), z=float(cut_z), feedrate=1000))
 
-    locations.append(
-        CutterLocationData(
-            x=float(locations[-1].x),
-            y=float(locations[-1].y),
-            z=float(clearance_z),
-            comment="retract",
-        )
-    )
-
-    return ToolpathOperation(
-        tool=tool,
-        paths=[
-            CamPath(
-                name="Synthetic Rhino raster cut",
-                kind="cut",
-                locations=locations,
-            )
-        ],
+    records.append(RapidPositionRecord3D(x=float(records[-1].x), y=float(records[-1].y), z=float(clearance_z), comment="retract"))
+    return OperationRecord3D(
+        tool_id=tool_id,
+        clearance_plane_height=float(clearance_z),
+        records=records,
     )
 
 
-def load_operation(args: argparse.Namespace, mesh_bytes: bytes) -> ToolpathOperation:
+def load_operation(args: argparse.Namespace, mesh_bytes: bytes) -> tuple[OperationRecord3D, Tool]:
     tool = Tool(
         diameter=positive_float(args.tool_diameter, "tool diameter"),
         cutting_height=positive_float(args.cutting_height, "cutting height"),
@@ -249,27 +231,27 @@ def load_operation(args: argparse.Namespace, mesh_bytes: bytes) -> ToolpathOpera
 
     if args.operation_json is not None:
         print(f"Loading operation from {args.operation_json}")
-        return load_operation_from_json(args.operation_json)
+        return load_operation_from_json(args.operation_json), tool
 
     if not args.ignore_frontend_path_log:
-        operation = load_latest_frontend_operation(args.frontend_path_log, tool)
+        operation = load_latest_frontend_operation(args.frontend_path_log)
         if operation is None:
             raise FileNotFoundError(
-                "No frontend cutter-location paths found in "
+                "No frontend operation records found in "
                 f"{args.frontend_path_log}. Run the frontend operation generation first, "
                 "or pass --ignore-frontend-path-log to use a synthetic raster cut."
             )
-        if not operation_overlaps_stock(operation, mesh_bytes):
+        if not operation_overlaps_stock(operation, tool, mesh_bytes):
             raise ValueError(
-                "Latest frontend cutter-location paths do not overlap the selected STL bounds. "
+                "Latest frontend operation records do not overlap the selected STL bounds. "
                 "Use --mesh assets/2.5D_Part.stl, regenerate frontend-paths.json for this mesh, "
                 "or pass --ignore-frontend-path-log to use a synthetic raster cut."
             )
-        print(f"Using latest frontend cutter-location paths from {args.frontend_path_log}")
-        return operation
+        print(f"Using latest frontend operation records from {args.frontend_path_log}")
+        return operation, tool
 
     print("Using synthetic raster operation over the STL bounds")
-    return build_synthetic_raster_operation(mesh_bytes, tool)
+    return build_synthetic_raster_operation(mesh_bytes, tool, args.tool_id), tool
 
 
 def load_trimesh_from_bytes(mesh_bytes: bytes, file_type: str) -> trimesh.Trimesh | None:
@@ -326,7 +308,7 @@ def rhino_mesh_from_bytes(mesh_bytes: bytes, file_type: str) -> rhino3dm.Mesh | 
     return trimesh_to_rhino_mesh(mesh)
 
 
-def location_to_array(location: CutterLocationData) -> np.ndarray:
+def location_to_array(location: PositionRecord3D) -> np.ndarray:
     return np.array([location.x, location.y, location.z], dtype=np.float64)
 
 
@@ -384,75 +366,42 @@ def selected_frame_indices(frame_count: int, frame_stride: int, max_frames: int)
     return sorted(set(indices))
 
 
-def are_heights_equal(left: float, right: float) -> bool:
-    return abs(left - right) <= POSITION_EPSILON
-
-
-def location_point(location: CutterLocationData, z_lift: float) -> tuple[float, float, float]:
+def location_point(location: PositionRecord3D, z_lift: float) -> tuple[float, float, float]:
     return (float(location.x), float(location.y), float(location.z) + float(z_lift))
 
 
 def frontend_style_toolpath_polylines(
-    operation: ToolpathOperation,
+    operation: OperationRecord3D,
     *,
     z_lift: float = 0.0,
 ) -> list[dict[str, object]]:
     polylines: list[dict[str, object]] = []
+    current_points: list[tuple[float, float, float]] = []
+    feed_type: str | None = None
 
-    for path in operation.paths:
-        if len(path.locations) < 2:
-            continue
-
-        path_name = path.name or ("Clearance move" if path.kind == "clearance" else "Generated profile")
-
-        if path.kind != "clearance":
+    for index in range(1, len(operation.records)):
+        start = operation.records[index - 1]
+        end = operation.records[index]
+        if feed_type != end.feed_type:
+            feed_type = end.feed_type
+            current_points = [location_point(start, z_lift), location_point(end, z_lift)]
             polylines.append(
                 {
-                    "id": path.id,
-                    "name": path_name,
-                    "color": CUT_PATH_COLOR,
-                    "line_width": CUT_PATH_LINE_WIDTH,
-                    "points": [location_point(location, z_lift) for location in path.locations],
+                    "id": f"record-{index}",
+                    "name": "Rapid moves" if feed_type == "rapid" else "Feed moves",
+                    "color": CLEARANCE_PATH_COLOR if feed_type == "rapid" else CUT_PATH_COLOR,
+                    "line_width": CLEARANCE_PATH_LINE_WIDTH if feed_type == "rapid" else CUT_PATH_LINE_WIDTH,
+                    "points": current_points,
                 }
             )
-            continue
-
-        clearance_z = max(float(location.z) for location in path.locations)
-        current_points: list[tuple[float, float, float]] = []
-        current_color: RGBColor | None = None
-        segment_index = 0
-
-        for index in range(1, len(path.locations)):
-            start = path.locations[index - 1]
-            end = path.locations[index]
-            is_pure_clearance_segment = are_heights_equal(start.z, clearance_z) and are_heights_equal(end.z, clearance_z)
-            segment_color = CLEARANCE_PATH_COLOR if is_pure_clearance_segment else CUT_PATH_COLOR
-            segment_line_width = CLEARANCE_PATH_LINE_WIDTH if is_pure_clearance_segment else CUT_PATH_LINE_WIDTH
-            start_point = location_point(start, z_lift)
-            end_point = location_point(end, z_lift)
-
-            if current_color != segment_color or not current_points:
-                current_points = [start_point, end_point]
-                current_color = segment_color
-                polylines.append(
-                    {
-                        "id": f"{path.id}:{segment_index}",
-                        "name": path_name,
-                        "color": segment_color,
-                        "line_width": segment_line_width,
-                        "points": current_points,
-                    }
-                )
-                segment_index += 1
-                continue
-
-            current_points.append(end_point)
+        else:
+            current_points.append(location_point(end, z_lift))
 
     return polylines
 
 
 def animation_toolpaths_payload(
-    operation: ToolpathOperation,
+    operation: OperationRecord3D,
     *,
     z_lift: float = 0.0,
 ) -> list[dict[str, object]]:
@@ -573,14 +522,14 @@ def main() -> None:
         raise FileNotFoundError(mesh_path)
 
     mesh_bytes = mesh_path.read_bytes()
-    operation = load_operation(args, mesh_bytes)
-    if not operation.paths:
-        raise ValueError("Operation has no paths.")
+    operation, tool = load_operation(args, mesh_bytes)
+    if not operation.records:
+        raise ValueError("Operation has no records.")
 
     print(
         "Operation: "
-        f"tool Ø{operation.tool.diameter:g}, cutting height {operation.tool.cutting_height:g}, "
-        f"{len(operation.paths)} path(s)"
+        f"tool Ø{tool.diameter:g}, cutting height {tool.cutting_height:g}, "
+        f"{len(operation.records)} records"
     )
 
     def progress_callback(current: int, total: int, message: str) -> None:
@@ -590,6 +539,7 @@ def main() -> None:
     tool_mesh_bytes, chunks, frames = simulate_swept_milling_frames(
         mesh_bytes,
         operation,
+        tool,
         max_sim_distance=positive_float(args.max_sim_distance, "max sim distance"),
         chunk_padding=(
             max(float(args.chunk_padding_x), 0.0),

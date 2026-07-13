@@ -2,8 +2,9 @@ from typing import Literal
 
 from shapely.geometry import Polygon
 
-from opencam.engine.closed_polyline import quad_segs_for_tolerance
-from opencam.schemas.models import ClosedPolyline, CutterLocationData, Path
+from opencam.engine.closed_polyline.offset import quad_segs_for_tolerance
+from opencam.schemas.cl_data import FeedRatePositionRecord3D, PositionRecord
+from opencam.schemas.models import ClosedPolyline
 from opencam.services.operations.base import BaseOperation
 
 
@@ -14,7 +15,7 @@ class ClosedProfilingEngine(BaseOperation):
     z_step_height: float
     stock_to_leave: float = 0
 
-    def process(self) -> list[Path]:
+    def process(self) -> list[PositionRecord]:
         ring = self.ring.to_shapely()
         layer_heights = self.compute_layer_heights(
             self.z_bounds,
@@ -32,13 +33,10 @@ class ClosedProfilingEngine(BaseOperation):
             )
             .exterior.coords
         )
-        locations = [
-            CutterLocationData(x=x, y=y, z=height)
+        records = [
+            FeedRatePositionRecord3D(x=x, y=y, z=height, feedrate=self.feedrate)
             for height in layer_heights
             for x, y in offset_ring
         ]
 
-        return self.build_paths_with_clearance(
-            locations,
-            cut_path_name="Closed profile",
-        )
+        return self.build_records_with_clearance(records)

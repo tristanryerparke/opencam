@@ -7,4 +7,4 @@ from opencam.schemas.cam import build_frontend_cam_schema_bundle
 
 if __name__ == "__main__":
     bundle = build_frontend_cam_schema_bundle()
-    print(json.dumps(bundle.model_dump(mode="json", by_alias=True), indent=2))
+    print(json.dumps(bundle, indent=2))

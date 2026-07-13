@@ -1201,7 +1201,7 @@
 
     "systeminformation": ["systeminformation@5.31.13", "", { "os": "!aix", "bin": { "systeminformation": "lib/cli.js" } }, "sha512-iUJXJoKzm4vtLSeT3nwe2s9QjoJAxHg7wYJ0KaQ54Xy2u9jsTq0ULWQQ0+T72FXjX2XnGqubazNx9lUfng7ELw=="],
 
-    "t-components": ["t-components@git+ssh://git@github.com/tristanryerparke/t-components.git#eeae96dfb3a27fcd29fc55b604547dfda389ed21", { "dependencies": { "@radix-ui/react-label": "^2.1.8", "@radix-ui/react-separator": "^1.1.8", "@radix-ui/react-slot": "^1.2.4", "class-variance-authority": "^0.7.1", "clsx": "^2.1.1", "lucide-react": "^0.554.0", "radix-ui": "^1.6.1", "react-number-format": "^5.4.5", "tailwind-merge": "^3.4.0", "zustand": "^5.0.11" }, "peerDependencies": { "react": "^18 || ^19", "react-dom": "^18 || ^19" } }, "eeae96dfb3a27fcd29fc55b604547dfda389ed21"],
+    "t-components": ["t-components@git+ssh://git@github.com/tristanryerparke/t-components.git#16b5d558a179fd2f10ee771b044f366f67c5536b", { "dependencies": { "@radix-ui/react-label": "^2.1.8", "@radix-ui/react-separator": "^1.1.8", "@radix-ui/react-slot": "^1.2.4", "class-variance-authority": "^0.7.1", "clsx": "^2.1.1", "lucide-react": "^0.554.0", "radix-ui": "^1.6.1", "react-number-format": "^5.4.5", "tailwind-merge": "^3.4.0", "zustand": "^5.0.11" }, "peerDependencies": { "react": "^18 || ^19", "react-dom": "^18 || ^19" } }, "16b5d558a179fd2f10ee771b044f366f67c5536b"],
 
     "tagged-tag": ["tagged-tag@1.0.0", "", {}, "sha512-yEFYrVhod+hdNyx7g5Bnkkb0G6si8HJurOoOEgC8B/O0uXLHlaey/65KRv6cuWBNhBgHKAROVpc7QyYqE5gFng=="],
 

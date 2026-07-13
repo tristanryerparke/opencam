@@ -25,10 +25,13 @@ import {
 } from "@/lib/cam-schema";
 import { getBackendUrl } from "@/hooks/useBackendConnection";
 import type { ClosedCurveSelection, Pocket2DOperationConfig } from "@/generated/cam-types";
-import { sampleToolpathLocations, type ToolpathOperation } from "@/simulation/toolpath";
+import {
+  sampleOperationRecords,
+  type OperationRecord3D,
+  type PositionRecord3D,
+} from "@/simulation/toolpath";
 
-type GeneratedPathResponse = ToolpathOperation["paths"][number];
-type GeneratedOperationResponse = ToolpathOperation;
+type GeneratedOperationResponse = OperationRecord3D;
 type ToolPositionResponse = {
   x: number;
   y: number;
@@ -71,72 +74,30 @@ const CUT_PATH_COLOR = "#1d4ed8";
 const CLEARANCE_PATH_COLOR = "#dc2626";
 const POSITION_EPSILON = 1e-6;
 
-function areHeightsEqual(left: number, right: number) {
-  return Math.abs(left - right) <= POSITION_EPSILON;
-}
+function createDisplayPolylines(records: ReadonlyArray<PositionRecord3D>): PolylineDefinition[] {
+  const polylines: PolylineDefinition[] = [];
+  let points: PolylinePoint[] = [];
+  let feedType: PositionRecord3D["feedType"] | null = null;
 
-function createDisplayPolylinesForPath(path: GeneratedPathResponse): PolylineDefinition[] {
-  const pathName = path.name ?? (path.kind === "clearance" ? "Clearance move" : "Generated profile");
-
-  if (path.locations.length < 2) {
-    return [
-      {
-        id: path.id,
-        name: pathName,
-        color: path.kind === "clearance" ? CLEARANCE_PATH_COLOR : CUT_PATH_COLOR,
-        kind: path.kind,
-        points: path.locations.map(({ x, y, z }) => [x, y, z] as const),
-      },
-    ];
-  }
-
-  if (path.kind !== "clearance") {
-    return [
-      {
-        id: path.id,
-        name: pathName,
-        color: CUT_PATH_COLOR,
-        kind: path.kind,
-        points: path.locations.map(({ x, y, z }) => [x, y, z] as const),
-      },
-    ];
-  }
-
-  const clearanceZ = path.locations.reduce(
-    (maxZ, location) => Math.max(maxZ, location.z),
-    -Infinity,
-  );
-
-  const segments: PolylineDefinition[] = [];
-  let currentPoints: PolylinePoint[] = [];
-  let currentColor: string | null = null;
-
-  for (let index = 1; index < path.locations.length; index += 1) {
-    const start = path.locations[index - 1];
-    const end = path.locations[index];
-    const isPureClearanceSegment =
-      areHeightsEqual(start.z, clearanceZ) && areHeightsEqual(end.z, clearanceZ);
-    const segmentColor = isPureClearanceSegment ? CLEARANCE_PATH_COLOR : CUT_PATH_COLOR;
-    const startPoint = [start.x, start.y, start.z] as const;
-    const endPoint = [end.x, end.y, end.z] as const;
-
-    if (currentColor !== segmentColor || currentPoints.length === 0) {
-      currentPoints = [startPoint, endPoint];
-      currentColor = segmentColor;
-      segments.push({
-        id: `${path.id}:${segments.length}`,
-        name: pathName,
-        color: segmentColor,
-        kind: path.kind,
-        points: currentPoints,
+  for (let index = 1; index < records.length; index += 1) {
+    const start = records[index - 1];
+    const end = records[index];
+    if (feedType !== end.feedType) {
+      points = [[start.x, start.y, start.z], [end.x, end.y, end.z]];
+      feedType = end.feedType;
+      polylines.push({
+        id: `record-${index}`,
+        name: feedType === "rapid" ? "Rapid moves" : "Feed moves",
+        color: feedType === "rapid" ? CLEARANCE_PATH_COLOR : CUT_PATH_COLOR,
+        kind: feedType,
+        points,
       });
-      continue;
+    } else {
+      points.push([end.x, end.y, end.z]);
     }
-
-    currentPoints.push(endPoint);
   }
 
-  return segments;
+  return polylines;
 }
 
 type SweptSimulationFramesResponse = {
@@ -325,14 +286,14 @@ function geometryToMeshFaceSelection(geometry: ClosedCurveSelection, index: numb
 }
 
 function operationToMeshFaceSelections(operation: Pocket2DOperationConfig | null): MeshFaceSelection[] {
-  const driveGeometry = operation?.controlGeometry?.driveGeometry;
-  const geometries = Array.isArray(driveGeometry) ? driveGeometry : driveGeometry ? [driveGeometry] : [];
+  const cutAreas = operation?.driveGeometry?.cutAreas;
+  const geometries = Array.isArray(cutAreas) ? cutAreas : cutAreas ? [cutAreas] : [];
   return geometries.map(geometryToMeshFaceSelection);
 }
 
 function draftToMeshFaceSelections(draft: DraftObject | null): MeshFaceSelection[] {
-  const driveGeometry = (draft?.controlGeometry as DraftObject | undefined)?.driveGeometry;
-  const geometries = Array.isArray(driveGeometry) ? driveGeometry : driveGeometry ? [driveGeometry] : [];
+  const cutAreas = (draft?.driveGeometry as DraftObject | undefined)?.cutAreas;
+  const geometries = Array.isArray(cutAreas) ? cutAreas : cutAreas ? [cutAreas] : [];
 
   return geometries.flatMap((geometry, index) => {
     if (!geometry || typeof geometry !== "object" || Array.isArray(geometry)) {
@@ -671,13 +632,13 @@ function App() {
     return operations.filter((operation) => operation.id === selectedTreeNodeId);
   }, [operations, selectedTreeNodeId]);
 
-  const generatedPaths = useMemo<GeneratedPathResponse[]>(
-    () => visibleOperations.flatMap((operation) => operation.id ? (generatedOperationsById[operation.id]?.paths ?? []) : []),
+  const generatedRecords = useMemo<PositionRecord3D[]>(
+    () => visibleOperations.flatMap((operation) => operation.id ? (generatedOperationsById[operation.id]?.records ?? []) : []),
     [generatedOperationsById, visibleOperations],
   );
   const simulationSamples = useMemo(
-    () => sampleToolpathLocations(generatedPaths, SIMULATION_SAMPLE_SPACING),
-    [generatedPaths],
+    () => sampleOperationRecords(generatedRecords, SIMULATION_SAMPLE_SPACING),
+    [generatedRecords],
   );
   const simulationToolRotation = useMemo(() => {
     if (!simulationId || showOriginalMesh || simulationSamples.length === 0) {
@@ -709,8 +670,8 @@ function App() {
   const secondaryMeshUrl = showOriginalMesh ? null : simulationActiveMeshUrl;
 
   const operationPolylines = useMemo<PolylineDefinition[]>(() => {
-    return generatedPaths.flatMap((path) => createDisplayPolylinesForPath(path));
-  }, [generatedPaths]);
+    return createDisplayPolylines(generatedRecords);
+  }, [generatedRecords]);
 
   const generatedPathLength = useMemo(() => {
     return operationPolylines.reduce(
@@ -719,9 +680,7 @@ function App() {
     );
   }, [operationPolylines]);
 
-  const generatedPathPointCount = useMemo(() => {
-    return generatedPaths.reduce((total, path) => total + path.locations.length, 0);
-  }, [generatedPaths]);
+  const generatedPathPointCount = generatedRecords.length;
 
   const selectedOperation = useMemo(
     () => operations.find((operation) => operation.id === selectedOperationId) ?? null,
@@ -1543,7 +1502,7 @@ function App() {
             selectedNodeId={selectedTreeNodeId}
             requestState={requestState}
             requestMessage={requestMessage}
-            generatedPathCount={generatedPaths.length}
+            generatedPathCount={generatedRecords.length}
             generatedPathPointCount={generatedPathPointCount}
             generatedPathLength={generatedPathLength}
             onMeshUpload={handleMeshUpload}

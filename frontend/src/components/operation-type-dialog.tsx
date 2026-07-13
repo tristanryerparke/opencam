@@ -1,4 +1,5 @@
 import pocketingIconUrl from "../../../graphics/pocketing-1.svg";
+import profilingIconUrl from "../../../graphics/profiling-1.svg";
 
 import { Button } from "t-components/button";
 import {
@@ -31,8 +32,12 @@ export function OperationTypeDialog({
             className="h-auto flex-col gap-3 p-4"
             onClick={onSelectPocketing}
           >
-            <img src={pocketingIconUrl} alt="" className="h-20 w-20" />
+            <img src={pocketingIconUrl} alt="" className="h-20 w-20 scale-150" />
             <span>2.5D Pocketing</span>
+          </Button>
+          <Button type="button" variant="outline" className="h-auto flex-col gap-3 p-4">
+            <img src={profilingIconUrl} alt="" className="h-20 w-20 scale-150" />
+            <span>2.5D Profiling</span>
           </Button>
         </div>
       </DialogContent>

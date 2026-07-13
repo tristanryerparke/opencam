@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 
 import { Button } from "t-components/button";
 import {
@@ -41,13 +42,16 @@ import {
   type DraftObject,
   type DraftValue,
   type JsonSchema,
+  getDiscriminatedUnionOptions,
   getSchemaTitle,
   getUiMetadata,
   getVisibleSections,
+  materializeDefaults,
   parsePocketOperationDraft,
   resolveSchema,
   setDraftValueAtPath,
 } from "@/lib/cam-schema";
+import { listTools } from "@/lib/tool-library-api";
 
 function formatReadOnlyValue(value: DraftValue | undefined) {
   if (typeof value === "string" || typeof value === "number") {
@@ -64,8 +68,8 @@ function getControlGeometryRows(value: DraftValue | undefined): DraftObject[] {
     return [];
   }
 
-  const driveGeometry = (value as DraftObject).driveGeometry;
-  const geometries = Array.isArray(driveGeometry) ? driveGeometry : driveGeometry ? [driveGeometry] : [];
+  const cutAreas = (value as DraftObject).cutAreas;
+  const geometries = Array.isArray(cutAreas) ? cutAreas : cutAreas ? [cutAreas] : [];
 
   return geometries.filter((geometry): geometry is DraftObject => {
     if (!geometry || typeof geometry !== "object" || Array.isArray(geometry)) {
@@ -159,6 +163,40 @@ function ControlGeometryPanel({
   );
 }
 
+type ToolSelectFieldProps = {
+  label: string;
+  description?: string;
+  value: DraftValue | undefined;
+  onChange: (value: string) => void;
+};
+
+function ToolSelectField({ label, description, value, onChange }: ToolSelectFieldProps) {
+  const toolsQuery = useQuery({ queryKey: ["tool-library", "tools"], queryFn: listTools });
+  const toolId = typeof value === "string" ? value : "";
+
+  return (
+    <div className="space-y-1">
+      <Label>{label}</Label>
+      <Select value={toolId} onValueChange={onChange} disabled={toolsQuery.isLoading}>
+        <SelectTrigger className="w-full">
+          <SelectValue placeholder={toolsQuery.isLoading ? "Loading tools..." : "Select a tool"} />
+        </SelectTrigger>
+        <SelectContent position="popper">
+          {(toolsQuery.data ?? []).map((tool) => (
+            <SelectItem key={tool.id} value={tool.id}>
+              {tool.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {toolsQuery.isError ? (
+        <p className="text-xs leading-5 text-destructive">Unable to load tools.</p>
+      ) : null}
+      {description ? <p className="text-xs leading-5 text-muted-foreground">{description}</p> : null}
+    </div>
+  );
+}
+
 type SchemaFieldsProps = {
   rootSchema: JsonSchema;
   schema: JsonSchema;
@@ -179,6 +217,72 @@ function SchemaFields({ rootSchema, schema, value, path, onChange, onStartGeomet
   const label = getSchemaTitle(schema, path[path.length - 1] ?? "Field", rootSchema);
   const unit = metadata.unit ? ` (${metadata.unit})` : "";
 
+  if (metadata.widget === "tool-select") {
+    return (
+      <ToolSelectField
+        label={label}
+        description={resolved.description}
+        value={value}
+        onChange={(toolId) => onChange(path, toolId)}
+      />
+    );
+  }
+
+  const discriminatedOptions = getDiscriminatedUnionOptions(resolved, rootSchema);
+  if (resolved.discriminator && discriminatedOptions.length > 0) {
+    const discriminatorName = resolved.discriminator.propertyName;
+    const selectedValue =
+      value && typeof value === "object" && !Array.isArray(value)
+        ? (value as DraftObject)[discriminatorName]
+        : undefined;
+    const selectedOption = discriminatedOptions.find((option) => option.value === selectedValue) ?? discriminatedOptions[0];
+    const optionSchema: JsonSchema = {
+      ...selectedOption.schema,
+      properties: Object.fromEntries(
+        Object.entries(selectedOption.schema.properties ?? {}).filter(([key]) => key !== discriminatorName),
+      ),
+    };
+
+    return (
+      <div className="space-y-4">
+        <div className="space-y-1">
+          <Label>{label}</Label>
+          <Select
+            value={selectedOption.value}
+            onValueChange={(nextValue) => {
+              const nextOption = discriminatedOptions.find((option) => option.value === nextValue);
+              if (nextOption) {
+                onChange(path, materializeDefaults(nextOption.schema, rootSchema));
+              }
+            }}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="Select an option" />
+            </SelectTrigger>
+            <SelectContent position="popper">
+              {discriminatedOptions.map((option) => (
+                <SelectItem key={option.value} value={option.value}>
+                  {option.value}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {resolved.description ? (
+            <p className="text-xs leading-5 text-muted-foreground">{resolved.description}</p>
+          ) : null}
+        </div>
+        <SchemaFields
+          rootSchema={rootSchema}
+          schema={optionSchema}
+          value={value}
+          path={path}
+          onChange={onChange}
+          onStartGeometrySelection={onStartGeometrySelection}
+        />
+      </div>
+    );
+  }
+
   if (metadata.readOnly) {
     return (
       <div className="space-y-1">
@@ -192,14 +296,14 @@ function SchemaFields({ rootSchema, schema, value, path, onChange, onStartGeomet
   }
 
   if (resolved.properties) {
-    if (path.length === 1 && path[0] === "controlGeometry" && onStartGeometrySelection) {
+    if (path.length === 1 && path[0] === "driveGeometry" && onStartGeometrySelection) {
       return (
         <ControlGeometryPanel
           value={value}
           onStartGeometrySelection={onStartGeometrySelection}
           onDeleteGeometry={(index) => {
             const rows = getControlGeometryRows(value);
-            onChange([...path, "driveGeometry"], rows.filter((_, rowIndex) => rowIndex !== index));
+            onChange([...path, "cutAreas"], rows.filter((_, rowIndex) => rowIndex !== index));
           }}
         />
       );
@@ -342,8 +446,8 @@ export function OperationDialog({
 }: OperationDialogProps) {
   const sections = useMemo(() => getVisibleSections(rootSchema), [rootSchema]);
   const defaultSectionKey = useMemo(() => {
-    if (mode === "create" && sections.some((section) => section.key === "controlGeometry")) {
-      return "controlGeometry";
+    if (mode === "create" && sections.some((section) => section.key === "driveGeometry")) {
+      return "driveGeometry";
     }
 
     return sections[0]?.key ?? "";

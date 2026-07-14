@@ -1,18 +1,19 @@
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Literal
 
 from pydantic import ConfigDict, Field, model_validator
 
 from opencam.schemas.base import CamelBaseModel
-from opencam.schemas.models import ClosedPolyline
+from opencam.schemas.geometry_2d import ClosedPolyline
 from opencam.schemas.operations.base import (
     AbsoluteClearance,
+    BaseCAMOperation,
     PartMaxZPlusOffsetClearance,
     StockMaxZPlusOffsetClearance,
     ui_metadata,
 )
-from opencam.schemas.operations.pocketing import ClosedCurveSelection, Pocket2DOperationConfig
+from opencam.schemas.operations.pocketing import ClosedCurveSelection, Pocketing2dOp
 
 
 class SetupOrigin(CamelBaseModel):
@@ -44,39 +45,37 @@ class SetupStock(CamelBaseModel):
     )
 
 
-class CamSetupConfig(CamelBaseModel):
-    model_config = ConfigDict(title="CamSetupConfig", json_schema_extra=ui_metadata(hidden=True))
+class CAMSetup(CamelBaseModel):
+    model_config = ConfigDict(title="CAMSetup", json_schema_extra=ui_metadata(hidden=True))
 
     origin: SetupOrigin = Field(default_factory=SetupOrigin, title="Origin")
     orientation: SetupOrientation = Field(default_factory=SetupOrientation, title="Orientation")
     stock: SetupStock = Field(default_factory=SetupStock, title="Stock")
 
+    def clearance_height(self, operation: BaseCAMOperation) -> float:
+        clearance = operation.clearance
+        if isinstance(clearance, AbsoluteClearance):
+            return clearance.absolute_height
+        if isinstance(clearance, StockMaxZPlusOffsetClearance):
+            return self.stock.max_z + clearance.offset
+        if isinstance(clearance, PartMaxZPlusOffsetClearance):
+            return operation.max_cut_z() + clearance.offset
+        raise ValueError("Unsupported clearance height type.")  # pragma: no cover
 
-MachiningOperation = Annotated[Pocket2DOperationConfig, Field(discriminator="kind")]
+
+MachiningOperation = Pocketing2dOp
 
 
 class GenerateToolpathRequest(CamelBaseModel):
     model_config = ConfigDict(title="GenerateToolpathRequest")
 
-    setup: CamSetupConfig = Field(default_factory=CamSetupConfig, title="Setup")
+    setup: CAMSetup = Field(default_factory=CAMSetup, title="Setup")
     operation: MachiningOperation = Field(title="Operation")
-
-    def clearance_height(self) -> float:
-        clearance = self.operation.clearance
-        if isinstance(clearance, AbsoluteClearance):
-            return clearance.absolute_height
-        if isinstance(clearance, StockMaxZPlusOffsetClearance):
-            return self.setup.stock.max_z + clearance.offset
-        if isinstance(clearance, PartMaxZPlusOffsetClearance):
-            # ponytail: uses selected geometry; use the model's max Z when the setup carries it.
-            return max(area.plane_z for area in self.operation.drive_geometry.cut_areas) + clearance.offset
-        raise ValueError("Unsupported clearance height type.")  # pragma: no cover - exhaustive discriminated union
 
     @model_validator(mode="after")
     def validate_clearance_height(self) -> "GenerateToolpathRequest":
-        if self.clearance_height() <= self.operation.max_cut_z():
+        if self.setup.clearance_height(self.operation) <= self.operation.max_cut_z():
             raise ValueError("Clearance height must be above the operation top Z.")
-
         return self
 
     def to_closed_polylines(self) -> list[ClosedPolyline]:
@@ -89,5 +88,5 @@ class GenerateToolpathRequest(CamelBaseModel):
 def build_frontend_cam_schema_bundle() -> dict[str, dict]:
     return {
         "generateToolpathRequest": GenerateToolpathRequest.model_json_schema(mode="validation"),
-        "pocket2dOperation": Pocket2DOperationConfig.model_json_schema(mode="validation"),
+        "pocket2dOperation": Pocketing2dOp.model_json_schema(mode="validation"),
     }

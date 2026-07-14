@@ -6,6 +6,7 @@ from uuid import uuid4
 from pydantic import ConfigDict, Field
 
 from opencam.schemas.base import CamelBaseModel
+from opencam.schemas.tools import Tool
 
 
 def ui_metadata(
@@ -43,43 +44,6 @@ class Material(CamelBaseModel):
     name: str = Field(min_length=1)
 
 
-class Tool(CamelBaseModel):
-    """DB-backed cutting tool record."""
-
-    id: str = Field(default_factory=lambda: str(uuid4()))
-    name: str = Field(min_length=1)
-    diameter: float = Field(gt=0)
-    flute_length: float = Field(gt=0)
-    shoulder_length: float = Field(gt=0)
-    tool_number: int | Literal["manual"]
-
-
-class ToolMaterialFeedsAndSpeeds(CamelBaseModel):
-    """DB row for feeds/speeds for a specific tool cutting a specific material."""
-
-    id: str = Field(default_factory=lambda: str(uuid4()))
-    tool_id: str
-    material_id: str
-    feeds_and_speeds: FeedsAndSpeeds
-
-
-class ManualFeedsAndSpeedsSelection(CamelBaseModel):
-    mode: Literal["manual"] = "manual"
-    feeds_and_speeds: FeedsAndSpeeds = Field(default_factory=FeedsAndSpeeds)
-
-
-class ToolMaterialFeedsAndSpeedsSelection(CamelBaseModel):
-    mode: Literal["tool_material"] = "tool_material"
-    material_id: str = Field(min_length=1)
-    tool_material_feeds_and_speeds_id: str = Field(min_length=1)
-
-
-FeedsAndSpeedsSelection = Annotated[
-    ManualFeedsAndSpeedsSelection | ToolMaterialFeedsAndSpeedsSelection,
-    Field(discriminator="mode"),
-]
-
-
 class StockMaxZPlusOffsetClearance(CamelBaseModel):
     clearance_height_type: Literal["stock_max_z_plus_offset"] = "stock_max_z_plus_offset"
     offset: float = Field(default=5.0, ge=0, title="Offset", json_schema_extra=ui_metadata(unit="mm"))
@@ -113,10 +77,11 @@ class CAMAdvancedParameters(CamelBaseModel):
 
 
 class BaseCAMOperation(CamelBaseModel):
+    type: str
     id: str = Field(default_factory=lambda: str(uuid4()), title="Operation ID", json_schema_extra=ui_metadata(hidden=True))
     display_name: str = Field(default="2D Pocket", title="Operation name", json_schema_extra=ui_metadata(hidden=True))
-    tool_id: str = Field(min_length=1, title="Tool", json_schema_extra=ui_metadata(widget="tool-select"))
-    feeds_and_speeds: FeedsAndSpeedsSelection = Field(default_factory=ManualFeedsAndSpeedsSelection, title="Feeds and speeds")
+    tool: Tool = Field(title="Tool", json_schema_extra=ui_metadata(widget="tool-select"))
+    feeds_and_speeds: FeedsAndSpeeds = Field(default_factory=FeedsAndSpeeds, title="Feeds and speeds")
     clearance: ClearanceSettings = Field(default_factory=AbsoluteClearance, title="Clearance")
     levels: CAMLevels = Field(default_factory=CAMLevels, title="Levels")
     advanced: CAMAdvancedParameters = Field(default_factory=CAMAdvancedParameters, title="Advanced")

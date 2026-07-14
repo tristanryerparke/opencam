@@ -167,17 +167,26 @@ type ToolSelectFieldProps = {
   label: string;
   description?: string;
   value: DraftValue | undefined;
-  onChange: (value: string) => void;
+  onChange: (value: DraftObject) => void;
 };
 
 function ToolSelectField({ label, description, value, onChange }: ToolSelectFieldProps) {
   const toolsQuery = useQuery({ queryKey: ["tool-library", "tools"], queryFn: listTools });
-  const toolId = typeof value === "string" ? value : "";
+  const toolId = value && typeof value === "object" && !Array.isArray(value)
+    ? String((value as DraftObject).id ?? "")
+    : "";
 
   return (
     <div className="space-y-1">
       <Label>{label}</Label>
-      <Select value={toolId} onValueChange={onChange} disabled={toolsQuery.isLoading}>
+      <Select
+        value={toolId}
+        onValueChange={(toolId) => {
+          const tool = (toolsQuery.data ?? []).find((candidate) => candidate.id === toolId);
+          if (tool) onChange(tool as unknown as DraftObject);
+        }}
+        disabled={toolsQuery.isLoading}
+      >
         <SelectTrigger className="w-full">
           <SelectValue placeholder={toolsQuery.isLoading ? "Loading tools..." : "Select a tool"} />
         </SelectTrigger>
@@ -223,7 +232,7 @@ function SchemaFields({ rootSchema, schema, value, path, onChange, onStartGeomet
         label={label}
         description={resolved.description}
         value={value}
-        onChange={(toolId) => onChange(path, toolId)}
+        onChange={(tool) => onChange(path, tool)}
       />
     );
   }

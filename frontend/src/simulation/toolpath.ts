@@ -1,10 +1,7 @@
-export type FeedType = "rapid" | "feed_rate";
+import type { CylindricalTool, ToolLibraryTool } from "@/lib/tool-library-api";
 
-export type ToolData = {
-  diameter: number;
-  cuttingHeight: number;
-  numFlutes: number;
-};
+export type FeedType = "rapid" | "feed_rate";
+export type ToolData = Pick<CylindricalTool, "diameter" | "cuttingHeight" | "numFlutes">;
 
 export type PositionRecord3D = {
   type: "position_3d";
@@ -17,7 +14,7 @@ export type PositionRecord3D = {
 };
 
 export type OperationRecord3D = {
-  toolId: string;
+  tool: ToolLibraryTool;
   toolAxis: number[];
   preComments: string[];
   postComments: string[];

@@ -14,21 +14,44 @@ export type MachineZAxis = "positiveZ";
  * Used when clearance height is computed from stock height.
  */
 export type StockMaxZ = number;
-export type Operation = Pocket2DOperationConfig;
+export type Type = "pocketing_2d";
 export type OperationID = string;
 export type OperationName = string;
-export type Tool = string;
-export type FeedsAndSpeeds = ManualFeedsAndSpeedsSelection | ToolMaterialFeedsAndSpeedsSelection;
-export type Mode = "manual";
+export type Tool = CylindricalTool | BallTool | VTool;
+export type Id = string;
+export type Name = string;
+export type Toolnumber = number;
+export type Manualchange = boolean;
+export type Diameter = number;
+export type Cuttingheight = number;
+export type Shoulderheight = number;
+export type Numflutes = number;
+export type Type1 = "cylinder";
+export type Id1 = string;
+export type Name1 = string;
+export type Toolnumber1 = number;
+export type Manualchange1 = boolean;
+export type Diameter1 = number;
+export type Cuttingheight1 = number;
+export type Shoulderheight1 = number;
+export type Numflutes1 = number;
+export type Type2 = "ball";
+export type Id2 = string;
+export type Name2 = string;
+export type Toolnumber2 = number;
+export type Manualchange2 = boolean;
+export type Diameter2 = number;
+export type Cuttingheight2 = number;
+export type Shoulderheight2 = number;
+export type Numflutes2 = number;
+export type Type3 = "v";
+export type Tipangle = number;
 export type SpindleRPM = number;
 export type PlungeFeedrate = number;
 export type LeadInFeedrate = number;
 export type CutFeedrate = number;
 export type LeadOutFeedrate = number;
 export type DepartureFeedrate = number;
-export type Mode1 = "tool_material";
-export type Materialid = string;
-export type Toolmaterialfeedsandspeedsid = string;
 export type Clearance = AbsoluteClearance | StockMaxZPlusOffsetClearance | PartMaxZPlusOffsetClearance;
 export type Clearanceheighttype = "absolute";
 export type AbsoluteHeight = number;
@@ -41,7 +64,6 @@ export type DepthOfCut = number;
 export type MaxStepdown = number;
 export type OperationSorting = "selection" | "shortest_distance";
 export type ChordalTolerance = number;
-export type OperationKind = "pocket2d";
 /**
  * @minItems 1
  */
@@ -56,7 +78,7 @@ export type ClosedCurveVertices = [Point2D, Point2D, Point2D, ...Point2D[]];
 export type X = number;
 export type Y = number;
 export type ClimbConventional = "climb" | "conventional";
-export type Mode2 = "percentage_of_tool_diameter" | "absolute";
+export type Mode = "percentage_of_tool_diameter" | "absolute";
 export type Value = number;
 export type StockToLeave = number;
 
@@ -85,37 +107,63 @@ export interface Stock {
   maxZ?: StockMaxZ;
   [k: string]: unknown;
 }
-export interface Pocket2DOperationConfig {
+export interface Operation {
+  type?: Type;
   id?: OperationID;
   displayName?: OperationName;
-  toolId: Tool;
+  tool: Tool;
   feedsAndSpeeds?: FeedsAndSpeeds;
   clearance?: Clearance;
   levels?: Levels;
   advanced?: Advanced;
-  kind?: OperationKind;
   driveGeometry: DriveGeometry;
   cutParameters?: CutParameters;
   [k: string]: unknown;
 }
-export interface ManualFeedsAndSpeedsSelection {
-  mode?: Mode;
-  feedsAndSpeeds?: FeedsAndSpeeds1;
+export interface CylindricalTool {
+  id?: Id;
+  name: Name;
+  toolNumber: Toolnumber;
+  manualChange?: Manualchange;
+  diameter: Diameter;
+  cuttingHeight: Cuttingheight;
+  shoulderHeight: Shoulderheight;
+  numFlutes?: Numflutes;
+  type?: Type1;
   [k: string]: unknown;
 }
-export interface FeedsAndSpeeds1 {
+export interface BallTool {
+  id?: Id1;
+  name: Name1;
+  toolNumber: Toolnumber1;
+  manualChange?: Manualchange1;
+  diameter: Diameter1;
+  cuttingHeight: Cuttingheight1;
+  shoulderHeight: Shoulderheight1;
+  numFlutes?: Numflutes1;
+  type?: Type2;
+  [k: string]: unknown;
+}
+export interface VTool {
+  id?: Id2;
+  name: Name2;
+  toolNumber: Toolnumber2;
+  manualChange?: Manualchange2;
+  diameter: Diameter2;
+  cuttingHeight: Cuttingheight2;
+  shoulderHeight: Shoulderheight2;
+  numFlutes?: Numflutes2;
+  type?: Type3;
+  tipAngle: Tipangle;
+  [k: string]: unknown;
+}
+export interface FeedsAndSpeeds {
   spindleRpm?: SpindleRPM;
   plungeFeedrate?: PlungeFeedrate;
   leadInFeedrate?: LeadInFeedrate;
   cutFeedrate?: CutFeedrate;
   leadOutFeedrate?: LeadOutFeedrate;
   departureFeedrate?: DepartureFeedrate;
-  [k: string]: unknown;
-}
-export interface ToolMaterialFeedsAndSpeedsSelection {
-  mode?: Mode1;
-  materialId: Materialid;
-  toolMaterialFeedsAndSpeedsId: Toolmaterialfeedsandspeedsid;
   [k: string]: unknown;
 }
 export interface AbsoluteClearance {
@@ -165,7 +213,7 @@ export interface CutParameters {
   [k: string]: unknown;
 }
 export interface Stepover {
-  mode?: Mode2;
+  mode?: Mode;
   value?: Value;
   [k: string]: unknown;
 }

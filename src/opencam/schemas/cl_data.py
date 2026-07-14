@@ -1,6 +1,7 @@
 from typing import Annotated, Literal
 from pydantic import Field
 from opencam.schemas.base import CamelBaseModel
+from opencam.schemas.tools import Tool
 
 
 class PositionRecord3D(CamelBaseModel):
@@ -30,7 +31,7 @@ PositionRecord = Annotated[
 
 class OperationRecord3D(CamelBaseModel):
     "Holds a set of positional data as well as tool, comment and data"
-    tool_id: str
+    tool: Tool
     tool_axis: list[float] = Field(default_factory=lambda: [0.0, 0.0, 1.0])
     pre_comments: list[str] = Field(default_factory=list)
     post_comments: list[str] = Field(default_factory=list)

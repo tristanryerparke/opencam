@@ -170,17 +170,19 @@ function ToolsSettingsTab() {
           <TableHeader>
             <TableRow>
               <TableHead>Name</TableHead>
+              <TableHead>Type</TableHead>
               <TableHead>Diameter</TableHead>
-              <TableHead>Flute length</TableHead>
-              <TableHead>Shoulder length</TableHead>
+              <TableHead>Cutting height</TableHead>
+              <TableHead>Shoulder height</TableHead>
               <TableHead>Tool #</TableHead>
+              <TableHead>Manual</TableHead>
               <TableHead className="w-28 text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {toolsQuery.isLoading ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-muted-foreground">
+                <TableCell colSpan={8} className="text-muted-foreground">
                   Loading tools...
                 </TableCell>
               </TableRow>
@@ -188,10 +190,12 @@ function ToolsSettingsTab() {
               tools.map((tool) => (
                 <TableRow key={tool.id}>
                   <TableCell className="max-w-48 truncate font-medium">{getToolDisplayName(tool)}</TableCell>
+                  <TableCell className="capitalize">{tool.type}</TableCell>
                   <TableCell>{tool.diameter}</TableCell>
-                  <TableCell>{tool.fluteLength}</TableCell>
-                  <TableCell>{tool.shoulderLength}</TableCell>
+                  <TableCell>{tool.cuttingHeight}</TableCell>
+                  <TableCell>{tool.shoulderHeight}</TableCell>
                   <TableCell>{tool.toolNumber}</TableCell>
+                  <TableCell>{tool.manualChange ? "Yes" : "No"}</TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-1">
                       <Button
@@ -219,7 +223,7 @@ function ToolsSettingsTab() {
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={6} className="text-muted-foreground">
+                <TableCell colSpan={8} className="text-muted-foreground">
                   No tools have been added yet.
                 </TableCell>
               </TableRow>

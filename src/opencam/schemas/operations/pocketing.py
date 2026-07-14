@@ -5,7 +5,7 @@ from typing import Literal
 from pydantic import ConfigDict, Field
 
 from opencam.schemas.base import CamelBaseModel
-from opencam.schemas.models import Point2D
+from opencam.schemas.geometry_2d import Point2D
 from opencam.schemas.operations.base import BaseCAMOperation, ui_metadata
 
 
@@ -39,10 +39,10 @@ class PocketingCutSettings(CamelBaseModel):
     stock_to_leave: float = Field(default=0.0, ge=0, title="Stock to leave", json_schema_extra=ui_metadata(unit="mm"))
 
 
-class Pocket2DOperationConfig(BaseCAMOperation):
-    model_config = ConfigDict(title="Pocket2DOperationConfig")
+class Pocketing2dOp(BaseCAMOperation):
+    model_config = ConfigDict(title="Pocketing2dOp")
 
-    kind: Literal["pocket2d"] = Field(default="pocket2d", title="Operation kind", json_schema_extra=ui_metadata(hidden=True))
+    type: Literal["pocketing_2d"] = Field(default="pocketing_2d", frozen=True, json_schema_extra=ui_metadata(hidden=True))
     drive_geometry: PocketingDriveGeometry = Field(title="Drive geometry")
     cut_parameters: PocketingCutSettings = Field(default_factory=PocketingCutSettings, title="Cut parameters")
 
@@ -51,6 +51,3 @@ class Pocket2DOperationConfig(BaseCAMOperation):
         if self.levels.drive_geometry_position == "at_top":
             return max(geometry_zs)
         return max(z + self.levels.depth_of_cut for z in geometry_zs)
-
-
-PocketingOperation = Pocket2DOperationConfig

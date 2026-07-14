@@ -4,7 +4,15 @@ from opencam.schemas.cl_data import FeedRatePositionRecord3D, OperationRecord3D,
 def test_operation_records_parse_their_feed_type():
     operation = OperationRecord3D.model_validate(
         {
-            "toolId": "tool-1",
+            "tool": {
+                "id": "tool-1",
+                "name": "2mm flat end mill",
+                "type": "cylinder",
+                "toolNumber": 1,
+                "diameter": 2,
+                "cuttingHeight": 10,
+                "shoulderHeight": 10,
+            },
             "clearancePlaneHeight": 10,
             "records": [
                 {"type": "position_3d", "feedType": "rapid", "x": 0, "y": 0, "z": 10},

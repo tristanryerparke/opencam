@@ -1,19 +1,24 @@
 import { getBackendUrl } from "@/hooks/useBackendConnection";
 
-export type ToolNumber = number | "manual";
+export type ToolType = "cylinder" | "ball" | "v";
 
-export type ToolLibraryTool = {
+type BaseTool = {
   id: string;
   name: string;
+  toolNumber: number;
+  manualChange: boolean;
   diameter: number;
-  fluteLength: number;
-  shoulderLength: number;
-  toolNumber: ToolNumber;
+  cuttingHeight: number;
+  shoulderHeight: number;
+  numFlutes: number;
 };
 
-export type ToolLibraryToolInput = Omit<ToolLibraryTool, "id"> & {
-  id?: string;
-};
+export type CylindricalTool = BaseTool & { type: "cylinder" };
+export type BallTool = BaseTool & { type: "ball" };
+export type VTool = BaseTool & { type: "v"; tipAngle: number };
+export type ToolLibraryTool = CylindricalTool | BallTool | VTool;
+type NewTool<T extends ToolLibraryTool> = Omit<T, "id"> & { id?: string };
+export type ToolLibraryToolInput = NewTool<CylindricalTool> | NewTool<BallTool> | NewTool<VTool>;
 
 async function readJsonResponse<T>(response: Response, fallbackMessage: string): Promise<T> {
   if (response.ok) {

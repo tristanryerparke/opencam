@@ -10,10 +10,12 @@ SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from opencam.schemas.models import ClosedPolyline
-from opencam.schemas.models import Point2D
-from opencam.schemas.models import Tool
-from opencam.services.operations.pocketing.operation import ClosedPocketingEngine
+from opencam.schemas.cam import CAMSetup
+from opencam.schemas.geometry_2d import Point2D
+from opencam.schemas.operations.base import AbsoluteClearance, CAMLevels, FeedsAndSpeeds
+from opencam.schemas.operations.pocketing import ClosedCurveSelection, Pocketing2dOp, PocketingCutSettings, PocketingDriveGeometry, StepoverMode
+from opencam.schemas.tools import CylindricalTool
+from opencam.services.cam_engine import cam_engine
 from rhino_renderer.file_client import FileClient
 from rhino_renderer.file_client import current_document_path
 from rhino_renderer.file_client import reset_rhino_environment
@@ -35,7 +37,6 @@ STEPOVER = 45
 STOCK_TO_LEAVE = 0.0
 FEEDRATE = 500.0
 RPM = 12000
-TOOL_ID = "rhino-pocket-tool"
 CLEARANCE_PLANE_HEIGHT = 50
 
 
@@ -74,12 +75,6 @@ def z_level_from_points(points: list[tuple[float, float, float]]) -> float:
     return float(z_level)
 
 
-def closed_polyline_from_points(points: list[tuple[float, float, float]]) -> ClosedPolyline:
-    return ClosedPolyline(
-        vertices=[Point2D(x=float(x), y=float(y)) for x, y, _ in points[:-1]]
-    )
-
-
 def build_operation(points: list[tuple[float, float, float]]):
     if CUT_DEPTH <= 0:
         raise ValueError("CUT_DEPTH must be greater than 0.")
@@ -89,19 +84,36 @@ def build_operation(points: list[tuple[float, float, float]]):
     if CLEARANCE_PLANE_HEIGHT <= top_z:
         raise ValueError("CLEARANCE_PLANE_HEIGHT must be above the top of the cut.")
 
-    engine = ClosedPocketingEngine(
-        ring=closed_polyline_from_points(points),
-        tool=Tool(diameter=TOOL_DIAMETER, cutting_height=CUTTING_HEIGHT),
-        tool_id=TOOL_ID,
-        feedrate=FEEDRATE,
-        rpm=RPM,
-        clearance_plane_height=CLEARANCE_PLANE_HEIGHT,
-        z_bounds=(top_z, bottom_z),
-        z_step_height=Z_STEP_HEIGHT,
-        stepover=STEPOVER,
-        stock_to_leave=STOCK_TO_LEAVE,
+    tool = CylindricalTool(
+        name="Rhino pocket tool",
+        tool_number=1,
+        diameter=TOOL_DIAMETER,
+        cutting_height=CUTTING_HEIGHT,
+        shoulder_height=CUTTING_HEIGHT,
     )
-    return engine.process()
+    operation = Pocketing2dOp(
+        tool=tool,
+        feeds_and_speeds=FeedsAndSpeeds(cut_feedrate=FEEDRATE, spindle_rpm=RPM),
+        clearance=AbsoluteClearance(absolute_height=CLEARANCE_PLANE_HEIGHT),
+        levels=CAMLevels(
+            drive_geometry_position="at_bottom",
+            depth_of_cut=CUT_DEPTH,
+            max_stepdown=Z_STEP_HEIGHT,
+        ),
+        drive_geometry=PocketingDriveGeometry(
+            cut_areas=[
+                ClosedCurveSelection(
+                    plane_z=bottom_z,
+                    vertices=[Point2D(x=float(x), y=float(y)) for x, y, _ in points[:-1]],
+                )
+            ]
+        ),
+        cut_parameters=PocketingCutSettings(
+            stepover=StepoverMode(mode="percentage_of_tool_diameter", value=STEPOVER),
+            stock_to_leave=STOCK_TO_LEAVE,
+        ),
+    )
+    return cam_engine(CAMSetup(), operation).records
 
 
 def prompt_curve(client: FileClient):

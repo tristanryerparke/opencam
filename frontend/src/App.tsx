@@ -24,7 +24,7 @@ import {
   pocketOperationSchema,
 } from "@/lib/cam-schema";
 import { getBackendUrl } from "@/hooks/useBackendConnection";
-import type { ClosedCurveSelection, Pocket2DOperationConfig } from "@/generated/cam-types";
+import type { ClosedCurveSelection, Operation } from "@/generated/cam-types";
 import {
   sampleOperationRecords,
   type OperationRecord3D,
@@ -117,7 +117,7 @@ type CachedMeshPayload = {
 type SidebarSettingsPayload = {
   selectedOperationId: string | null;
   selectedTreeNodeId?: string;
-  operations: Pocket2DOperationConfig[];
+  operations: Operation[];
 };
 
 const CACHED_MESH_STORAGE_KEY = "opencam.cached-stl";
@@ -285,7 +285,7 @@ function geometryToMeshFaceSelection(geometry: ClosedCurveSelection, index: numb
   };
 }
 
-function operationToMeshFaceSelections(operation: Pocket2DOperationConfig | null): MeshFaceSelection[] {
+function operationToMeshFaceSelections(operation: Operation | null): MeshFaceSelection[] {
   const cutAreas = operation?.driveGeometry?.cutAreas;
   const geometries = Array.isArray(cutAreas) ? cutAreas : cutAreas ? [cutAreas] : [];
   return geometries.map(geometryToMeshFaceSelection);
@@ -346,7 +346,7 @@ function App() {
   const [faceSelectionMode, setFaceSelectionMode] = useState(false);
   const [selectedMeshFace, setSelectedMeshFace] = useState<MeshFaceSelection | null>(null);
   const [meshMaxZ, setMeshMaxZ] = useState<number | null>(null);
-  const [operations, setOperations] = useState<Pocket2DOperationConfig[]>([]);
+  const [operations, setOperations] = useState<Operation[]>([]);
   const [selectedOperationId, setSelectedOperationId] = useState<string | null>(null);
   const [selectedTreeNodeId, setSelectedTreeNodeId] = useState("setup-1");
   const [isOperationTypeDialogOpen, setIsOperationTypeDialogOpen] = useState(false);

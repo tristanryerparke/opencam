@@ -1,35 +1,47 @@
+from opencam.schemas.cam import CAMSetup
 from opencam.schemas.cl_data import FeedRatePositionRecord3D, RapidPositionRecord3D
-from opencam.schemas.models import ClosedPolyline, Point2D, Tool
-from opencam.services.operations.pocketing.operation import ClosedPocketingEngine
+from opencam.schemas.geometry_2d import Point2D
+from opencam.schemas.operations.base import AbsoluteClearance, CAMLevels, FeedsAndSpeeds
+from opencam.schemas.operations.pocketing import ClosedCurveSelection, Pocketing2dOp, PocketingCutSettings, PocketingDriveGeometry, StepoverMode
+from opencam.schemas.tools import CylindricalTool
+from opencam.services.cam_engine import cam_engine
 
 
-def rectangle_ring() -> ClosedPolyline:
-    return ClosedPolyline(
-        vertices=[
-            Point2D(x=0.0, y=0.0),
-            Point2D(x=10.0, y=0.0),
-            Point2D(x=10.0, y=6.0),
-            Point2D(x=0.0, y=6.0),
-        ]
+def rectangle_vertices() -> list[Point2D]:
+    return [
+        Point2D(x=0.0, y=0.0),
+        Point2D(x=10.0, y=0.0),
+        Point2D(x=10.0, y=6.0),
+        Point2D(x=0.0, y=6.0),
+    ]
+
+
+def generate_pocket(*, tmp_path, depth_of_cut: float):
+    tool = CylindricalTool(
+        id="tool-1",
+        name="2mm flat end mill",
+        tool_number=1,
+        diameter=2.0,
+        cutting_height=10.0,
+        shoulder_height=10.0,
     )
-
-
-def build_engine(*, z_bounds: tuple[float, float]) -> ClosedPocketingEngine:
-    return ClosedPocketingEngine(
-        ring=rectangle_ring(),
-        z_bounds=z_bounds,
-        z_step_height=1.0,
-        stepover=50.0,
-        stock_to_leave=0.0,
-        tool=Tool(diameter=2.0, cutting_height=10.0),
-        tool_id="tool-1",
-        feedrate=100.0,
-        rpm=1000,
+    operation = Pocketing2dOp(
+        tool=tool,
+        feeds_and_speeds=FeedsAndSpeeds(cut_feedrate=100.0, spindle_rpm=1000),
+        clearance=AbsoluteClearance(absolute_height=25.4),
+        levels=CAMLevels(depth_of_cut=depth_of_cut, max_stepdown=1.0),
+        drive_geometry=PocketingDriveGeometry(
+            cut_areas=[ClosedCurveSelection(plane_z=0.0, vertices=rectangle_vertices())]
+        ),
+        cut_parameters=PocketingCutSettings(
+            stepover=StepoverMode(mode="percentage_of_tool_diameter", value=50.0),
+        ),
     )
+    return cam_engine(CAMSetup(), operation)
 
 
-def test_pocketing_reuses_cut_geometry_across_layers():
-    records = build_engine(z_bounds=(0.0, -2.0)).process()
+def test_pocketing_reuses_cut_geometry_across_layers(tmp_path):
+    records = generate_pocket(tmp_path=tmp_path, depth_of_cut=2.0).records
     cuts = [record for record in records if isinstance(record, FeedRatePositionRecord3D)]
 
     expected_xy = [
@@ -57,8 +69,8 @@ def test_pocketing_reuses_cut_geometry_across_layers():
     assert isinstance(records[-1], RapidPositionRecord3D)
 
 
-def test_pocketing_starts_first_loop_at_midpoint_of_longest_nearby_edge():
-    records = build_engine(z_bounds=(0.0, -1.0)).process()
+def test_pocketing_starts_first_loop_at_midpoint_of_longest_nearby_edge(tmp_path):
+    records = generate_pocket(tmp_path=tmp_path, depth_of_cut=1.0).records
     cuts = [record for record in records if isinstance(record, FeedRatePositionRecord3D)]
 
     assert [(record.x, record.y, record.z) for record in cuts] == [

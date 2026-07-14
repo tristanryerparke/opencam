@@ -30,7 +30,7 @@ from opencam.schemas.cl_data import (
     PositionRecord3D,
     RapidPositionRecord3D,
 )
-from opencam.schemas.models import Tool
+from opencam.schemas.tools import CylindricalTool
 from opencam.services.simulation.swept_volume import SimulatedMeshFrame
 from opencam.services.simulation.swept_volume import load_stl_bounds
 from opencam.services.simulation.swept_volume import simulate_swept_milling_frames
@@ -74,7 +74,7 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Ignore frontend-paths.json and generate a synthetic raster operation instead of using frontend CL data.",
     )
-    parser.add_argument("--tool-id", default="rhino-demo-tool")
+    parser.add_argument("--tool-number", type=int, default=1)
     parser.add_argument("--tool-diameter", type=float, default=12.0)
     parser.add_argument("--cutting-height", type=float, default=30.0)
     parser.add_argument("--max-sim-distance", type=float, default=40.0)
@@ -159,12 +159,12 @@ def load_latest_frontend_operation(path_log: Path) -> OperationRecord3D | None:
     return None
 
 
-def operation_overlaps_stock(operation: OperationRecord3D, tool: Tool, mesh_bytes: bytes) -> bool:
+def operation_overlaps_stock(operation: OperationRecord3D, mesh_bytes: bytes) -> bool:
     if not operation.records:
         return False
 
     stock_min, stock_max = load_stl_bounds(mesh_bytes)
-    radius = float(tool.diameter) / 2.0
+    radius = float(operation.tool.diameter) / 2.0
     x_values = [float(record.x) for record in operation.records]
     y_values = [float(record.y) for record in operation.records]
     z_values = [float(record.z) for record in operation.records]
@@ -174,12 +174,12 @@ def operation_overlaps_stock(operation: OperationRecord3D, tool: Tool, mesh_byte
         or min(x_values) > stock_max[0] + radius
         or max(y_values) < stock_min[1] - radius
         or min(y_values) > stock_max[1] + radius
-        or max(z_values) < stock_min[2] - float(tool.cutting_height)
-        or min(z_values) > stock_max[2] + float(tool.cutting_height)
+        or max(z_values) < stock_min[2] - float(operation.tool.cutting_height)
+        or min(z_values) > stock_max[2] + float(operation.tool.cutting_height)
     )
 
 
-def build_synthetic_raster_operation(mesh_bytes: bytes, tool: Tool, tool_id: str) -> OperationRecord3D:
+def build_synthetic_raster_operation(mesh_bytes: bytes, tool: CylindricalTool) -> OperationRecord3D:
     stock_min, stock_max = load_stl_bounds(mesh_bytes)
     x_min, y_min, z_min = stock_min.tolist()
     x_max, y_max, z_max = stock_max.tolist()
@@ -217,21 +217,16 @@ def build_synthetic_raster_operation(mesh_bytes: bytes, tool: Tool, tool_id: str
 
     records.append(RapidPositionRecord3D(x=float(records[-1].x), y=float(records[-1].y), z=float(clearance_z), comment="retract"))
     return OperationRecord3D(
-        tool_id=tool_id,
+        tool=tool,
         clearance_plane_height=float(clearance_z),
         records=records,
     )
 
 
-def load_operation(args: argparse.Namespace, mesh_bytes: bytes) -> tuple[OperationRecord3D, Tool]:
-    tool = Tool(
-        diameter=positive_float(args.tool_diameter, "tool diameter"),
-        cutting_height=positive_float(args.cutting_height, "cutting height"),
-    )
-
+def load_operation(args: argparse.Namespace, mesh_bytes: bytes) -> OperationRecord3D:
     if args.operation_json is not None:
         print(f"Loading operation from {args.operation_json}")
-        return load_operation_from_json(args.operation_json), tool
+        return load_operation_from_json(args.operation_json)
 
     if not args.ignore_frontend_path_log:
         operation = load_latest_frontend_operation(args.frontend_path_log)
@@ -241,17 +236,25 @@ def load_operation(args: argparse.Namespace, mesh_bytes: bytes) -> tuple[Operati
                 f"{args.frontend_path_log}. Run the frontend operation generation first, "
                 "or pass --ignore-frontend-path-log to use a synthetic raster cut."
             )
-        if not operation_overlaps_stock(operation, tool, mesh_bytes):
+        if not operation_overlaps_stock(operation, mesh_bytes):
             raise ValueError(
                 "Latest frontend operation records do not overlap the selected STL bounds. "
                 "Use --mesh assets/2.5D_Part.stl, regenerate frontend-paths.json for this mesh, "
                 "or pass --ignore-frontend-path-log to use a synthetic raster cut."
             )
         print(f"Using latest frontend operation records from {args.frontend_path_log}")
-        return operation, tool
+        return operation
 
+    cutting_height = positive_float(args.cutting_height, "cutting height")
+    tool = CylindricalTool(
+        name="Rhino demo tool",
+        tool_number=args.tool_number,
+        diameter=positive_float(args.tool_diameter, "tool diameter"),
+        cutting_height=cutting_height,
+        shoulder_height=cutting_height,
+    )
     print("Using synthetic raster operation over the STL bounds")
-    return build_synthetic_raster_operation(mesh_bytes, tool, args.tool_id), tool
+    return build_synthetic_raster_operation(mesh_bytes, tool)
 
 
 def load_trimesh_from_bytes(mesh_bytes: bytes, file_type: str) -> trimesh.Trimesh | None:
@@ -522,7 +525,8 @@ def main() -> None:
         raise FileNotFoundError(mesh_path)
 
     mesh_bytes = mesh_path.read_bytes()
-    operation, tool = load_operation(args, mesh_bytes)
+    operation = load_operation(args, mesh_bytes)
+    tool = operation.tool
     if not operation.records:
         raise ValueError("Operation has no records.")
 
@@ -539,7 +543,6 @@ def main() -> None:
     tool_mesh_bytes, chunks, frames = simulate_swept_milling_frames(
         mesh_bytes,
         operation,
-        tool,
         max_sim_distance=positive_float(args.max_sim_distance, "max sim distance"),
         chunk_padding=(
             max(float(args.chunk_padding_x), 0.0),

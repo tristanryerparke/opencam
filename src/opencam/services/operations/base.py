@@ -7,15 +7,19 @@ from opencam.schemas.cl_data import (
     PositionRecord3D,
     RapidPositionRecord3D,
 )
-from opencam.schemas.models import Tool
+from opencam.schemas.tools import CylindricalTool, Tool
 
 
 class BaseOperation(CamelBaseModel):
     tool: Tool
-    tool_id: str
     feedrate: float
     rpm: int
     clearance_plane_height: float = 25.4
+
+    def require_cylindrical_tool(self) -> CylindricalTool:
+        if not isinstance(self.tool, CylindricalTool):
+            raise NotImplementedError(f"Tool type {self.tool.type!r} is not supported for operation generation.")
+        return self.tool
 
     def compute_layer_heights(
         self,

@@ -1,7 +1,7 @@
 import { camSchemaBundle } from "@/generated/cam-schemas";
 import type {
   GenerateToolpathRequest,
-  Pocket2DOperationConfig,
+  Operation,
 } from "@/generated/cam-types";
 import type { MeshFaceSelection } from "@/components/polyline-viewer";
 
@@ -396,14 +396,14 @@ export function createPocketOperationDraft(
   operationIndex: number,
   selection: MeshFaceSelection | null,
   _meshMaxZ: number | null,
-  existingOperation?: Pocket2DOperationConfig,
+  existingOperation?: Operation,
 ): DraftObject {
   const actualOperation =
     existingOperation ??
     ({
       ...(materializeDefaults(pocketOperationSchema, pocketOperationSchema) as DraftObject),
       id: crypto.randomUUID(),
-      kind: "pocket2d",
+      type: "pocketing_2d",
       displayName: `2D Pocket ${operationIndex}`,
     } satisfies DraftObject);
 
@@ -446,12 +446,12 @@ export function applySelectionToPocketOperationDraft(
   ) as DraftObject;
 }
 
-export function parsePocketOperationDraft(draft: DraftObject): Pocket2DOperationConfig {
-  return parseDraftValue(pocketOperationSchema, draft, pocketOperationSchema, "Operation") as Pocket2DOperationConfig;
+export function parsePocketOperationDraft(draft: DraftObject): Operation {
+  return parseDraftValue(pocketOperationSchema, draft, pocketOperationSchema, "Operation") as Operation;
 }
 
 export function buildGenerateToolpathRequest(
-  operation: Pocket2DOperationConfig,
+  operation: Operation,
   meshMaxZ: number | null,
 ): GenerateToolpathRequest {
   return {

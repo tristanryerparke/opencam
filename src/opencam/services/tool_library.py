@@ -5,10 +5,14 @@ from pathlib import Path
 from threading import Lock
 from typing import Any
 
+from pydantic import TypeAdapter
 from tinydb import Query, TinyDB
 from tinydb.table import Table
 
-from opencam.schemas.tool_library import Material, Tool, ToolMaterialFeedsAndSpeeds
+from opencam.schemas.operations.base import Material
+from opencam.schemas.tools import Tool
+
+TOOL_ADAPTER = TypeAdapter(Tool)
 
 DEFAULT_TOOL_LIBRARY_PATH = Path(__file__).resolve().parents[3] / "opencam-tinydb.json"
 TOOL_LIBRARY_PATH_ENV = "OPENCAM_TINYDB_PATH"
@@ -28,7 +32,6 @@ class ToolLibrary:
         self._lock = Lock()
         self._tools = self._db.table("tools")
         self._materials = self._db.table("materials")
-        self._tool_material_feeds_and_speeds = self._db.table("tool_material_feeds_and_speeds")
 
     def close(self) -> None:
         if self._owns_db:
@@ -76,35 +79,9 @@ class ToolLibrary:
             self._insert_unique_id(self._materials, material.model_dump(mode="json", by_alias=True))
             return material
 
-    def list_tool_material_feeds_and_speeds(self) -> list[ToolMaterialFeedsAndSpeeds]:
-        with self._lock:
-            return [ToolMaterialFeedsAndSpeeds.model_validate(row) for row in self._tool_material_feeds_and_speeds.all()]
-
-    def get_tool_material_feeds_and_speeds(self, record_id: str) -> ToolMaterialFeedsAndSpeeds | None:
-        with self._lock:
-            row = self._get_by_id(self._tool_material_feeds_and_speeds, record_id)
-            return ToolMaterialFeedsAndSpeeds.model_validate(row) if row is not None else None
-
-    def add_tool_material_feeds_and_speeds(
-        self,
-        record: ToolMaterialFeedsAndSpeeds,
-    ) -> ToolMaterialFeedsAndSpeeds:
-        with self._lock:
-            if self._get_by_id(self._tools, record.tool_id) is None:
-                raise ValueError(f"Tool {record.tool_id!r} does not exist.")
-            if self._get_by_id(self._materials, record.material_id) is None:
-                raise ValueError(f"Material {record.material_id!r} does not exist.")
-            self._insert_unique_id(
-                self._tool_material_feeds_and_speeds,
-                record.model_dump(mode="json", by_alias=True),
-            )
-            return record
-
     @staticmethod
     def _parse_tool_row(row: dict[str, Any]) -> Tool:
-        if "name" not in row:
-            row = {**row, "name": "Untitled Tool"}
-        return Tool.model_validate(row)
+        return TOOL_ADAPTER.validate_python(row)
 
     @staticmethod
     def _get_by_id(table: Table, record_id: str) -> dict[str, Any] | None:

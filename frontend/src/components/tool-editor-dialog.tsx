@@ -15,31 +15,33 @@ import { Input } from "t-components/input";
 import { Label } from "t-components/label";
 import NumberInput from "@/components/ui/number-input";
 import { RadioGroup, RadioGroupItem } from "t-components/radio-group";
-import type { ToolLibraryTool, ToolLibraryToolInput } from "@/lib/tool-library-api";
-
-type ToolNumberMode = "number" | "manual";
+import type { ToolLibraryTool, ToolLibraryToolInput, ToolType } from "@/lib/tool-library-api";
 
 type ToolFormState = {
   id: string;
   name: string;
+  type: ToolType;
   diameter: number | undefined;
-  fluteLength: number | undefined;
-  shoulderLength: number | undefined;
-  toolNumberMode: ToolNumberMode;
+  cuttingHeight: number | undefined;
+  shoulderHeight: number | undefined;
+  numFlutes: number | undefined;
   toolNumber: number | undefined;
+  manualChange: boolean;
+  tipAngle: number | undefined;
 };
 
 function toolToFormState(tool?: ToolLibraryTool | null): ToolFormState {
-  const numberedToolValue = typeof tool?.toolNumber === "number" ? tool.toolNumber : undefined;
-
   return {
     id: tool?.id ?? "",
     name: tool?.name ?? "",
+    type: tool?.type ?? "cylinder",
     diameter: tool?.diameter,
-    fluteLength: tool?.fluteLength,
-    shoulderLength: tool?.shoulderLength,
-    toolNumberMode: tool?.toolNumber === "manual" ? "manual" : "number",
-    toolNumber: numberedToolValue ?? 1,
+    cuttingHeight: tool?.cuttingHeight,
+    shoulderHeight: tool?.shoulderHeight,
+    numFlutes: tool?.numFlutes ?? 2,
+    toolNumber: tool?.toolNumber ?? 1,
+    manualChange: tool?.manualChange ?? false,
+    tipAngle: tool?.type === "v" ? tool.tipAngle : undefined,
   };
 }
 
@@ -50,41 +52,42 @@ function parsePositiveNumber(value: number | undefined, label: string) {
   return value;
 }
 
-function parseToolFormState(form: ToolFormState, mode: "add" | "edit"): ToolLibraryToolInput | ToolLibraryTool {
-  let toolNumber: ToolLibraryTool["toolNumber"];
-
-  if (form.toolNumberMode === "manual") {
-    toolNumber = "manual";
-  } else {
-    const parsedToolNumber = form.toolNumber;
-    if (!Number.isInteger(parsedToolNumber) || parsedToolNumber === undefined || parsedToolNumber < 1) {
-      throw new Error("Tool number must be a positive integer.");
-    }
-    toolNumber = parsedToolNumber;
+function parseToolNumber(value: number | undefined) {
+  if (!Number.isInteger(value) || value === undefined || value < 1) {
+    throw new Error("Tool number must be a positive integer.");
   }
+  return value;
+}
 
+function parseToolFormState(form: ToolFormState, mode: "add" | "edit"): ToolLibraryToolInput | ToolLibraryTool {
   const name = form.name.trim();
   if (!name) {
     throw new Error("Tool name is required.");
   }
 
-  const parsed = {
+  const common = {
     name,
+    type: form.type,
     diameter: parsePositiveNumber(form.diameter, "Diameter"),
-    fluteLength: parsePositiveNumber(form.fluteLength, "Flute length"),
-    shoulderLength: parsePositiveNumber(form.shoulderLength, "Shoulder length"),
-    toolNumber,
+    cuttingHeight: parsePositiveNumber(form.cuttingHeight, "Cutting height"),
+    shoulderHeight: parsePositiveNumber(form.shoulderHeight, "Shoulder height"),
+    numFlutes: parsePositiveNumber(form.numFlutes, "Flute count"),
+    toolNumber: parseToolNumber(form.toolNumber),
+    manualChange: form.manualChange,
   };
+  const parsed = form.type === "v"
+    ? { ...common, type: "v" as const, tipAngle: parsePositiveNumber(form.tipAngle, "Tip angle") }
+    : { ...common, type: form.type as "cylinder" | "ball" };
 
   const id = form.id.trim();
   if (mode === "edit") {
     if (!id) {
       throw new Error("Unable to edit this tool.");
     }
-    return { id, ...parsed };
+    return { id, ...parsed } as ToolLibraryTool;
   }
 
-  return id ? { id, ...parsed } : parsed;
+  return id ? { id, ...parsed } as ToolLibraryToolInput : parsed as ToolLibraryToolInput;
 }
 
 export type ToolEditorDialogProps = {
@@ -119,15 +122,6 @@ export function ToolEditorDialog({
     setValidationMessage(null);
   }
 
-  function updateToolNumberMode(toolNumberMode: ToolNumberMode) {
-    setForm((current) => ({
-      ...current,
-      toolNumberMode,
-      toolNumber: toolNumberMode === "number" && current.toolNumber === undefined ? 1 : current.toolNumber,
-    }));
-    setValidationMessage(null);
-  }
-
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -143,9 +137,7 @@ export function ToolEditorDialog({
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{mode === "add" ? "Add tool" : "Edit tool"}</DialogTitle>
-          <DialogDescription>
-            Configure the tool dimensions used by backend tool-library records.
-          </DialogDescription>
+          <DialogDescription>Configure a tool-library record.</DialogDescription>
         </DialogHeader>
 
         <form className="space-y-4" onSubmit={handleSubmit}>
@@ -159,92 +151,63 @@ export function ToolEditorDialog({
             />
           </div>
 
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <div className="space-y-1">
-              <Label>Diameter</Label>
-              <NumberInput
-                value={form.diameter}
-                min={0}
-                allowNegative={false}
-                decimalScale={3}
-                placeholder="e.g. 6.35"
-                onValueChange={(value) => updateField("diameter", value)}
-              />
-            </div>
-            <div className="space-y-1">
-              <Label>Flute length</Label>
-              <NumberInput
-                value={form.fluteLength}
-                min={0}
-                allowNegative={false}
-                decimalScale={3}
-                placeholder="Flute length"
-                onValueChange={(value) => updateField("fluteLength", value)}
-              />
-            </div>
-            <div className="space-y-1">
-              <Label>Shoulder length</Label>
-              <NumberInput
-                value={form.shoulderLength}
-                min={0}
-                allowNegative={false}
-                decimalScale={3}
-                placeholder="Shoulder length"
-                onValueChange={(value) => updateField("shoulderLength", value)}
-              />
-            </div>
-          </div>
-
-          <GroupBox title="Tool change">
+          <GroupBox title="Tool type">
             <RadioGroup
-              value={form.toolNumberMode}
-              onValueChange={(value) => updateToolNumberMode(value as ToolNumberMode)}
-              className="gap-1"
+              value={form.type}
+              onValueChange={(value) => updateField("type", value as ToolType)}
+              className="flex gap-4"
             >
-              <div
-                className="flex h-7 cursor-pointer items-center gap-2 px-0"
-                onPointerDownCapture={() => updateToolNumberMode("number")}
-              >
-                <RadioGroupItem id="tool-number-mode-number" value="number" />
-                <div className="flex flex-1 items-center justify-between gap-2">
-                  <Label htmlFor="tool-number-mode-number" className="cursor-pointer">
-                    Tool Number
-                  </Label>
-                  <IntegerInput
-                    value={form.toolNumber}
-                    min={1}
-                    step={1}
-                    allowNegative={false}
-                    placeholder="1"
-                    disabled={form.toolNumberMode === "manual"}
-                    onValueChange={(value) => updateField("toolNumber", value)}
-                    className={`max-w-24 flex-none ${form.toolNumberMode === "manual" ? "pointer-events-none" : ""}`}
-                  />
+              {(["cylinder", "ball", "v"] as const).map((type) => (
+                <div key={type} className="flex items-center gap-2">
+                  <RadioGroupItem id={`tool-type-${type}`} value={type} />
+                  <Label htmlFor={`tool-type-${type}`} className="capitalize">{type}</Label>
                 </div>
-              </div>
-              <div
-                className="flex h-7 cursor-pointer items-center gap-2 px-0"
-                onPointerDownCapture={() => updateToolNumberMode("manual")}
-              >
-                <RadioGroupItem id="tool-number-mode-manual" value="manual" />
-                <Label htmlFor="tool-number-mode-manual" className="cursor-pointer">
-                  Manual Tool Change
-                </Label>
-              </div>
+              ))}
             </RadioGroup>
           </GroupBox>
 
-          {validationMessage ? (
-            <p className="text-xs leading-5 text-destructive">{validationMessage}</p>
-          ) : null}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="space-y-1">
+              <Label>Diameter</Label>
+              <NumberInput value={form.diameter} min={0} allowNegative={false} decimalScale={3} onValueChange={(value) => updateField("diameter", value)} />
+            </div>
+            <div className="space-y-1">
+              <Label>Cutting height</Label>
+              <NumberInput value={form.cuttingHeight} min={0} allowNegative={false} decimalScale={3} onValueChange={(value) => updateField("cuttingHeight", value)} />
+            </div>
+            <div className="space-y-1">
+              <Label>Shoulder height</Label>
+              <NumberInput value={form.shoulderHeight} min={0} allowNegative={false} decimalScale={3} onValueChange={(value) => updateField("shoulderHeight", value)} />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="space-y-1">
+              <Label>Flutes</Label>
+              <NumberInput value={form.numFlutes} min={0} allowNegative={false} decimalScale={0} onValueChange={(value) => updateField("numFlutes", value)} />
+            </div>
+            <div className="space-y-1">
+              <Label>Tool number</Label>
+              <IntegerInput value={form.toolNumber} min={1} step={1} allowNegative={false} onValueChange={(value) => updateField("toolNumber", value)} />
+            </div>
+            {form.type === "v" ? (
+              <div className="space-y-1">
+                <Label>Tip angle</Label>
+                <NumberInput value={form.tipAngle} min={0} allowNegative={false} decimalScale={3} onValueChange={(value) => updateField("tipAngle", value)} />
+              </div>
+            ) : null}
+          </div>
+
+          <label className="flex items-center gap-2 text-sm">
+            <input type="checkbox" checked={form.manualChange} onChange={(event) => updateField("manualChange", event.target.checked)} />
+            Manual tool change
+          </label>
+
+          {validationMessage ? <p className="text-xs leading-5 text-destructive">{validationMessage}</p> : null}
 
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={isPending}>
-              {isPending ? "Saving..." : mode === "add" ? "Add tool" : "Save changes"}
-            </Button>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+            <Button type="submit" disabled={isPending}>{isPending ? "Saving..." : mode === "add" ? "Add tool" : "Save changes"}</Button>
           </DialogFooter>
         </form>
       </DialogContent>

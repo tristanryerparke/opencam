@@ -11,7 +11,7 @@ import trimesh
 from manifold3d import Error, Manifold, Mesh64, OpType
 
 from opencam.schemas.cl_data import OperationRecord3D, PositionRecord3D
-from opencam.schemas.models import Tool
+from opencam.schemas.tools import CylindricalTool
 from opencam.services.mesh.planar_region_2d_reduction import simplify_mesh_data_2d
 
 TOOL_SEGMENTS = 16
@@ -1008,13 +1008,16 @@ def combine_glb_meshes(mesh_bytes_list: list[bytes]) -> trimesh.Trimesh:
 def simulate_swept_milling_frames(
     mesh_input: bytes | str,
     operation: OperationRecord3D,
-    tool: Tool,
     *,
     max_sim_distance: float = 30.0,
     chunk_padding: tuple[float, float, float] = DEFAULT_CHUNK_PADDING,
     progress_callback: Callable[[int, int, str], None] | None = None,
     should_cancel: Callable[[], bool] | None = None,
 ) -> tuple[bytes, list[SimulatedChunk], list[SimulatedMeshFrame]]:
+    if not isinstance(operation.tool, CylindricalTool):
+        raise NotImplementedError(f"Tool type {operation.tool.type!r} is not supported for swept simulation.")
+    tool = operation.tool
+
     stock_original_id = Manifold.reserve_ids(1)
     chunk_boundary_original_id = Manifold.reserve_ids(1)
     stock_like_original_ids = {stock_original_id, chunk_boundary_original_id}
@@ -1296,8 +1299,8 @@ def simulate_swept_milling_frames(
     return tool_mesh_bytes, chunks, frames
 
 
-def simulate_swept_milling(mesh_data_url: str, operation: OperationRecord3D, tool: Tool) -> str:
-    _tool_mesh_bytes, chunks, frames = simulate_swept_milling_frames(mesh_data_url, operation, tool)
+def simulate_swept_milling(mesh_data_url: str, operation: OperationRecord3D) -> str:
+    _tool_mesh_bytes, chunks, frames = simulate_swept_milling_frames(mesh_data_url, operation)
     final_frame = frames[-1]
     final_chunk = chunks[final_frame.chunk_index]
     final_mesh = combine_glb_meshes(

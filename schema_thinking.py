@@ -11,7 +11,7 @@ from typing import Literal, Annotated
 import numpy as np
 
 from opencam.schemas.base import CamelBaseModel
-from opencam.schemas.models import ClosedPolyline, Point2D
+from opencam.schemas.geometry_2d import ClosedPolyline, Point2D
 
 
 
@@ -48,16 +48,6 @@ class Material(CamelBaseModel):
 
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     name: str
-
-class Tool(CamelBaseModel):
-    """DB-backed tool record."""
-
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    diameter: float
-    flute_length: float
-    shoulder_length: float
-    tool_number: int | Literal["manual"]
-
 
 
 class ToolMaterialFeedsAndSpeeds(CamelBaseModel):

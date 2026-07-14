@@ -25,6 +25,59 @@ export const camSchemaBundle = {
         "title": "AbsoluteClearance",
         "type": "object"
       },
+      "BallTool": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "toolNumber": {
+            "title": "Toolnumber",
+            "type": "integer"
+          },
+          "manualChange": {
+            "default": false,
+            "title": "Manualchange",
+            "type": "boolean"
+          },
+          "diameter": {
+            "title": "Diameter",
+            "type": "number"
+          },
+          "cuttingHeight": {
+            "title": "Cuttingheight",
+            "type": "number"
+          },
+          "shoulderHeight": {
+            "title": "Shoulderheight",
+            "type": "number"
+          },
+          "numFlutes": {
+            "default": 2,
+            "title": "Numflutes",
+            "type": "number"
+          },
+          "type": {
+            "const": "ball",
+            "default": "ball",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "toolNumber",
+          "diameter",
+          "cuttingHeight",
+          "shoulderHeight"
+        ],
+        "title": "BallTool",
+        "type": "object"
+      },
       "CAMAdvancedParameters": {
         "properties": {
           "operationsSorting": {
@@ -82,7 +135,7 @@ export const camSchemaBundle = {
         "title": "CAMLevels",
         "type": "object"
       },
-      "CamSetupConfig": {
+      "CAMSetup": {
         "properties": {
           "origin": {
             "$ref": "#/$defs/SetupOrigin",
@@ -97,7 +150,7 @@ export const camSchemaBundle = {
             "title": "Stock"
           }
         },
-        "title": "CamSetupConfig",
+        "title": "CAMSetup",
         "type": "object",
         "x-opencam": {
           "hidden": true
@@ -133,6 +186,59 @@ export const camSchemaBundle = {
           "vertices"
         ],
         "title": "ClosedCurveSelection",
+        "type": "object"
+      },
+      "CylindricalTool": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "toolNumber": {
+            "title": "Toolnumber",
+            "type": "integer"
+          },
+          "manualChange": {
+            "default": false,
+            "title": "Manualchange",
+            "type": "boolean"
+          },
+          "diameter": {
+            "title": "Diameter",
+            "type": "number"
+          },
+          "cuttingHeight": {
+            "title": "Cuttingheight",
+            "type": "number"
+          },
+          "shoulderHeight": {
+            "title": "Shoulderheight",
+            "type": "number"
+          },
+          "numFlutes": {
+            "default": 2,
+            "title": "Numflutes",
+            "type": "number"
+          },
+          "type": {
+            "const": "cylinder",
+            "default": "cylinder",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "toolNumber",
+          "diameter",
+          "cuttingHeight",
+          "shoulderHeight"
+        ],
+        "title": "CylindricalTool",
         "type": "object"
       },
       "FeedsAndSpeeds": {
@@ -192,21 +298,6 @@ export const camSchemaBundle = {
         "title": "FeedsAndSpeeds",
         "type": "object"
       },
-      "ManualFeedsAndSpeedsSelection": {
-        "properties": {
-          "mode": {
-            "const": "manual",
-            "default": "manual",
-            "title": "Mode",
-            "type": "string"
-          },
-          "feedsAndSpeeds": {
-            "$ref": "#/$defs/FeedsAndSpeeds"
-          }
-        },
-        "title": "ManualFeedsAndSpeedsSelection",
-        "type": "object"
-      },
       "PartMaxZPlusOffsetClearance": {
         "properties": {
           "clearanceHeightType": {
@@ -228,8 +319,17 @@ export const camSchemaBundle = {
         "title": "PartMaxZPlusOffsetClearance",
         "type": "object"
       },
-      "Pocket2DOperationConfig": {
+      "Pocketing2dOp": {
         "properties": {
+          "type": {
+            "const": "pocketing_2d",
+            "default": "pocketing_2d",
+            "title": "Type",
+            "type": "string",
+            "x-opencam": {
+              "hidden": true
+            }
+          },
           "id": {
             "title": "Operation ID",
             "type": "string",
@@ -245,30 +345,33 @@ export const camSchemaBundle = {
               "hidden": true
             }
           },
-          "toolId": {
-            "minLength": 1,
+          "tool": {
+            "discriminator": {
+              "mapping": {
+                "ball": "#/$defs/BallTool",
+                "cylinder": "#/$defs/CylindricalTool",
+                "v": "#/$defs/VTool"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/CylindricalTool"
+              },
+              {
+                "$ref": "#/$defs/BallTool"
+              },
+              {
+                "$ref": "#/$defs/VTool"
+              }
+            ],
             "title": "Tool",
-            "type": "string",
             "x-opencam": {
               "widget": "tool-select"
             }
           },
           "feedsAndSpeeds": {
-            "discriminator": {
-              "mapping": {
-                "manual": "#/$defs/ManualFeedsAndSpeedsSelection",
-                "tool_material": "#/$defs/ToolMaterialFeedsAndSpeedsSelection"
-              },
-              "propertyName": "mode"
-            },
-            "oneOf": [
-              {
-                "$ref": "#/$defs/ManualFeedsAndSpeedsSelection"
-              },
-              {
-                "$ref": "#/$defs/ToolMaterialFeedsAndSpeedsSelection"
-              }
-            ],
+            "$ref": "#/$defs/FeedsAndSpeeds",
             "title": "Feeds and speeds"
           },
           "clearance": {
@@ -301,15 +404,6 @@ export const camSchemaBundle = {
             "$ref": "#/$defs/CAMAdvancedParameters",
             "title": "Advanced"
           },
-          "kind": {
-            "const": "pocket2d",
-            "default": "pocket2d",
-            "title": "Operation kind",
-            "type": "string",
-            "x-opencam": {
-              "hidden": true
-            }
-          },
           "driveGeometry": {
             "$ref": "#/$defs/PocketingDriveGeometry",
             "title": "Drive geometry"
@@ -320,10 +414,10 @@ export const camSchemaBundle = {
           }
         },
         "required": [
-          "toolId",
+          "tool",
           "driveGeometry"
         ],
-        "title": "Pocket2DOperationConfig",
+        "title": "Pocketing2dOp",
         "type": "object"
       },
       "PocketingCutSettings": {
@@ -501,50 +595,72 @@ export const camSchemaBundle = {
         "title": "StockMaxZPlusOffsetClearance",
         "type": "object"
       },
-      "ToolMaterialFeedsAndSpeedsSelection": {
+      "VTool": {
         "properties": {
-          "mode": {
-            "const": "tool_material",
-            "default": "tool_material",
-            "title": "Mode",
+          "id": {
+            "title": "Id",
             "type": "string"
           },
-          "materialId": {
-            "minLength": 1,
-            "title": "Materialid",
+          "name": {
+            "title": "Name",
             "type": "string"
           },
-          "toolMaterialFeedsAndSpeedsId": {
-            "minLength": 1,
-            "title": "Toolmaterialfeedsandspeedsid",
+          "toolNumber": {
+            "title": "Toolnumber",
+            "type": "integer"
+          },
+          "manualChange": {
+            "default": false,
+            "title": "Manualchange",
+            "type": "boolean"
+          },
+          "diameter": {
+            "title": "Diameter",
+            "type": "number"
+          },
+          "cuttingHeight": {
+            "title": "Cuttingheight",
+            "type": "number"
+          },
+          "shoulderHeight": {
+            "title": "Shoulderheight",
+            "type": "number"
+          },
+          "numFlutes": {
+            "default": 2,
+            "title": "Numflutes",
+            "type": "number"
+          },
+          "type": {
+            "const": "v",
+            "default": "v",
+            "title": "Type",
             "type": "string"
+          },
+          "tipAngle": {
+            "title": "Tipangle",
+            "type": "number"
           }
         },
         "required": [
-          "materialId",
-          "toolMaterialFeedsAndSpeedsId"
+          "name",
+          "toolNumber",
+          "diameter",
+          "cuttingHeight",
+          "shoulderHeight",
+          "tipAngle"
         ],
-        "title": "ToolMaterialFeedsAndSpeedsSelection",
+        "title": "VTool",
         "type": "object"
       }
     },
     "properties": {
       "setup": {
-        "$ref": "#/$defs/CamSetupConfig",
+        "$ref": "#/$defs/CAMSetup",
         "title": "Setup"
       },
       "operation": {
-        "discriminator": {
-          "mapping": {
-            "pocket2d": "#/$defs/Pocket2DOperationConfig"
-          },
-          "propertyName": "kind"
-        },
-        "oneOf": [
-          {
-            "$ref": "#/$defs/Pocket2DOperationConfig"
-          }
-        ],
+        "$ref": "#/$defs/Pocketing2dOp",
         "title": "Operation"
       }
     },
@@ -574,6 +690,59 @@ export const camSchemaBundle = {
           }
         },
         "title": "AbsoluteClearance",
+        "type": "object"
+      },
+      "BallTool": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "toolNumber": {
+            "title": "Toolnumber",
+            "type": "integer"
+          },
+          "manualChange": {
+            "default": false,
+            "title": "Manualchange",
+            "type": "boolean"
+          },
+          "diameter": {
+            "title": "Diameter",
+            "type": "number"
+          },
+          "cuttingHeight": {
+            "title": "Cuttingheight",
+            "type": "number"
+          },
+          "shoulderHeight": {
+            "title": "Shoulderheight",
+            "type": "number"
+          },
+          "numFlutes": {
+            "default": 2,
+            "title": "Numflutes",
+            "type": "number"
+          },
+          "type": {
+            "const": "ball",
+            "default": "ball",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "toolNumber",
+          "diameter",
+          "cuttingHeight",
+          "shoulderHeight"
+        ],
+        "title": "BallTool",
         "type": "object"
       },
       "CAMAdvancedParameters": {
@@ -665,6 +834,59 @@ export const camSchemaBundle = {
         "title": "ClosedCurveSelection",
         "type": "object"
       },
+      "CylindricalTool": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "toolNumber": {
+            "title": "Toolnumber",
+            "type": "integer"
+          },
+          "manualChange": {
+            "default": false,
+            "title": "Manualchange",
+            "type": "boolean"
+          },
+          "diameter": {
+            "title": "Diameter",
+            "type": "number"
+          },
+          "cuttingHeight": {
+            "title": "Cuttingheight",
+            "type": "number"
+          },
+          "shoulderHeight": {
+            "title": "Shoulderheight",
+            "type": "number"
+          },
+          "numFlutes": {
+            "default": 2,
+            "title": "Numflutes",
+            "type": "number"
+          },
+          "type": {
+            "const": "cylinder",
+            "default": "cylinder",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "toolNumber",
+          "diameter",
+          "cuttingHeight",
+          "shoulderHeight"
+        ],
+        "title": "CylindricalTool",
+        "type": "object"
+      },
       "FeedsAndSpeeds": {
         "properties": {
           "spindleRpm": {
@@ -720,21 +942,6 @@ export const camSchemaBundle = {
           }
         },
         "title": "FeedsAndSpeeds",
-        "type": "object"
-      },
-      "ManualFeedsAndSpeedsSelection": {
-        "properties": {
-          "mode": {
-            "const": "manual",
-            "default": "manual",
-            "title": "Mode",
-            "type": "string"
-          },
-          "feedsAndSpeeds": {
-            "$ref": "#/$defs/FeedsAndSpeeds"
-          }
-        },
-        "title": "ManualFeedsAndSpeedsSelection",
         "type": "object"
       },
       "PartMaxZPlusOffsetClearance": {
@@ -866,34 +1073,75 @@ export const camSchemaBundle = {
         "title": "StockMaxZPlusOffsetClearance",
         "type": "object"
       },
-      "ToolMaterialFeedsAndSpeedsSelection": {
+      "VTool": {
         "properties": {
-          "mode": {
-            "const": "tool_material",
-            "default": "tool_material",
-            "title": "Mode",
+          "id": {
+            "title": "Id",
             "type": "string"
           },
-          "materialId": {
-            "minLength": 1,
-            "title": "Materialid",
+          "name": {
+            "title": "Name",
             "type": "string"
           },
-          "toolMaterialFeedsAndSpeedsId": {
-            "minLength": 1,
-            "title": "Toolmaterialfeedsandspeedsid",
+          "toolNumber": {
+            "title": "Toolnumber",
+            "type": "integer"
+          },
+          "manualChange": {
+            "default": false,
+            "title": "Manualchange",
+            "type": "boolean"
+          },
+          "diameter": {
+            "title": "Diameter",
+            "type": "number"
+          },
+          "cuttingHeight": {
+            "title": "Cuttingheight",
+            "type": "number"
+          },
+          "shoulderHeight": {
+            "title": "Shoulderheight",
+            "type": "number"
+          },
+          "numFlutes": {
+            "default": 2,
+            "title": "Numflutes",
+            "type": "number"
+          },
+          "type": {
+            "const": "v",
+            "default": "v",
+            "title": "Type",
             "type": "string"
+          },
+          "tipAngle": {
+            "title": "Tipangle",
+            "type": "number"
           }
         },
         "required": [
-          "materialId",
-          "toolMaterialFeedsAndSpeedsId"
+          "name",
+          "toolNumber",
+          "diameter",
+          "cuttingHeight",
+          "shoulderHeight",
+          "tipAngle"
         ],
-        "title": "ToolMaterialFeedsAndSpeedsSelection",
+        "title": "VTool",
         "type": "object"
       }
     },
     "properties": {
+      "type": {
+        "const": "pocketing_2d",
+        "default": "pocketing_2d",
+        "title": "Type",
+        "type": "string",
+        "x-opencam": {
+          "hidden": true
+        }
+      },
       "id": {
         "title": "Operation ID",
         "type": "string",
@@ -909,30 +1157,33 @@ export const camSchemaBundle = {
           "hidden": true
         }
       },
-      "toolId": {
-        "minLength": 1,
+      "tool": {
+        "discriminator": {
+          "mapping": {
+            "ball": "#/$defs/BallTool",
+            "cylinder": "#/$defs/CylindricalTool",
+            "v": "#/$defs/VTool"
+          },
+          "propertyName": "type"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/CylindricalTool"
+          },
+          {
+            "$ref": "#/$defs/BallTool"
+          },
+          {
+            "$ref": "#/$defs/VTool"
+          }
+        ],
         "title": "Tool",
-        "type": "string",
         "x-opencam": {
           "widget": "tool-select"
         }
       },
       "feedsAndSpeeds": {
-        "discriminator": {
-          "mapping": {
-            "manual": "#/$defs/ManualFeedsAndSpeedsSelection",
-            "tool_material": "#/$defs/ToolMaterialFeedsAndSpeedsSelection"
-          },
-          "propertyName": "mode"
-        },
-        "oneOf": [
-          {
-            "$ref": "#/$defs/ManualFeedsAndSpeedsSelection"
-          },
-          {
-            "$ref": "#/$defs/ToolMaterialFeedsAndSpeedsSelection"
-          }
-        ],
+        "$ref": "#/$defs/FeedsAndSpeeds",
         "title": "Feeds and speeds"
       },
       "clearance": {
@@ -965,15 +1216,6 @@ export const camSchemaBundle = {
         "$ref": "#/$defs/CAMAdvancedParameters",
         "title": "Advanced"
       },
-      "kind": {
-        "const": "pocket2d",
-        "default": "pocket2d",
-        "title": "Operation kind",
-        "type": "string",
-        "x-opencam": {
-          "hidden": true
-        }
-      },
       "driveGeometry": {
         "$ref": "#/$defs/PocketingDriveGeometry",
         "title": "Drive geometry"
@@ -984,10 +1226,10 @@ export const camSchemaBundle = {
       }
     },
     "required": [
-      "toolId",
+      "tool",
       "driveGeometry"
     ],
-    "title": "Pocket2DOperationConfig",
+    "title": "Pocketing2dOp",
     "type": "object"
   }
 } as const;

@@ -5,7 +5,7 @@ import { Input } from "t-components/input";
 import { Label } from "t-components/label";
 import { Sidebar, SidebarContent, SidebarMenuButton } from "t-components/sidebar";
 import { TreeView, type TreeNodeNested, type TreeNodeRenderProps } from "@/components/tree-view/tree-view";
-import { type Pocket2DOperationConfig } from "@/generated/cam-types";
+import { type Operation } from "@/generated/cam-types";
 import { cn } from "@/lib/utils";
 
 export type RequestState = "idle" | "submitting" | "success" | "error";
@@ -20,7 +20,7 @@ type AppSidebarProps = {
   meshLoaded: boolean;
   meshStatusLabel: string;
   meshCacheStatusLabel: string;
-  operations: Pocket2DOperationConfig[];
+  operations: Operation[];
   selectedNodeId: string;
   requestState: RequestState;
   requestMessage: string;
@@ -34,7 +34,7 @@ type AppSidebarProps = {
   onCancelGeneration: () => void;
 };
 
-function getOperationSummary(operation: Pocket2DOperationConfig) {
+function getOperationSummary(operation: Operation) {
   const depthOfCut = operation.levels?.depthOfCut;
   return typeof depthOfCut === "number"
     ? `Cut depth ${depthOfCut.toFixed(2)} mm`

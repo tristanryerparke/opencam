@@ -4,7 +4,7 @@ from shapely.geometry import Polygon
 
 from opencam.engine.closed_polyline.offset import quad_segs_for_tolerance
 from opencam.schemas.cl_data import FeedRatePositionRecord3D, PositionRecord
-from opencam.schemas.models import ClosedPolyline
+from opencam.schemas.geometry_2d import ClosedPolyline
 from opencam.services.operations.base import BaseOperation
 
 
@@ -16,6 +16,7 @@ class ClosedProfilingEngine(BaseOperation):
     stock_to_leave: float = 0
 
     def process(self) -> list[PositionRecord]:
+        self.require_cylindrical_tool()
         ring = self.ring.to_shapely()
         layer_heights = self.compute_layer_heights(
             self.z_bounds,

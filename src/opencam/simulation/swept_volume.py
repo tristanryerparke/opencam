@@ -38,6 +38,23 @@ class SimulatedMeshFrame:
     chunk_index: int
 
 
+@dataclass
+class ChunkClData:
+    tool: CylindricalTool
+    tool_axis: tuple[float, ...]
+    clearance_plane_height: float
+    points: list[PositionRecord3D]
+
+
+@dataclass
+class PreparedSimulationChunk:
+    chunk_index: int
+    focus_mesh: Manifold
+    rest_mesh: Manifold
+    cl_data: ChunkClData
+    stock_like_original_ids: set[int]
+
+
 class SimulationCancelledError(RuntimeError):
     pass
 
@@ -733,6 +750,10 @@ def position_to_record(position: np.ndarray) -> PositionRecord3D:
     )
 
 
+def record_to_position(record: PositionRecord3D) -> np.ndarray:
+    return np.array([record.x, record.y, record.z], dtype=np.float64)
+
+
 def load_stl_bytes(mesh_input: bytes | str) -> bytes:
     if isinstance(mesh_input, bytes):
         return mesh_input
@@ -919,6 +940,229 @@ def build_position_chunks(
         position_chunks.extend(chunk_tool_positions(chunk_seed_positions, max_sim_distance))
 
     return position_chunks, chunk_seed_position_count
+
+
+def prepare_simulation_chunks(
+    mesh_input: bytes | str,
+    operation: OperationRecord3D,
+    *,
+    max_sim_distance: float = 40.0,
+    chunk_padding: tuple[float, float, float] = DEFAULT_CHUNK_PADDING,
+    should_cancel: Callable[[], bool] | None = None,
+) -> list[PreparedSimulationChunk]:
+    if not isinstance(operation.tool, CylindricalTool):
+        raise NotImplementedError(f"Tool type {operation.tool.type!r} is not supported for swept simulation.")
+    if not math.isfinite(max_sim_distance) or max_sim_distance <= 0:
+        raise ValueError("max_sim_distance must be positive.")
+    if any(not math.isfinite(padding) or padding < 0 for padding in chunk_padding):
+        raise ValueError("chunk_padding values must be non-negative.")
+
+    tool = operation.tool
+    stock_original_id = Manifold.reserve_ids(1)
+    chunk_boundary_original_id = Manifold.reserve_ids(1)
+
+    stock_min, stock_max = load_stl_bounds(load_stl_bytes(mesh_input))
+    stock_vertices, stock_faces = build_box_mesh(stock_min, stock_max)
+    current_stock = mesh_to_manifold(
+        stock_vertices,
+        stock_faces,
+        context="stock mesh import",
+        original_id=stock_original_id,
+    )
+    tool_vertices, _tool_faces = build_cylinder_mesh(
+        tool.diameter,
+        tool.cutting_height,
+        TOOL_SEGMENTS,
+    )
+
+    original_positions = load_tool_positions(operation)
+    contact_position_sequences, _retained_segments, _skipped_segments, _trimmed_segments = filter_contact_position_sequences(
+        original_positions,
+        tool_vertices,
+        stock_min,
+        stock_max,
+    )
+    position_chunks, _chunk_seed_position_count = build_position_chunks(contact_position_sequences, max_sim_distance)
+    stock_like_original_ids = {stock_original_id, chunk_boundary_original_id}
+
+    if not position_chunks:
+        return [
+            PreparedSimulationChunk(
+                chunk_index=0,
+                focus_mesh=Manifold(),
+                rest_mesh=current_stock,
+                cl_data=ChunkClData(
+                    tool=tool,
+                    tool_axis=tuple(float(axis) for axis in operation.tool_axis),
+                    clearance_plane_height=float(operation.clearance_plane_height),
+                    points=[],
+                ),
+                stock_like_original_ids=stock_like_original_ids,
+            )
+        ]
+
+    prepared_chunks: list[PreparedSimulationChunk] = []
+
+    for chunk_index, chunk_positions in enumerate(position_chunks):
+        if should_cancel and should_cancel():
+            raise SimulationCancelledError("Simulation generation cancelled.")
+
+        chunk_bounds_min, chunk_bounds_max = toolpath_chunk_bounds(
+            tool_vertices,
+            chunk_positions,
+            chunk_padding,
+        )
+        chunk_box_vertices, chunk_box_faces = build_box_mesh(chunk_bounds_min, chunk_bounds_max)
+        chunk_box_manifold = mesh_to_manifold(
+            chunk_box_vertices,
+            chunk_box_faces,
+            context=f"chunk {chunk_index} bounds",
+            original_id=chunk_boundary_original_id,
+        )
+
+        focus_mesh = boolean_manifolds(
+            [current_stock, chunk_box_manifold],
+            OpType.Intersect,
+            context=f"chunk {chunk_index} focus intersection",
+        )
+        rest_mesh = ensure_no_manifold_error(
+            current_stock - chunk_box_manifold,
+            context=f"chunk {chunk_index} rest subtraction",
+        )
+        prepared_chunks.append(
+            PreparedSimulationChunk(
+                chunk_index=chunk_index,
+                focus_mesh=focus_mesh,
+                rest_mesh=rest_mesh,
+                cl_data=ChunkClData(
+                    tool=tool,
+                    tool_axis=tuple(float(axis) for axis in operation.tool_axis),
+                    clearance_plane_height=float(operation.clearance_plane_height),
+                    # ponytail: chunk CL data keeps clipped tool positions only; add original feed/comment metadata if a caller needs exact record provenance.
+                    points=[position_to_record(position) for position in chunk_positions],
+                ),
+                stock_like_original_ids=stock_like_original_ids,
+            )
+        )
+
+        current_stock, _subtraction_seconds, _segment_count = simulate_manifold_by_moves(
+            current_stock,
+            tool_vertices,
+            chunk_positions,
+            context_prefix=f"chunk {chunk_index} stock",
+            should_cancel=should_cancel,
+        )
+        if SIMPLIFY_AFTER_EACH_CHUNK and chunk_index < len(position_chunks) - 1:
+            current_stock = simplify_manifold_for_boolean(
+                current_stock,
+                context=f"recombined stock after chunk {chunk_index}",
+            )
+
+    return prepared_chunks
+
+
+def resample_chunk_cl_data(
+    chunk_cl_data: ChunkClData,
+    step_distance: float,
+) -> list[PositionRecord3D]:
+    sampled_positions = subdivide_tool_positions(
+        [record_to_position(point) for point in chunk_cl_data.points],
+        step_distance,
+    )
+    return [position_to_record(position) for position in sampled_positions]
+
+
+def coalesce_straight_tool_positions(
+    positions: list[np.ndarray],
+    straight_line_tolerance_degrees: float,
+) -> list[np.ndarray]:
+    if len(positions) <= 2:
+        return positions[:]
+    if not math.isfinite(straight_line_tolerance_degrees) or straight_line_tolerance_degrees < 0:
+        raise ValueError("straight_line_tolerance_degrees must be non-negative.")
+
+    coalesced = [np.asarray(position, dtype=np.float64) for position in positions[:2]]
+    min_alignment = math.cos(math.radians(straight_line_tolerance_degrees))
+
+    for next_position in positions[2:]:
+        start = coalesced[-2]
+        middle = coalesced[-1]
+        end = np.asarray(next_position, dtype=np.float64)
+        previous = middle - start
+        current = end - middle
+        previous_length = float(np.linalg.norm(previous))
+        current_length = float(np.linalg.norm(current))
+
+        if current_length < 1e-9:
+            continue
+        if previous_length < 1e-9:
+            coalesced[-1] = end
+            continue
+
+        alignment = float(np.dot(previous, current) / (previous_length * current_length))
+        if alignment >= min_alignment:
+            coalesced[-1] = end
+            continue
+
+        coalesced.append(end)
+
+    return coalesced
+
+
+def simulate_chunk_focus_mesh(
+    focus_mesh: Manifold,
+    chunk_cl_data: ChunkClData,
+    sampled_points: list[PositionRecord3D],
+    point_index: int,
+    *,
+    context: str = "chunk focus simulation",
+    straight_line_tolerance_degrees: float = 0.1,
+) -> Manifold:
+    if not sampled_points:
+        raise IndexError("sampled_points is empty")
+    if point_index < 0 or point_index >= len(sampled_points):
+        raise IndexError(f"point_index {point_index} is out of range for {len(sampled_points)} sampled points.")
+    if point_index == 0:
+        return focus_mesh
+
+    tool_vertices, _tool_faces = build_cylinder_mesh(
+        chunk_cl_data.tool.diameter,
+        chunk_cl_data.tool.cutting_height,
+        TOOL_SEGMENTS,
+    )
+    sampled_positions = coalesce_straight_tool_positions(
+        [record_to_position(point) for point in sampled_points[: point_index + 1]],
+        straight_line_tolerance_degrees,
+    )
+    swept_manifolds: list[Manifold] = []
+
+    for step in range(1, len(sampled_positions)):
+        pos_a = sampled_positions[step - 1]
+        pos_b = sampled_positions[step]
+        translation = pos_b - pos_a
+        if np.linalg.norm(translation) < 1e-9:
+            continue
+
+        sweep_rotation = rotation_matrix_about_z_to_face_xy_direction(translation)
+        rotated_tool_vertices = tool_vertices @ sweep_rotation.T
+        start_sweep_vertices = rotated_tool_vertices + pos_a[None, :]
+        end_sweep_vertices = rotated_tool_vertices + pos_b[None, :]
+        swept_manifolds.append(
+            swept_volume_manifold(
+                start_sweep_vertices,
+                end_verts=end_sweep_vertices,
+                context=f"{context} swept volume for segment {step}",
+            )
+        )
+
+    if not swept_manifolds:
+        return focus_mesh
+
+    return boolean_manifolds(
+        [focus_mesh, *swept_manifolds],
+        OpType.Subtract,
+        context=f"{context} subtraction through point {point_index}",
+    )
 
 
 def simulate_manifold_by_moves(

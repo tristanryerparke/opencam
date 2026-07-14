@@ -1,5 +1,6 @@
 import io
 import json
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from threading import Event, Lock, Thread
 from uuid import uuid4
@@ -10,7 +11,7 @@ import numpy as np
 import rhino3dm
 import trimesh
 
-from opencam.schemas.cl_data import OperationRecord3D
+from opencam.schemas.cl_data import OperationRecord3D, PositionRecord3D
 from opencam.schemas.tools import CylindricalTool
 from opencam.simulation.models import (
     SweptSimulationFrameResponse,
@@ -20,20 +21,39 @@ from opencam.simulation.models import (
     SweptSimulationStatusResponse,
 )
 from opencam.simulation.swept_volume import (
+    SIM_STEPDISTANCE,
+    TOOL_SEGMENTS,
+    PreparedSimulationChunk,
     SimulatedChunk,
-    SimulatedMeshFrame,
     SimulationCancelledError,
-    simulate_swept_milling_frames,
+    build_cylinder_mesh,
+    manifold_to_simplified_glb,
+    prepare_simulation_chunks,
+    resample_chunk_cl_data,
+    simulate_chunk_focus_mesh,
+    write_glb,
 )
 
 router = APIRouter()
+
+
+@dataclass(frozen=True)
+class PreparedSimulationFrame:
+    chunk_index: int
+    point_index: int
+    tool_position: PositionRecord3D
 
 
 @dataclass
 class BufferedSimulationResult:
     tool_mesh_bytes: bytes
     chunks: list[SimulatedChunk]
-    frames: list[SimulatedMeshFrame]
+    prepared_chunks: list[PreparedSimulationChunk]
+    frames: list[PreparedSimulationFrame]
+    frame_step_distance: float
+    # ponytail: cache grows with viewed frames; add LRU eviction if live simulation memory proves material.
+    active_mesh_cache: dict[int, bytes] = field(default_factory=dict)
+    active_mesh_cache_lock: Lock = field(default_factory=Lock)
 
 
 @dataclass
@@ -123,7 +143,11 @@ def _rhino_mesh_response(mesh_bytes: bytes) -> Response:
     )
 
 
-def _frame_response(simulation_id: str, frame_index: int, frame: SimulatedMeshFrame) -> SweptSimulationFrameResponse:
+def _frame_response(
+    simulation_id: str,
+    frame_index: int,
+    frame: PreparedSimulationFrame,
+) -> SweptSimulationFrameResponse:
     return SweptSimulationFrameResponse(
         active_mesh_url=_frame_active_mesh_url(simulation_id, frame_index),
         cached_mesh_url=_chunk_cached_mesh_url(simulation_id, frame.chunk_index),
@@ -139,7 +163,10 @@ def _get_buffered_simulation(simulation_id: str) -> BufferedSimulationResult:
     return simulation
 
 
-def _get_buffered_frame(simulation: BufferedSimulationResult, frame_index: int) -> SimulatedMeshFrame:
+def _get_buffered_frame(
+    simulation: BufferedSimulationResult,
+    frame_index: int,
+) -> PreparedSimulationFrame:
     if frame_index < 0 or frame_index >= len(simulation.frames):
         raise HTTPException(status_code=404, detail="Simulation frame not found.")
     return simulation.frames[frame_index]
@@ -149,6 +176,107 @@ def _get_buffered_chunk(simulation: BufferedSimulationResult, chunk_index: int) 
     if chunk_index < 0 or chunk_index >= len(simulation.chunks):
         raise HTTPException(status_code=404, detail="Simulation chunk not found.")
     return simulation.chunks[chunk_index]
+
+
+def _build_buffered_simulation(
+    mesh_bytes: bytes,
+    operation: OperationRecord3D,
+    *,
+    max_sim_distance: float,
+    chunk_padding: tuple[float, float, float],
+    frame_step_distance: float,
+    should_cancel: Callable[[], bool] | None,
+) -> BufferedSimulationResult:
+    prepared_chunks = prepare_simulation_chunks(
+        mesh_bytes,
+        operation,
+        max_sim_distance=max_sim_distance,
+        chunk_padding=chunk_padding,
+        should_cancel=should_cancel,
+    )
+    if not prepared_chunks:
+        raise RuntimeError("Simulation produced no chunks.")
+
+    tool_vertices, tool_faces = build_cylinder_mesh(
+        operation.tool.diameter,
+        operation.tool.cutting_height,
+        TOOL_SEGMENTS,
+    )
+    frames: list[PreparedSimulationFrame] = []
+    chunks: list[SimulatedChunk] = []
+
+    for prepared_chunk in prepared_chunks:
+        if should_cancel and should_cancel():
+            raise SimulationCancelledError("Simulation generation cancelled.")
+
+        frame_start_index = len(frames)
+        sampled_points = resample_chunk_cl_data(prepared_chunk.cl_data, frame_step_distance)
+
+        if sampled_points:
+            frames.extend(
+                PreparedSimulationFrame(
+                    chunk_index=prepared_chunk.chunk_index,
+                    point_index=point_index,
+                    tool_position=point,
+                )
+                for point_index, point in enumerate(sampled_points)
+            )
+        else:
+            frames.append(
+                PreparedSimulationFrame(
+                    chunk_index=prepared_chunk.chunk_index,
+                    point_index=-1,
+                    tool_position=PositionRecord3D(x=0.0, y=0.0, z=0.0),
+                )
+            )
+
+        chunks.append(
+            SimulatedChunk(
+                cached_mesh_bytes=manifold_to_simplified_glb(
+                    prepared_chunk.rest_mesh,
+                    context=f"extracting cached mesh for chunk {prepared_chunk.chunk_index}",
+                    stock_like_original_ids=prepared_chunk.stock_like_original_ids,
+                ),
+                frame_start_index=frame_start_index,
+                frame_end_index=len(frames) - 1,
+            )
+        )
+
+    return BufferedSimulationResult(
+        tool_mesh_bytes=write_glb(tool_vertices, tool_faces),
+        chunks=chunks,
+        prepared_chunks=prepared_chunks,
+        frames=frames,
+        frame_step_distance=frame_step_distance,
+    )
+
+
+def _active_mesh_bytes(simulation: BufferedSimulationResult, frame_index: int) -> bytes:
+    with simulation.active_mesh_cache_lock:
+        cached_mesh_bytes = simulation.active_mesh_cache.get(frame_index)
+        if cached_mesh_bytes is not None:
+            return cached_mesh_bytes
+
+        frame = _get_buffered_frame(simulation, frame_index)
+        prepared_chunk = simulation.prepared_chunks[frame.chunk_index]
+        active_mesh = (
+            prepared_chunk.focus_mesh
+            if frame.point_index < 0
+            else simulate_chunk_focus_mesh(
+                prepared_chunk.focus_mesh,
+                prepared_chunk.cl_data,
+                resample_chunk_cl_data(prepared_chunk.cl_data, simulation.frame_step_distance),
+                frame.point_index,
+                context=f"chunk {frame.chunk_index} frame {frame.point_index}",
+            )
+        )
+        mesh_bytes = manifold_to_simplified_glb(
+            active_mesh,
+            context=f"extracting active mesh for chunk {frame.chunk_index} frame {frame.point_index}",
+            stock_like_original_ids=prepared_chunk.stock_like_original_ids,
+        )
+        simulation.active_mesh_cache[frame_index] = mesh_bytes
+        return mesh_bytes
 
 
 def _get_simulation_task(task_id: str) -> SimulationTask:
@@ -208,52 +336,38 @@ def _run_swept_simulation_task(
     chunk_padding_x: float,
     chunk_padding_y: float,
     chunk_padding_z: float,
+    frame_step_distance: float,
 ) -> None:
     def should_cancel() -> bool:
         with SIMULATION_TASKS_LOCK:
             task = _get_simulation_task(task_id)
             return task.cancel_event.is_set()
 
-    def progress_callback(current: int, total: int, message: str) -> None:
-        with SIMULATION_TASKS_LOCK:
-            task = _get_simulation_task(task_id)
-            if task.cancel_event.is_set():
-                task.status = "cancelling"
-                task.message = "Cancelling simulation..."
-                return
-
-            task.status = "running"
-            task.progress_current = current
-            task.progress_total = max(total, 1)
-            task.message = message
-
     try:
-        _update_simulation_task(task_id, status="running", message="Preparing simulation...")
-        tool_mesh_bytes, simulation_chunks, frame_meshes = simulate_swept_milling_frames(
+        _update_simulation_task(task_id, status="running", message="Preparing simulation chunks...")
+        simulation = _build_buffered_simulation(
             mesh_bytes,
             parsed_operation,
             max_sim_distance=max_sim_distance,
             chunk_padding=(chunk_padding_x, chunk_padding_y, chunk_padding_z),
-            progress_callback=progress_callback,
+            frame_step_distance=frame_step_distance,
             should_cancel=should_cancel,
         )
+        if should_cancel():
+            raise SimulationCancelledError("Simulation generation cancelled.")
+
         simulation_id = str(uuid4())
-
         with SIMULATION_FRAME_BUFFER_LOCK:
-            SIMULATION_FRAME_BUFFER[simulation_id] = BufferedSimulationResult(
-                tool_mesh_bytes=tool_mesh_bytes,
-                chunks=simulation_chunks,
-                frames=frame_meshes,
-            )
+            SIMULATION_FRAME_BUFFER[simulation_id] = simulation
 
-        final_frame_index = len(frame_meshes) - 1
-        final_frame = frame_meshes[final_frame_index]
+        final_frame_index = len(simulation.frames) - 1
+        final_frame = simulation.frames[final_frame_index]
         result = SweptSimulationResponse(
             active_mesh_url=_frame_active_mesh_url(simulation_id, final_frame_index),
             cached_mesh_url=_chunk_cached_mesh_url(simulation_id, final_frame.chunk_index),
             simulation_id=simulation_id,
-            frame_count=len(frame_meshes),
-            chunk_count=len(simulation_chunks),
+            frame_count=len(simulation.frames),
+            chunk_count=len(simulation.chunks),
             chunk_index=final_frame.chunk_index,
             tool_mesh_url=_tool_mesh_url(simulation_id),
             tool_position=final_frame.tool_position,
@@ -263,7 +377,7 @@ def _run_swept_simulation_task(
             status="completed",
             progress_current=1,
             progress_total=1,
-            message="Simulation completed.",
+            message="Simulation chunks ready.",
             result=result,
         )
     except SimulationCancelledError:
@@ -279,6 +393,8 @@ def _run_swept_simulation_task(
         _update_simulation_task(task_id, status="error", message="Simulation failed.", error_detail=str(exc))
     except Exception as exc:  # pragma: no cover
         _update_simulation_task(task_id, status="error", message="Simulation failed.", error_detail=str(exc))
+
+
 @router.post("/simulate/swept", response_model=SweptSimulationStartResponse)
 async def simulate_swept(
     mesh: UploadFile = File(...),
@@ -287,6 +403,7 @@ async def simulate_swept(
     chunk_padding_x: float = Form(5.0),
     chunk_padding_y: float = Form(5.0),
     chunk_padding_z: float = Form(1.0),
+    frame_step_distance: float = Form(SIM_STEPDISTANCE),
 ):
     try:
         parsed_operation = OperationRecord3D.model_validate_json(operation)
@@ -303,11 +420,14 @@ async def simulate_swept(
     if not mesh_bytes:
         raise HTTPException(status_code=400, detail="Mesh upload is empty.")
 
-    if max_sim_distance <= 0:
+    if not np.isfinite(max_sim_distance) or max_sim_distance <= 0:
         raise HTTPException(status_code=400, detail="max_sim_distance must be positive.")
 
-    if chunk_padding_x < 0 or chunk_padding_y < 0 or chunk_padding_z < 0:
+    if any(not np.isfinite(padding) or padding < 0 for padding in (chunk_padding_x, chunk_padding_y, chunk_padding_z)):
         raise HTTPException(status_code=400, detail="Chunk padding values must be non-negative.")
+
+    if not np.isfinite(frame_step_distance) or frame_step_distance <= 0:
+        raise HTTPException(status_code=400, detail="frame_step_distance must be positive.")
 
     task_id = str(uuid4())
     with SIMULATION_TASKS_LOCK:
@@ -323,6 +443,7 @@ async def simulate_swept(
             chunk_padding_x,
             chunk_padding_y,
             chunk_padding_z,
+            frame_step_distance,
         ),
         daemon=True,
     ).start()
@@ -408,19 +529,19 @@ def simulate_swept_tool_mesh_rhino_json(simulation_id: str):
 def simulate_swept_frame_active_mesh(simulation_id: str, frame_index: int):
     with SIMULATION_FRAME_BUFFER_LOCK:
         simulation = _get_buffered_simulation(simulation_id)
-        frame = _get_buffered_frame(simulation, frame_index)
+        _get_buffered_frame(simulation, frame_index)
 
-    return Response(content=frame.active_mesh_bytes, media_type="model/gltf-binary")
+    return Response(content=_active_mesh_bytes(simulation, frame_index), media_type="model/gltf-binary")
 
 
 @router.get("/simulate/swept/{simulation_id}/frames/{frame_index}/active-mesh.rhino.json")
 def simulate_swept_frame_active_mesh_rhino_json(simulation_id: str, frame_index: int):
     with SIMULATION_FRAME_BUFFER_LOCK:
         simulation = _get_buffered_simulation(simulation_id)
-        frame = _get_buffered_frame(simulation, frame_index)
+        _get_buffered_frame(simulation, frame_index)
 
     try:
-        return _rhino_mesh_response(frame.active_mesh_bytes)
+        return _rhino_mesh_response(_active_mesh_bytes(simulation, frame_index))
     except ValueError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 

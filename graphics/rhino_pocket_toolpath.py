@@ -11,9 +11,10 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from opencam.schemas.cam import CAMSetup
+from opencam.schemas.geometry_2_5d import ClosedPolyline25D
 from opencam.schemas.geometry_2d import Point2D
 from opencam.schemas.operations.base import AbsoluteClearance, CAMLevels, FeedsAndSpeeds
-from opencam.schemas.operations.pocketing import ClosedCurveSelection, Pocketing2dOp, PocketingCutSettings, PocketingDriveGeometry, StepoverMode
+from opencam.schemas.operations.pocketing import Pocketing2dOp, PocketingCutSettings, PocketingDriveGeometry, StepoverMode
 from opencam.schemas.tools import CylindricalTool
 from opencam.services.cam_engine import cam_engine
 from rhino_renderer.file_client import FileClient
@@ -102,8 +103,8 @@ def build_operation(points: list[tuple[float, float, float]]):
         ),
         drive_geometry=PocketingDriveGeometry(
             cut_areas=[
-                ClosedCurveSelection(
-                    plane_z=bottom_z,
+                ClosedPolyline25D(
+                    z=bottom_z,
                     vertices=[Point2D(x=float(x), y=float(y)) for x, y, _ in points[:-1]],
                 )
             ]

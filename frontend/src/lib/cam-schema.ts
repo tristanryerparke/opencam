@@ -1,8 +1,8 @@
-import { camSchemaBundle } from "@/generated/cam-schemas";
+import { camSchemaBundle } from "@/generated_schemas/cam.schemas";
 import type {
   GenerateToolpathRequest,
-  Operation,
-} from "@/generated/cam-types";
+  Pocketing2DOp as Operation,
+} from "@/generated_schemas/cam";
 import type { MeshFaceSelection } from "@/components/polyline-viewer";
 
 type JsonPrimitive = string | number | boolean | null;
@@ -380,7 +380,7 @@ export function createDriveGeometryFromSelection(selection: MeshFaceSelection) {
   }
 
   return {
-    planeZ: selection.planeZ,
+    z: selection.planeZ,
     vertices: selection.boundaryLoop.map(([x, y]) => ({ x, y })),
   };
 }
@@ -447,7 +447,7 @@ export function applySelectionToPocketOperationDraft(
 }
 
 export function parsePocketOperationDraft(draft: DraftObject): Operation {
-  return parseDraftValue(pocketOperationSchema, draft, pocketOperationSchema, "Operation") as Operation;
+  return parseDraftValue(pocketOperationSchema, draft, pocketOperationSchema, "Operation") as unknown as Operation;
 }
 
 export function buildGenerateToolpathRequest(

@@ -1,24 +1,18 @@
-import type { CylindricalTool, ToolLibraryTool } from "@/lib/tool-library-api";
+import type {
+  FeedRatePositionRecord3D as GeneratedFeedRatePositionRecord3D,
+  OperationRecord3D as GeneratedOperationRecord3D,
+  RapidPositionRecord3D as GeneratedRapidPositionRecord3D,
+} from "@/generated_schemas/cl_data";
+import type { CylindricalTool } from "@/generated_schemas/tools";
 
 export type FeedType = "rapid" | "feed_rate";
 export type ToolData = Pick<CylindricalTool, "diameter" | "cuttingHeight" | "numFlutes">;
 
-export type PositionRecord3D = {
-  type: "position_3d";
-  feedType: FeedType;
-  x: number;
-  y: number;
-  z: number;
-  comment?: string | null;
-  feedrate?: number;
-};
+export type PositionRecord3D =
+  | (GeneratedRapidPositionRecord3D & { feedType: "rapid" })
+  | (GeneratedFeedRatePositionRecord3D & { feedType: "feed_rate" });
 
-export type OperationRecord3D = {
-  tool: ToolLibraryTool;
-  toolAxis: number[];
-  preComments: string[];
-  postComments: string[];
-  clearancePlaneHeight: number;
+export type OperationRecord3D = Omit<GeneratedOperationRecord3D, "records"> & {
   records: PositionRecord3D[];
 };
 

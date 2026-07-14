@@ -1009,7 +1009,7 @@ def simulate_swept_milling_frames(
     mesh_input: bytes | str,
     operation: OperationRecord3D,
     *,
-    max_sim_distance: float = 30.0,
+    max_sim_distance: float = 40.0,
     chunk_padding: tuple[float, float, float] = DEFAULT_CHUNK_PADDING,
     progress_callback: Callable[[int, int, str], None] | None = None,
     should_cancel: Callable[[], bool] | None = None,
@@ -1136,6 +1136,8 @@ def simulate_swept_milling_frames(
         if should_cancel and should_cancel():
             raise SimulationCancelledError("Simulation generation cancelled.")
 
+        chunk_started_at = time.perf_counter()
+        chunk_animation_subtraction_started_at = animation_subtraction_seconds
         chunk_start_stock = current_stock
         chunk_bounds_min, chunk_bounds_max = toolpath_chunk_bounds(
             tool_vertices,
@@ -1280,6 +1282,18 @@ def simulate_swept_milling_frames(
             )
         )
 
+        chunk_elapsed_seconds = time.perf_counter() - chunk_started_at
+        chunk_animation_subtraction_seconds = (
+            animation_subtraction_seconds - chunk_animation_subtraction_started_at
+        )
+        print(
+            f"[simulate/swept] Chunk {chunk_index + 1}/{len(position_chunks)} done: "
+            f"elapsed={chunk_elapsed_seconds:.3f}s "
+            f"stock={chunk_stock_subtraction_seconds:.3f}s "
+            f"animation={chunk_animation_subtraction_seconds:.3f}s "
+            f"frames={len(frames) - chunk_frame_start_index}"
+        )
+
         advance_progress(
             f"Finished chunk {chunk_index + 1} of {len(position_chunks)}."
         )
@@ -1299,8 +1313,8 @@ def simulate_swept_milling_frames(
     return tool_mesh_bytes, chunks, frames
 
 
-def simulate_swept_milling(mesh_data_url: str, operation: OperationRecord3D) -> str:
-    _tool_mesh_bytes, chunks, frames = simulate_swept_milling_frames(mesh_data_url, operation)
+def simulate_swept_milling_stl(mesh_input: bytes | str, operation: OperationRecord3D) -> bytes:
+    _tool_mesh_bytes, chunks, frames = simulate_swept_milling_frames(mesh_input, operation)
     final_frame = frames[-1]
     final_chunk = chunks[final_frame.chunk_index]
     final_mesh = combine_glb_meshes(
@@ -1309,5 +1323,8 @@ def simulate_swept_milling(mesh_data_url: str, operation: OperationRecord3D) -> 
             final_frame.active_mesh_bytes,
         ]
     )
-    final_stl_bytes = final_mesh.export(file_type="stl")
-    return encode_mesh_data_url(final_stl_bytes)
+    return final_mesh.export(file_type="stl")
+
+
+def simulate_swept_milling(mesh_data_url: bytes | str, operation: OperationRecord3D) -> str:
+    return encode_mesh_data_url(simulate_swept_milling_stl(mesh_data_url, operation))

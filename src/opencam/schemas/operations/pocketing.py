@@ -5,23 +5,8 @@ from typing import Literal
 from pydantic import ConfigDict, Field
 
 from opencam.schemas.base import CamelBaseModel
-from opencam.schemas.geometry_2d import Point2D
+from opencam.schemas.geometry_2_5d import ClosedPolyline25D
 from opencam.schemas.operations.base import BaseCAMOperation, ui_metadata
-
-
-class ClosedCurveSelection(CamelBaseModel):
-    model_config = ConfigDict(title="ClosedCurveSelection")
-
-    plane_z: float = Field(
-        title="Drive geometry plane Z",
-        json_schema_extra=ui_metadata(unit="mm", hidden=True, read_only=True),
-    )
-    vertices: list[Point2D] = Field(
-        min_length=3,
-        title="Closed curve vertices",
-        description="Closed curves or closed surface edges captured from the selected mesh face.",
-        json_schema_extra=ui_metadata(hidden=True, read_only=True),
-    )
 
 
 class StepoverMode(CamelBaseModel):
@@ -30,7 +15,7 @@ class StepoverMode(CamelBaseModel):
 
 
 class PocketingDriveGeometry(CamelBaseModel):
-    cut_areas: list[ClosedCurveSelection] = Field(min_length=1, title="Cut areas")
+    cut_areas: list[ClosedPolyline25D] = Field(min_length=1, title="Cut areas")
 
 
 class PocketingCutSettings(CamelBaseModel):
@@ -47,7 +32,7 @@ class Pocketing2dOp(BaseCAMOperation):
     cut_parameters: PocketingCutSettings = Field(default_factory=PocketingCutSettings, title="Cut parameters")
 
     def max_cut_z(self) -> float:
-        geometry_zs = [area.plane_z for area in self.drive_geometry.cut_areas]
+        geometry_zs = [area.z for area in self.drive_geometry.cut_areas]
         if self.levels.drive_geometry_position == "at_top":
             return max(geometry_zs)
         return max(z + self.levels.depth_of_cut for z in geometry_zs)

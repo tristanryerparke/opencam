@@ -4,10 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "generate:cam-models": "bun run scripts/generate-cam-models.ts",
-    "generate:cam-models:watch": "bun run scripts/generate-cam-models.ts --watch",
-    "dev": "bun run generate:cam-models && concurrently -k \"bun run generate:cam-models:watch\" \"vite\"",
-    "build": "bun run generate:cam-models && tsc -b && vite build",
+    "generate:schemas": "bun run scripts/generate-cam-models.ts",
+    "generate:cam-models": "bun run generate:schemas",
+    "dev": "vite",
+    "build": "bun run generate:schemas && tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview"
   },

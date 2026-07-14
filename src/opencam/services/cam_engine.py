@@ -7,9 +7,10 @@ from shapely.geometry import Polygon
 from opencam.engine.closed_polyline.validation import validate_closed_polyline
 from opencam.schemas.cam import CAMSetup
 from opencam.schemas.cl_data import FeedRatePositionRecord3D, OperationRecord3D, PositionRecord, PositionRecord3D, RapidPositionRecord3D
-from opencam.schemas.geometry_2d import ClosedPolyline
+from opencam.schemas.geometry_2_5d import ClosedPolyline25D
+from opencam.schemas.geometry_2d import ClosedPolyline2D
 from opencam.schemas.operations.base import BaseCAMOperation
-from opencam.schemas.operations.pocketing import ClosedCurveSelection, Pocketing2dOp
+from opencam.schemas.operations.pocketing import Pocketing2dOp
 from opencam.schemas.tools import CylindricalTool
 from opencam.services.operations.base import BaseOperation
 from opencam.services.operations.pocketing.geometry import PocketGeometryMixin
@@ -76,7 +77,7 @@ def _tool_and_feeds(operation: Pocketing2dOp) -> tuple[CylindricalTool, float, i
 
 
 def _pocket_records(
-    geometry: ClosedCurveSelection,
+    geometry: ClosedPolyline25D,
     operation: Pocketing2dOp,
     *,
     tool: CylindricalTool,
@@ -103,12 +104,12 @@ def _pocket_records(
         clearance_plane_height=clearance_plane_height,
     )
     base_polyline = context.shift_seam_to_longest_straight_edge_near_initial_seam(
-        validate_closed_polyline(ClosedPolyline(vertices=geometry.vertices).to_numpy())
+        validate_closed_polyline(ClosedPolyline2D(vertices=geometry.vertices).to_numpy())
     )
     z_bounds = (
-        (geometry.plane_z, geometry.plane_z - operation.levels.depth_of_cut)
+        (geometry.z, geometry.z - operation.levels.depth_of_cut)
         if operation.levels.drive_geometry_position == "at_top"
-        else (geometry.plane_z + operation.levels.depth_of_cut, geometry.plane_z)
+        else (geometry.z + operation.levels.depth_of_cut, geometry.z)
     )
     ordered_nodes = context.build_ordered_pocket_nodes(base_polyline)
     if not ordered_nodes:

@@ -1,13 +1,11 @@
 import json
 from pathlib import Path
 
-import matplotlib.pyplot as plt
-from matplotlib.ticker import LinearLocator
-
 from opencam.schemas.cam import CAMSetup
 from opencam.schemas.cl_data import FeedRatePositionRecord3D
+from opencam.schemas.geometry_2_5d import ClosedPolyline25D
 from opencam.schemas.operations.base import AbsoluteClearance, CAMLevels, FeedsAndSpeeds
-from opencam.schemas.operations.pocketing import ClosedCurveSelection, Pocketing2dOp, PocketingCutSettings, PocketingDriveGeometry, StepoverMode
+from opencam.schemas.operations.pocketing import Pocketing2dOp, PocketingCutSettings, PocketingDriveGeometry, StepoverMode
 from opencam.schemas.geometry_2d import Point2D
 from opencam.schemas.tools import CylindricalTool
 from opencam.services.cam_engine import cam_engine
@@ -31,38 +29,44 @@ operation = Pocketing2dOp(
     levels=CAMLevels(depth_of_cut=6.0, max_stepdown=6),
     drive_geometry=PocketingDriveGeometry(
         cut_areas=[
-            ClosedCurveSelection(
-                plane_z=drive_curve[0][2],
+            ClosedPolyline25D(
+                z=drive_curve[0][2],
                 vertices=[Point2D(x=x, y=y) for x, y, _ in drive_curve],
             )
         ]
     ),
     cut_parameters=PocketingCutSettings(
-        stepover=StepoverMode(mode="percentage_of_tool_diameter", value=40.0),
+        stepover=StepoverMode(mode="percentage_of_tool_diameter", value=15),
     ),
 )
 
 cl_data = cam_engine(CAMSetup(), operation)
-figure = plt.figure()
-axes = figure.add_subplot(projection="3d", computed_zorder=False)
-axes.plot(
-    [x for x, _, _ in drive_curve],
-    [y for _, y, _ in drive_curve],
-    [z for _, _, z in drive_curve],
-    color="darkgreen",
-    zorder=0,
-)
-for start, end in zip(cl_data.records, cl_data.records[1:]):
+
+
+if __name__ == "__main__":
+    import matplotlib.pyplot as plt
+    from matplotlib.ticker import LinearLocator
+
+    figure = plt.figure()
+    axes = figure.add_subplot(projection="3d", computed_zorder=False)
     axes.plot(
-        [start.x, end.x],
-        [start.y, end.y],
-        [start.z, end.z],
-        color="blue" if isinstance(end, FeedRatePositionRecord3D) else "red",
-        zorder=1 if isinstance(end, FeedRatePositionRecord3D) else 2,
+        [x for x, _, _ in drive_curve],
+        [y for _, y, _ in drive_curve],
+        [z for _, _, z in drive_curve],
+        color="darkgreen",
+        zorder=0,
     )
-axes.set(xlabel="X (mm)", ylabel="Y (mm)")
-axes.set_zlabel("Z (mm)", labelpad=12)
-axes.zaxis.set_major_locator(LinearLocator(3))
-axes.set_box_aspect([high - low for low, high in (axes.get_xlim(), axes.get_ylim(), axes.get_zlim())])
-figure.tight_layout()
-figure.savefig("pocket-toolpath.png", dpi=400)
+    for start, end in zip(cl_data.records, cl_data.records[1:]):
+        axes.plot(
+            [start.x, end.x],
+            [start.y, end.y],
+            [start.z, end.z],
+            color="blue" if isinstance(end, FeedRatePositionRecord3D) else "red",
+            zorder=1 if isinstance(end, FeedRatePositionRecord3D) else 2,
+        )
+    axes.set(xlabel="X (mm)", ylabel="Y (mm)")
+    axes.set_zlabel("Z (mm)", labelpad=12)
+    axes.zaxis.set_major_locator(LinearLocator(3))
+    axes.set_box_aspect([high - low for low, high in (axes.get_xlim(), axes.get_ylim(), axes.get_zlim())])
+    figure.tight_layout()
+    figure.savefig("pocket-toolpath.png", dpi=400)

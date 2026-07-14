@@ -1,22 +1,23 @@
 import { getBackendUrl } from "@/hooks/useBackendConnection";
+import type {
+  BallTool as GeneratedBallTool,
+  CylindricalTool as GeneratedCylindricalTool,
+  VTool as GeneratedVTool,
+} from "@/generated_schemas/tools";
 
-export type ToolType = "cylinder" | "ball" | "v";
+type PersistedTool<T extends { id?: string; manualChange?: boolean; numFlutes?: number; type?: string }> =
+  Omit<T, "id" | "manualChange" | "numFlutes" | "type"> & {
+    id: string;
+    manualChange: boolean;
+    numFlutes: number;
+    type: NonNullable<T["type"]>;
+  };
 
-type BaseTool = {
-  id: string;
-  name: string;
-  toolNumber: number;
-  manualChange: boolean;
-  diameter: number;
-  cuttingHeight: number;
-  shoulderHeight: number;
-  numFlutes: number;
-};
-
-export type CylindricalTool = BaseTool & { type: "cylinder" };
-export type BallTool = BaseTool & { type: "ball" };
-export type VTool = BaseTool & { type: "v"; tipAngle: number };
+export type CylindricalTool = PersistedTool<GeneratedCylindricalTool>;
+export type BallTool = PersistedTool<GeneratedBallTool>;
+export type VTool = PersistedTool<GeneratedVTool>;
 export type ToolLibraryTool = CylindricalTool | BallTool | VTool;
+export type ToolType = ToolLibraryTool["type"];
 type NewTool<T extends ToolLibraryTool> = Omit<T, "id"> & { id?: string };
 export type ToolLibraryToolInput = NewTool<CylindricalTool> | NewTool<BallTool> | NewTool<VTool>;
 

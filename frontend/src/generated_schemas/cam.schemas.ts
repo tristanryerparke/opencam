@@ -105,7 +105,7 @@ export const camSchemaBundle = {
       "CAMLevels": {
         "properties": {
           "driveGeometryPosition": {
-            "default": "at_top",
+            "default": "at_bottom",
             "enum": [
               "at_top",
               "at_bottom"
@@ -156,36 +156,25 @@ export const camSchemaBundle = {
           "hidden": true
         }
       },
-      "ClosedCurveSelection": {
+      "ClosedPolyline25D": {
         "properties": {
-          "planeZ": {
-            "title": "Drive geometry plane Z",
-            "type": "number",
-            "x-opencam": {
-              "hidden": true,
-              "readOnly": true,
-              "unit": "mm"
-            }
-          },
           "vertices": {
-            "description": "Closed curves or closed surface edges captured from the selected mesh face.",
             "items": {
               "$ref": "#/$defs/Point2D"
             },
-            "minItems": 3,
-            "title": "Closed curve vertices",
-            "type": "array",
-            "x-opencam": {
-              "hidden": true,
-              "readOnly": true
-            }
+            "title": "Vertices",
+            "type": "array"
+          },
+          "z": {
+            "title": "Z",
+            "type": "number"
           }
         },
         "required": [
-          "planeZ",
-          "vertices"
+          "vertices",
+          "z"
         ],
-        "title": "ClosedCurveSelection",
+        "title": "ClosedPolyline25D",
         "type": "object"
       },
       "CylindricalTool": {
@@ -452,7 +441,7 @@ export const camSchemaBundle = {
         "properties": {
           "cutAreas": {
             "items": {
-              "$ref": "#/$defs/ClosedCurveSelection"
+              "$ref": "#/$defs/ClosedPolyline25D"
             },
             "minItems": 1,
             "title": "Cut areas",
@@ -772,7 +761,7 @@ export const camSchemaBundle = {
       "CAMLevels": {
         "properties": {
           "driveGeometryPosition": {
-            "default": "at_top",
+            "default": "at_bottom",
             "enum": [
               "at_top",
               "at_bottom"
@@ -802,36 +791,25 @@ export const camSchemaBundle = {
         "title": "CAMLevels",
         "type": "object"
       },
-      "ClosedCurveSelection": {
+      "ClosedPolyline25D": {
         "properties": {
-          "planeZ": {
-            "title": "Drive geometry plane Z",
-            "type": "number",
-            "x-opencam": {
-              "hidden": true,
-              "readOnly": true,
-              "unit": "mm"
-            }
-          },
           "vertices": {
-            "description": "Closed curves or closed surface edges captured from the selected mesh face.",
             "items": {
               "$ref": "#/$defs/Point2D"
             },
-            "minItems": 3,
-            "title": "Closed curve vertices",
-            "type": "array",
-            "x-opencam": {
-              "hidden": true,
-              "readOnly": true
-            }
+            "title": "Vertices",
+            "type": "array"
+          },
+          "z": {
+            "title": "Z",
+            "type": "number"
           }
         },
         "required": [
-          "planeZ",
-          "vertices"
+          "vertices",
+          "z"
         ],
-        "title": "ClosedCurveSelection",
+        "title": "ClosedPolyline25D",
         "type": "object"
       },
       "CylindricalTool": {
@@ -997,7 +975,7 @@ export const camSchemaBundle = {
         "properties": {
           "cutAreas": {
             "items": {
-              "$ref": "#/$defs/ClosedCurveSelection"
+              "$ref": "#/$defs/ClosedPolyline25D"
             },
             "minItems": 1,
             "title": "Cut areas",

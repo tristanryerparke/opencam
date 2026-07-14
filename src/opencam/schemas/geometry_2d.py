@@ -9,7 +9,7 @@ class Point2D(CamelBaseModel):
     y: float
 
 
-class ClosedPolyline(CamelBaseModel):
+class ClosedPolyline2D(CamelBaseModel):
     vertices: list[Point2D]
 
     def to_shapely(self):

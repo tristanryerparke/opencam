@@ -4,12 +4,12 @@ from shapely.geometry import Polygon
 
 from opencam.engine.closed_polyline.offset import quad_segs_for_tolerance
 from opencam.schemas.cl_data import FeedRatePositionRecord3D, PositionRecord
-from opencam.schemas.geometry_2d import ClosedPolyline
+from opencam.schemas.geometry_2d import ClosedPolyline2D
 from opencam.services.operations.base import BaseOperation
 
 
 class ClosedProfilingEngine(BaseOperation):
-    ring: ClosedPolyline
+    ring: ClosedPolyline2D
     side: Literal["outside", "inside"] = "outside"
     z_bounds: tuple[float, float]
     z_step_height: float

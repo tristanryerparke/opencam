@@ -24,7 +24,8 @@ import {
   pocketOperationSchema,
 } from "@/lib/cam-schema";
 import { getBackendUrl } from "@/hooks/useBackendConnection";
-import type { ClosedCurveSelection, Operation } from "@/generated/cam-types";
+import type { Pocketing2DOp as Operation } from "@/generated_schemas/cam";
+import type { ClosedPolyline25D } from "@/generated_schemas/geometry_2_5d";
 import {
   sampleOperationRecords,
   type OperationRecord3D,
@@ -270,7 +271,7 @@ function toolPositionToPoint(position: ToolPositionResponse): PolylinePoint {
   return [position.x, position.y, position.z] as const;
 }
 
-function geometryToMeshFaceSelection(geometry: ClosedCurveSelection, index: number): MeshFaceSelection {
+function geometryToMeshFaceSelection(geometry: ClosedPolyline25D, index: number): MeshFaceSelection {
   return {
     id: `geometry-${index}`,
     label: `Coplanar Face ${index + 1}`,
@@ -279,8 +280,8 @@ function geometryToMeshFaceSelection(geometry: ClosedCurveSelection, index: numb
     triangleCount: 0,
     area: 0,
     isParallelToXY: true,
-    planeZ: geometry.planeZ,
-    boundaryLoop: geometry.vertices.map(({ x, y }) => [x, y, geometry.planeZ] as const),
+    planeZ: geometry.z,
+    boundaryLoop: geometry.vertices.map(({ x, y }) => [x, y, geometry.z] as const),
     validationError: null,
   };
 }
@@ -300,9 +301,9 @@ function draftToMeshFaceSelections(draft: DraftObject | null): MeshFaceSelection
       return [];
     }
 
-    const planeZ = Number((geometry as DraftObject).planeZ);
+    const z = Number((geometry as DraftObject).z);
     const vertices = (geometry as DraftObject).vertices;
-    if (!Number.isFinite(planeZ) || !Array.isArray(vertices)) {
+    if (!Number.isFinite(z) || !Array.isArray(vertices)) {
       return [];
     }
 
@@ -320,7 +321,7 @@ function draftToMeshFaceSelections(draft: DraftObject | null): MeshFaceSelection
       return [];
     }
 
-    return [geometryToMeshFaceSelection({ planeZ, vertices: parsedVertices as ClosedCurveSelection["vertices"] }, index)];
+    return [geometryToMeshFaceSelection({ z, vertices: parsedVertices as ClosedPolyline25D["vertices"] }, index)];
   });
 }
 

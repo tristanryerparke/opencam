@@ -76,9 +76,9 @@ function getControlGeometryRows(value: DraftValue | undefined): DraftObject[] {
       return false;
     }
 
-    const hasPlaneZ = typeof geometry.planeZ === "number" || typeof geometry.planeZ === "string";
+    const hasZ = typeof geometry.z === "number" || typeof geometry.z === "string";
     const hasVertices = Array.isArray(geometry.vertices) && geometry.vertices.length > 0;
-    return hasPlaneZ && hasVertices;
+    return hasZ && hasVertices;
   });
 }
 
@@ -141,7 +141,7 @@ function ControlGeometryPanel({
               rows.map((geometry, index) => (
                 <TableRow key={index}>
                   <TableCell className="font-medium">Coplanar Face {index + 1}</TableCell>
-                  <TableCell>{formatGeometryZ(geometry.planeZ)}</TableCell>
+                  <TableCell>{formatGeometryZ(geometry.z)}</TableCell>
                   <TableCell className="text-right">
                     <Button type="button" variant="destructive" onClick={() => onDeleteGeometry(index)}>
                       Delete

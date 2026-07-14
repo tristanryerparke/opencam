@@ -283,7 +283,7 @@ def _run_swept_simulation_task(
 async def simulate_swept(
     mesh: UploadFile = File(...),
     operation: str = Form(...),
-    max_sim_distance: float = Form(30.0),
+    max_sim_distance: float = Form(40.0),
     chunk_padding_x: float = Form(5.0),
     chunk_padding_y: float = Form(5.0),
     chunk_padding_z: float = Form(1.0),

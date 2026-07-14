@@ -5,7 +5,7 @@ import { Input } from "t-components/input";
 import { Label } from "t-components/label";
 import { Sidebar, SidebarContent, SidebarMenuButton } from "t-components/sidebar";
 import { TreeView, type TreeNodeNested, type TreeNodeRenderProps } from "@/components/tree-view/tree-view";
-import { type Operation } from "@/generated/cam-types";
+import { type Pocketing2DOp as Operation } from "@/generated_schemas/cam";
 import { cn } from "@/lib/utils";
 
 export type RequestState = "idle" | "submitting" | "success" | "error";

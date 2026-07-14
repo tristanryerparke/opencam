@@ -66,7 +66,7 @@ ClearanceSettings = Annotated[
 
 
 class CAMLevels(CamelBaseModel):
-    drive_geometry_position: Literal["at_top", "at_bottom"] = Field(default="at_top", title="Drive geometry at")
+    drive_geometry_position: Literal["at_top", "at_bottom"] = Field(default="at_bottom", title="Drive geometry at")
     depth_of_cut: float = Field(default=5.0, gt=0, title="Depth of cut", json_schema_extra=ui_metadata(unit="mm"))
     max_stepdown: float = Field(default=20.0, gt=0, title="Max stepdown", json_schema_extra=ui_metadata(unit="mm"))
 

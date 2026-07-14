@@ -1,0 +1,1679 @@
+{
+  "tool": {
+    "id": "f967b034-e788-47ec-b62d-4c7a29f17f70",
+    "name": "6.35mm flat end mill",
+    "toolNumber": 1,
+    "manualChange": false,
+    "diameter": 6.35,
+    "cuttingHeight": 20.0,
+    "shoulderHeight": 20.0,
+    "numFlutes": 2.0,
+    "type": "cylinder"
+  },
+  "toolAxis": [
+    0.0,
+    0.0,
+    1.0
+  ],
+  "preComments": [],
+  "postComments": [],
+  "clearancePlaneHeight": 10.0,
+  "records": [
+    {
+      "type": "position_3d",
+      "x": 148.73333845427754,
+      "y": 33.32832309144488,
+      "z": 10.0,
+      "comment": "start at clearance plane",
+      "feedType": "rapid"
+    },
+    {
+      "type": "position_3d",
+      "x": 148.73333845427754,
+      "y": 33.32832309144488,
+      "z": -0.4125000238418579,
+      "comment": "move to operation start",
+      "feedType": "rapid"
+    },
+    {
+      "type": "position_3d",
+      "x": 148.73333845427754,
+      "y": 33.32832309144488,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 150.0,
+      "y": 35.861646182889764,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 152.53332309144488,
+      "y": 30.794999999999998,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 147.46667690855512,
+      "y": 30.794999999999998,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 148.73333845427754,
+      "y": 33.32832309144488,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 146.4614933891378,
+      "y": 34.46424562401476,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 150.0,
+      "y": 41.54125884573922,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 156.6431294228696,
+      "y": 28.255,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 143.3568705771304,
+      "y": 28.255,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 146.4614933891378,
+      "y": 34.46424562401476,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 144.18964832399797,
+      "y": 35.60016815658466,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 150.0,
+      "y": 47.22087150858869,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 160.75293575429436,
+      "y": 25.715,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 139.24706424570564,
+      "y": 25.715,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 144.18964832399797,
+      "y": 35.60016815658466,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 144.18964832399797,
+      "y": 35.60016815658466,
+      "z": 10.0,
+      "comment": "move up to clearance plane",
+      "feedType": "rapid"
+    },
+    {
+      "type": "position_3d",
+      "x": 151.26666154572246,
+      "y": 66.67167690855511,
+      "z": 10.0,
+      "comment": "move in clearance plane",
+      "feedType": "rapid"
+    },
+    {
+      "type": "position_3d",
+      "x": 151.26666154572246,
+      "y": 66.67167690855511,
+      "z": -0.4125000238418579,
+      "comment": "move to next cut",
+      "feedType": "rapid"
+    },
+    {
+      "type": "position_3d",
+      "x": 151.26666154572246,
+      "y": 66.67167690855511,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 150.0,
+      "y": 64.13835381711023,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 147.46667690855512,
+      "y": 69.205,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 152.53332309144488,
+      "y": 69.205,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 151.26666154572246,
+      "y": 66.67167690855511,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 153.5385066108622,
+      "y": 65.53575437598523,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 150.0,
+      "y": 58.458741154260785,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 143.3568705771304,
+      "y": 71.745,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 156.6431294228696,
+      "y": 71.745,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 153.5385066108622,
+      "y": 65.53575437598523,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 155.81035167600203,
+      "y": 64.39983184341533,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 150.0,
+      "y": 52.77912849141131,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 139.24706424570564,
+      "y": 74.285,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 160.75293575429436,
+      "y": 74.285,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 155.81035167600203,
+      "y": 64.39983184341533,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 158.0821967411418,
+      "y": 63.26390931084544,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 152.16019366857526,
+      "y": 51.41990316571237,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 152.02921578997976,
+      "y": 51.1202973611923,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 151.9297471491443,
+      "y": 50.80880926788238,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 151.86284274731844,
+      "y": 50.48874264388072,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 151.82921219737048,
+      "y": 50.16349223435954,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 151.82921219737048,
+      "y": 49.83650776564046,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 151.86284274731844,
+      "y": 49.51125735611928,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 151.9297471491443,
+      "y": 49.19119073211762,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 152.02921578997976,
+      "y": 48.87970263880771,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 152.16019366857526,
+      "y": 48.58009683428763,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 164.86274208571908,
+      "y": 23.175,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 135.13725791428092,
+      "y": 23.175,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 147.83980633142474,
+      "y": 48.58009683428763,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 147.97078421002024,
+      "y": 48.87970263880771,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 148.0702528508557,
+      "y": 49.19119073211762,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 148.13715725268156,
+      "y": 49.51125735611928,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 148.17078780262952,
+      "y": 49.83650776564046,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 148.17078780262952,
+      "y": 50.16349223435954,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 148.13715725268156,
+      "y": 50.48874264388072,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 148.0702528508557,
+      "y": 50.80880926788238,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 147.97078421002024,
+      "y": 51.12029736119229,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 147.83980633142474,
+      "y": 51.41990316571237,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 135.13725791428092,
+      "y": 76.825,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 164.86274208571908,
+      "y": 76.825,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 158.0821967411418,
+      "y": 63.26390931084544,
+      "z": -0.4125000238418579,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 158.0821967411418,
+      "y": 63.26390931084544,
+      "z": 10.0,
+      "comment": "move up to clearance plane",
+      "feedType": "rapid"
+    },
+    {
+      "type": "position_3d",
+      "x": 148.73333845427754,
+      "y": 33.32832309144488,
+      "z": 10.0,
+      "comment": "move in clearance plane",
+      "feedType": "rapid"
+    },
+    {
+      "type": "position_3d",
+      "x": 148.73333845427754,
+      "y": 33.32832309144488,
+      "z": -2.412500023841858,
+      "comment": "move to next cut",
+      "feedType": "rapid"
+    },
+    {
+      "type": "position_3d",
+      "x": 148.73333845427754,
+      "y": 33.32832309144488,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 150.0,
+      "y": 35.861646182889764,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 152.53332309144488,
+      "y": 30.794999999999998,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 147.46667690855512,
+      "y": 30.794999999999998,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 148.73333845427754,
+      "y": 33.32832309144488,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 146.4614933891378,
+      "y": 34.46424562401476,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 150.0,
+      "y": 41.54125884573922,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 156.6431294228696,
+      "y": 28.255,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 143.3568705771304,
+      "y": 28.255,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 146.4614933891378,
+      "y": 34.46424562401476,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 144.18964832399797,
+      "y": 35.60016815658466,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 150.0,
+      "y": 47.22087150858869,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 160.75293575429436,
+      "y": 25.715,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 139.24706424570564,
+      "y": 25.715,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 144.18964832399797,
+      "y": 35.60016815658466,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 144.18964832399797,
+      "y": 35.60016815658466,
+      "z": 10.0,
+      "comment": "move up to clearance plane",
+      "feedType": "rapid"
+    },
+    {
+      "type": "position_3d",
+      "x": 151.26666154572246,
+      "y": 66.67167690855511,
+      "z": 10.0,
+      "comment": "move in clearance plane",
+      "feedType": "rapid"
+    },
+    {
+      "type": "position_3d",
+      "x": 151.26666154572246,
+      "y": 66.67167690855511,
+      "z": -2.412500023841858,
+      "comment": "move to next cut",
+      "feedType": "rapid"
+    },
+    {
+      "type": "position_3d",
+      "x": 151.26666154572246,
+      "y": 66.67167690855511,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 150.0,
+      "y": 64.13835381711023,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 147.46667690855512,
+      "y": 69.205,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 152.53332309144488,
+      "y": 69.205,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 151.26666154572246,
+      "y": 66.67167690855511,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 153.5385066108622,
+      "y": 65.53575437598523,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 150.0,
+      "y": 58.458741154260785,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 143.3568705771304,
+      "y": 71.745,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 156.6431294228696,
+      "y": 71.745,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 153.5385066108622,
+      "y": 65.53575437598523,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 155.81035167600203,
+      "y": 64.39983184341533,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 150.0,
+      "y": 52.77912849141131,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 139.24706424570564,
+      "y": 74.285,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 160.75293575429436,
+      "y": 74.285,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 155.81035167600203,
+      "y": 64.39983184341533,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 158.0821967411418,
+      "y": 63.26390931084544,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 152.16019366857526,
+      "y": 51.41990316571237,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 152.02921578997976,
+      "y": 51.1202973611923,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 151.9297471491443,
+      "y": 50.80880926788238,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 151.86284274731844,
+      "y": 50.48874264388072,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 151.82921219737048,
+      "y": 50.16349223435954,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 151.82921219737048,
+      "y": 49.83650776564046,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 151.86284274731844,
+      "y": 49.51125735611928,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 151.9297471491443,
+      "y": 49.19119073211762,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 152.02921578997976,
+      "y": 48.87970263880771,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 152.16019366857526,
+      "y": 48.58009683428763,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 164.86274208571908,
+      "y": 23.175,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 135.13725791428092,
+      "y": 23.175,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 147.83980633142474,
+      "y": 48.58009683428763,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 147.97078421002024,
+      "y": 48.87970263880771,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 148.0702528508557,
+      "y": 49.19119073211762,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 148.13715725268156,
+      "y": 49.51125735611928,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 148.17078780262952,
+      "y": 49.83650776564046,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 148.17078780262952,
+      "y": 50.16349223435954,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 148.13715725268156,
+      "y": 50.48874264388072,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 148.0702528508557,
+      "y": 50.80880926788238,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 147.97078421002024,
+      "y": 51.12029736119229,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 147.83980633142474,
+      "y": 51.41990316571237,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 135.13725791428092,
+      "y": 76.825,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 164.86274208571908,
+      "y": 76.825,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 158.0821967411418,
+      "y": 63.26390931084544,
+      "z": -2.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 158.0821967411418,
+      "y": 63.26390931084544,
+      "z": 10.0,
+      "comment": "move up to clearance plane",
+      "feedType": "rapid"
+    },
+    {
+      "type": "position_3d",
+      "x": 148.73333845427754,
+      "y": 33.32832309144488,
+      "z": 10.0,
+      "comment": "move in clearance plane",
+      "feedType": "rapid"
+    },
+    {
+      "type": "position_3d",
+      "x": 148.73333845427754,
+      "y": 33.32832309144488,
+      "z": -4.412500023841858,
+      "comment": "move to next cut",
+      "feedType": "rapid"
+    },
+    {
+      "type": "position_3d",
+      "x": 148.73333845427754,
+      "y": 33.32832309144488,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 150.0,
+      "y": 35.861646182889764,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 152.53332309144488,
+      "y": 30.794999999999998,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 147.46667690855512,
+      "y": 30.794999999999998,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 148.73333845427754,
+      "y": 33.32832309144488,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 146.4614933891378,
+      "y": 34.46424562401476,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 150.0,
+      "y": 41.54125884573922,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 156.6431294228696,
+      "y": 28.255,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 143.3568705771304,
+      "y": 28.255,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 146.4614933891378,
+      "y": 34.46424562401476,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 144.18964832399797,
+      "y": 35.60016815658466,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 150.0,
+      "y": 47.22087150858869,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 160.75293575429436,
+      "y": 25.715,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 139.24706424570564,
+      "y": 25.715,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 144.18964832399797,
+      "y": 35.60016815658466,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 144.18964832399797,
+      "y": 35.60016815658466,
+      "z": 10.0,
+      "comment": "move up to clearance plane",
+      "feedType": "rapid"
+    },
+    {
+      "type": "position_3d",
+      "x": 151.26666154572246,
+      "y": 66.67167690855511,
+      "z": 10.0,
+      "comment": "move in clearance plane",
+      "feedType": "rapid"
+    },
+    {
+      "type": "position_3d",
+      "x": 151.26666154572246,
+      "y": 66.67167690855511,
+      "z": -4.412500023841858,
+      "comment": "move to next cut",
+      "feedType": "rapid"
+    },
+    {
+      "type": "position_3d",
+      "x": 151.26666154572246,
+      "y": 66.67167690855511,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 150.0,
+      "y": 64.13835381711023,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 147.46667690855512,
+      "y": 69.205,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 152.53332309144488,
+      "y": 69.205,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 151.26666154572246,
+      "y": 66.67167690855511,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 153.5385066108622,
+      "y": 65.53575437598523,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 150.0,
+      "y": 58.458741154260785,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 143.3568705771304,
+      "y": 71.745,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 156.6431294228696,
+      "y": 71.745,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 153.5385066108622,
+      "y": 65.53575437598523,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 155.81035167600203,
+      "y": 64.39983184341533,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 150.0,
+      "y": 52.77912849141131,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 139.24706424570564,
+      "y": 74.285,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 160.75293575429436,
+      "y": 74.285,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 155.81035167600203,
+      "y": 64.39983184341533,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 158.0821967411418,
+      "y": 63.26390931084544,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 152.16019366857526,
+      "y": 51.41990316571237,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 152.02921578997976,
+      "y": 51.1202973611923,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 151.9297471491443,
+      "y": 50.80880926788238,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 151.86284274731844,
+      "y": 50.48874264388072,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 151.82921219737048,
+      "y": 50.16349223435954,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 151.82921219737048,
+      "y": 49.83650776564046,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 151.86284274731844,
+      "y": 49.51125735611928,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 151.9297471491443,
+      "y": 49.19119073211762,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 152.02921578997976,
+      "y": 48.87970263880771,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 152.16019366857526,
+      "y": 48.58009683428763,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 164.86274208571908,
+      "y": 23.175,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 135.13725791428092,
+      "y": 23.175,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 147.83980633142474,
+      "y": 48.58009683428763,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 147.97078421002024,
+      "y": 48.87970263880771,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 148.0702528508557,
+      "y": 49.19119073211762,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 148.13715725268156,
+      "y": 49.51125735611928,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 148.17078780262952,
+      "y": 49.83650776564046,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 148.17078780262952,
+      "y": 50.16349223435954,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 148.13715725268156,
+      "y": 50.48874264388072,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 148.0702528508557,
+      "y": 50.80880926788238,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 147.97078421002024,
+      "y": 51.12029736119229,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 147.83980633142474,
+      "y": 51.41990316571237,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 135.13725791428092,
+      "y": 76.825,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 164.86274208571908,
+      "y": 76.825,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 158.0821967411418,
+      "y": 63.26390931084544,
+      "z": -4.412500023841858,
+      "comment": null,
+      "feedType": "feed_rate",
+      "feedrate": 800.0
+    },
+    {
+      "type": "position_3d",
+      "x": 158.0821967411418,
+      "y": 63.26390931084544,
+      "z": 10.0,
+      "comment": "return to clearance plane",
+      "feedType": "rapid"
+    }
+  ]
+}

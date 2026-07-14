@@ -31,9 +31,7 @@ from opencam.schemas.cl_data import (
     RapidPositionRecord3D,
 )
 from opencam.schemas.tools import CylindricalTool
-from opencam.services.simulation.swept_volume import SimulatedMeshFrame
-from opencam.services.simulation.swept_volume import load_stl_bounds
-from opencam.services.simulation.swept_volume import simulate_swept_milling_frames
+from opencam.simulation.swept_volume import SimulatedMeshFrame, load_stl_bounds, simulate_swept_milling_frames
 from rhino_renderer.action import ConduitAction
 from rhino_renderer.action import MeshObjectStyle
 from rhino_renderer.action import ObjectStyle

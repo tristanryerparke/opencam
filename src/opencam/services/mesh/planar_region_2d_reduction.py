@@ -199,10 +199,15 @@ def simplify_mesh_data_2d(
         if face_regions[fi] >= 0 or face_regions[fi] == -1:
             kept_faces.append(mesh.faces[fi].copy())
 
+    kept_faces_array = (
+        np.asarray(kept_faces, dtype=np.int64)
+        if kept_faces
+        else np.zeros((0, 3), dtype=np.int64)
+    )
     if rebuilt_faces:
-        combined_faces = np.vstack([np.asarray(kept_faces, dtype=np.int64), *rebuilt_faces])
+        combined_faces = np.vstack([kept_faces_array, *rebuilt_faces])
     else:
-        combined_faces = np.asarray(kept_faces, dtype=np.int64)
+        combined_faces = kept_faces_array
 
     if replaced_faces == 0 or len(combined_faces) >= len(mesh.faces):
         return mesh

@@ -17,7 +17,7 @@ from opencam.services.mesh.planar_region_2d_reduction import simplify_mesh_data_
 TOOL_SEGMENTS = 16
 SIM_STEPDISTANCE = 5
 SIMPLIFY_AFTER_EACH_CHUNK = False
-DEFAULT_MAX_SIM_DISTANCE = 10.0
+DEFAULT_MAX_SIM_DISTANCE = 20
 DEFAULT_CHUNK_PADDING = (5.0, 5.0, 1.0)
 DEFAULT_CHUNK_STEP_DISTANCE = 0.5
 DEFAULT_PATH_ANGLE_TOLERANCE_DEGREES = 15
@@ -1021,6 +1021,7 @@ def prepare_simulation_chunks(
     chunk_step_distance: float = DEFAULT_CHUNK_STEP_DISTANCE,
     rotate_tool_with_path: bool = DEFAULT_ROTATE_TOOL_WITH_PATH,
     should_cancel: Callable[[], bool] | None = None,
+    progress_callback: Callable[[int, int, str], None] | None = None,
 ) -> list[PreparedSimulationChunk]:
     if not isinstance(operation.tool, CylindricalTool):
         raise NotImplementedError(f"Tool type {operation.tool.type!r} is not supported for swept simulation.")
@@ -1062,8 +1063,16 @@ def prepare_simulation_chunks(
         chunk_step_distance,
     )
     stock_like_original_ids = {stock_original_id, chunk_boundary_original_id}
+    total_progress_steps = max(
+        sum(1 + max(len(chunk_positions) - 1, 0) for chunk_positions in position_chunks),
+        1,
+    )
+    completed_progress_steps = 0
 
     if not position_chunks:
+        if progress_callback:
+            progress_callback(1, 1, "No contact chunks to simulate.")
+
         return [
             PreparedSimulationChunk(
                 chunk_index=0,
@@ -1085,6 +1094,8 @@ def prepare_simulation_chunks(
         if should_cancel and should_cancel():
             raise SimulationCancelledError("Simulation generation cancelled.")
 
+        chunk_start_progress = completed_progress_steps
+        chunk_target_progress = chunk_start_progress + 1 + max(len(chunk_positions) - 1, 0)
         chunk_bounds_min, chunk_bounds_max = toolpath_chunk_bounds(
             tool_vertices,
             chunk_positions,
@@ -1121,6 +1132,23 @@ def prepare_simulation_chunks(
             stock_like_original_ids=stock_like_original_ids,
         )
         prepared_chunks.append(prepared_chunk)
+        completed_progress_steps += 1
+        if progress_callback:
+            progress_callback(
+                completed_progress_steps,
+                total_progress_steps,
+                f"Prepared chunk {chunk_index + 1} of {len(position_chunks)}.",
+            )
+
+        def report_segment_complete() -> None:
+            nonlocal completed_progress_steps
+            completed_progress_steps += 1
+            if progress_callback:
+                progress_callback(
+                    completed_progress_steps,
+                    total_progress_steps,
+                    f"Processing chunk {chunk_index + 1} of {len(position_chunks)}.",
+                )
 
         current_stock, _subtraction_seconds, _segment_count = simulate_manifold_by_moves(
             current_stock,
@@ -1129,7 +1157,15 @@ def prepare_simulation_chunks(
             context_prefix=f"chunk {chunk_index} stock",
             rotate_tool_with_path=rotate_tool_with_path,
             should_cancel=should_cancel,
+            on_segment_complete=report_segment_complete,
         )
+        completed_progress_steps = max(completed_progress_steps, chunk_target_progress)
+        if progress_callback:
+            progress_callback(
+                completed_progress_steps,
+                total_progress_steps,
+                f"Finished chunk {chunk_index + 1} of {len(position_chunks)}.",
+            )
         if SIMPLIFY_AFTER_EACH_CHUNK and chunk_index < len(position_chunks) - 1:
             current_stock = simplify_manifold_for_boolean(
                 current_stock,

@@ -294,7 +294,12 @@ def _build_buffered_simulation(
     rotate_tool_with_path: bool,
     include_corner_rotation_sweeps: bool,
     should_cancel: Callable[[], bool] | None,
+    progress_callback: Callable[[int, str], None] | None = None,
 ) -> BufferedSimulationResult:
+    def report_prepare_progress(current: int, total: int, message: str) -> None:
+        if progress_callback:
+            progress_callback(round((current / max(total, 1)) * 85), message)
+
     prepared_chunks = prepare_simulation_chunks(
         mesh_bytes,
         operation,
@@ -303,6 +308,7 @@ def _build_buffered_simulation(
         chunk_step_distance=chunk_step_distance,
         rotate_tool_with_path=rotate_tool_with_path,
         should_cancel=should_cancel,
+        progress_callback=report_prepare_progress,
     )
     if not prepared_chunks:
         raise RuntimeError("Simulation produced no chunks.")
@@ -314,10 +320,15 @@ def _build_buffered_simulation(
     )
     chunks: list[SimulatedChunk] = []
 
-    for prepared_chunk in prepared_chunks:
+    for chunk_list_index, prepared_chunk in enumerate(prepared_chunks):
         if should_cancel and should_cancel():
             raise SimulationCancelledError("Simulation generation cancelled.")
 
+        if progress_callback:
+            progress_callback(
+                85 + round((chunk_list_index / max(len(prepared_chunks), 1)) * 14),
+                f"Preparing cached chunk mesh {chunk_list_index + 1} of {len(prepared_chunks)}.",
+            )
         cached_mesh_bytes = manifold_to_simplified_glb(
             prepared_chunk.rest_mesh,
             context=f"extracting cached mesh for chunk {prepared_chunk.chunk_index}",
@@ -330,6 +341,11 @@ def _build_buffered_simulation(
                 frame_end_index=0,
             )
         )
+        if progress_callback:
+            progress_callback(
+                85 + round(((chunk_list_index + 1) / max(len(prepared_chunks), 1)) * 14),
+                f"Cached chunk mesh {chunk_list_index + 1} of {len(prepared_chunks)}.",
+            )
 
     return BufferedSimulationResult(
         tool_mesh_bytes=write_glb(tool_vertices, tool_faces),
@@ -454,8 +470,23 @@ def _run_swept_simulation_task(
             task = _get_simulation_task(task_id)
             return task.cancel_event.is_set()
 
+    def report_progress(progress_percent: int, message: str) -> None:
+        _update_simulation_task(
+            task_id,
+            status="running",
+            progress_current=max(0, min(progress_percent, 99)),
+            progress_total=100,
+            message=message,
+        )
+
     try:
-        _update_simulation_task(task_id, status="running", message="Preparing simulation chunks...")
+        _update_simulation_task(
+            task_id,
+            status="running",
+            progress_current=0,
+            progress_total=100,
+            message="Preparing simulation chunks...",
+        )
         simulation = _build_buffered_simulation(
             mesh_bytes,
             parsed_operation,
@@ -465,6 +496,7 @@ def _run_swept_simulation_task(
             rotate_tool_with_path=rotate_tool_with_path,
             include_corner_rotation_sweeps=include_corner_rotation_sweeps,
             should_cancel=should_cancel,
+            progress_callback=report_progress,
         )
         if should_cancel():
             raise SimulationCancelledError("Simulation generation cancelled.")

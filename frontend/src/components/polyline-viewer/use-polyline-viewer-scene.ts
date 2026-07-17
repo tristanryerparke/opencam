@@ -1,31 +1,32 @@
 import { useCallback, useEffect, useRef, type RefObject } from "react";
-import * as THREE from "three";
-import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { Line2 } from "three/examples/jsm/lines/Line2.js";
-import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
-import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
-import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
-import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
-import {
-  mergeVertices,
-  toCreasedNormals,
-} from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { ArcRotateCamera } from "@babylonjs/core/Cameras/arcRotateCamera";
+import { Color3, Color4 } from "@babylonjs/core/Maths/math.color";
+import { Constants } from "@babylonjs/core/Engines/constants";
+import { Engine } from "@babylonjs/core/Engines/engine";
+import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight";
+import { Mesh } from "@babylonjs/core/Meshes/mesh";
+import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
+import { PointerEventTypes } from "@babylonjs/core/Events/pointerEvents";
+import { Scene } from "@babylonjs/core/scene";
+import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
+import { TransformNode } from "@babylonjs/core/Meshes/transformNode";
+import { Vector3 } from "@babylonjs/core/Maths/math.vector";
+import { VertexBuffer } from "@babylonjs/core/Buffers/buffer";
+import { CreateGreasedLine } from "@babylonjs/core/Meshes/Builders/greasedLineBuilder";
+import { GreasedLineMeshMaterialType } from "@babylonjs/core/Materials/GreasedLine/greasedLineMaterialInterfaces";
 
-import { SCSRenderer } from "@/simulation/scs/scs-renderer";
-
 import {
+  CAMERA_FAR_RADIUS_MULTIPLIER,
+  CAMERA_MAX_DISTANCE_MULTIPLIER,
+  CAMERA_NEAR_DISTANCE_FACTOR,
+  CAMERA_NEAR_SCENE_FACTOR,
   CLEARANCE_POLYLINE_LINEWIDTH,
-  CUT_SURFACE_COLOR,
   DISPLAY_EDGE_THRESHOLD_ANGLE_DEGREES,
-  DISPLAY_SHADING_CREASE_ANGLE_DEGREES,
-  MESH_DEPTH_OFFSET_FACTOR,
-  MESH_DEPTH_OFFSET_UNITS,
   MESH_EDGE_LINEWIDTH,
   POLYLINE_COLORS,
   POLYLINE_LINEWIDTH,
-  TOOL_PREVIEW_COLOR,
 } from "./constants";
-import { loadMeshGeometry } from "./mesh-loader";
+import { importMesh, type ImportedMesh } from "./mesh-loader";
 import {
   createBoundarySegments,
   createMeshFaceSelection,
@@ -33,28 +34,244 @@ import {
   type MeshSelectionData,
 } from "./mesh-selection";
 import {
-  clearGroup,
-  disposeObject,
-  fitCameraToBox,
+  getBoundsSize,
   getOverlayLift,
   getSceneBounds,
-  updateCameraDepthRange,
+  unionBounds,
+  type Bounds,
 } from "./scene-utils";
-import {
-  createBaseSimulationCylinderGeometry,
-  createSimulationStockMesh,
-} from "./simulation";
-import type { MeshFaceSelection, PolylinePoint, PolylineViewerSceneProps } from "./types";
+import { createSimulationToolMesh } from "./simulation";
+import type {
+  MeshFaceSelection,
+  PolylinePoint,
+  PolylineViewerSceneProps,
+} from "./types";
 
-type LoadedDisplayMesh = {
-  group: THREE.Group;
-  mesh: THREE.Mesh;
-  bounds: THREE.Box3 | null;
-  edgeMaterial: LineMaterial | null;
-  selectionMesh: THREE.Mesh | null;
-  selectionData: MeshSelectionData | null;
-  selectionHighlightGroup: THREE.Group | null;
+type DisplayMesh = {
+  asset: ImportedMesh;
+  bounds: Bounds | null;
+  selectionData: Map<Mesh, MeshSelectionData>;
 };
+
+type ToolPreview = {
+  root: TransformNode;
+  fallback: Mesh;
+  asset: ImportedMesh | null;
+};
+
+function colorFromNumber(color: number) {
+  return Color3.FromHexString(`#${color.toString(16).padStart(6, "0")}`);
+}
+
+function colorFromString(color: string) {
+  return color.startsWith("#") ? Color3.FromHexString(color) : Color3.White();
+}
+
+function boundsFromPositions(positions: Float32Array): Bounds | null {
+  if (positions.length === 0) return null;
+
+  const bounds: Bounds = {
+    min: [positions[0], positions[1], positions[2]],
+    max: [positions[0], positions[1], positions[2]],
+  };
+  for (let index = 3; index < positions.length; index += 3) {
+    for (let axis = 0; axis < 3; axis += 1) {
+      const value = positions[index + axis];
+      bounds.min[axis] = Math.min(bounds.min[axis], value);
+      bounds.max[axis] = Math.max(bounds.max[axis], value);
+    }
+  }
+  return bounds;
+}
+
+function selectionDataForMesh(mesh: Mesh): MeshSelectionData | null {
+  const positions = mesh.getVerticesData(VertexBuffer.PositionKind);
+  const indices = mesh.getIndices();
+  if (!positions || !indices) return null;
+
+  mesh.computeWorldMatrix(true);
+  const matrix = mesh.getWorldMatrix();
+  const transformed = new Float32Array(positions.length);
+  const vertex = Vector3.Zero();
+  for (let index = 0; index < positions.length; index += 3) {
+    Vector3.TransformCoordinatesFromFloatsToRef(
+      positions[index],
+      positions[index + 1],
+      positions[index + 2],
+      matrix,
+      vertex,
+    );
+    transformed[index] = vertex.x;
+    transformed[index + 1] = vertex.y;
+    transformed[index + 2] = vertex.z;
+  }
+  return createMeshSelectionData(transformed, indices);
+}
+
+function disposeDisplayMesh(display: DisplayMesh | null) {
+  display?.asset.dispose();
+}
+
+function replaceMaterial(
+  mesh: Mesh,
+  scene: Scene,
+  color: number,
+  opacity: number,
+  useVertexColors: boolean,
+) {
+  const previousMaterial = mesh.material;
+  const material = new StandardMaterial(`${mesh.name}-display-material`, scene);
+  material.diffuseColor = colorFromNumber(color);
+  material.specularColor = new Color3(0.02, 0.02, 0.02);
+  material.alpha = Math.min(1, Math.max(0, opacity));
+  material.disableDepthWrite = material.alpha < 1;
+  material.zOffset = -1;
+  material.zOffsetUnits = -1;
+  if (!useVertexColors || !mesh.getVerticesData(VertexBuffer.ColorKind)) {
+    mesh.removeVerticesData(VertexBuffer.ColorKind);
+  }
+  mesh.material = material;
+  previousMaterial?.dispose(true, true);
+}
+
+function createDisplayMesh(
+  asset: ImportedMesh,
+  scene: Scene,
+  color: number,
+  edgeColor: number | null,
+  opacity: number,
+  useVertexColors: boolean,
+  selectable: boolean,
+): DisplayMesh {
+  const selectionData = new Map<Mesh, MeshSelectionData>();
+  let bounds: Bounds | null = null;
+
+  for (const mesh of asset.meshes) {
+    replaceMaterial(mesh, scene, color, opacity, useVertexColors);
+    mesh.renderingGroupId = 0;
+    mesh.isPickable = selectable;
+
+    if (edgeColor != null) {
+      mesh.enableEdgesRendering(Math.cos((DISPLAY_EDGE_THRESHOLD_ANGLE_DEGREES * Math.PI) / 180));
+      const edge = colorFromNumber(edgeColor);
+      mesh.edgesColor = new Color4(edge.r, edge.g, edge.b, 0.9);
+      mesh.edgesWidth = MESH_EDGE_LINEWIDTH;
+    }
+
+    if (!selectable) continue;
+    const data = selectionDataForMesh(mesh);
+    if (!data) continue;
+    selectionData.set(mesh, data);
+    const meshBounds = boundsFromPositions(data.positions);
+    bounds = meshBounds ? (bounds ? unionBounds(bounds, meshBounds) : meshBounds) : bounds;
+  }
+
+  return { asset, bounds, selectionData };
+}
+
+function createOverlayLine(
+  scene: Scene,
+  name: string,
+  points: ReadonlyArray<ReadonlyArray<number>>,
+  color: Color3,
+  width: number,
+  renderingGroupId: number,
+  alwaysOnTop = false,
+) {
+  const line = CreateGreasedLine(
+    name,
+    { points: points.map((point) => [...point]) },
+    {
+      materialType: GreasedLineMeshMaterialType.MATERIAL_TYPE_SIMPLE,
+      color,
+      width,
+      sizeAttenuation: true,
+    },
+    scene,
+  );
+  line.renderingGroupId = renderingGroupId;
+  line.isPickable = false;
+  line.alwaysSelectAsActiveMesh = true;
+  if (line.material) {
+    line.material.disableDepthWrite = true;
+    line.material.depthFunction = alwaysOnTop ? Constants.ALWAYS : Constants.LEQUAL;
+  }
+  return line;
+}
+
+function fitCameraToBounds(bounds: Bounds, camera: ArcRotateCamera) {
+  const [width, depth, height] = getBoundsSize(bounds);
+  const maxDimension = Math.max(width, depth, height, 1);
+  const center = new Vector3(
+    (bounds.min[0] + bounds.max[0]) / 2,
+    (bounds.min[1] + bounds.max[1]) / 2,
+    (bounds.min[2] + bounds.max[2]) / 2,
+  );
+  const distance = maxDimension / (2 * Math.tan((45 * Math.PI) / 360));
+
+  camera.setTarget(center);
+  camera.setPosition(new Vector3(
+    center.x + distance * 1.35,
+    center.y - distance * 1.1,
+    center.z + distance * 0.9,
+  ));
+  camera.lowerRadiusLimit = Math.max(maxDimension * 0.0005, 0.01);
+  camera.upperRadiusLimit = Math.max(maxDimension * CAMERA_MAX_DISTANCE_MULTIPLIER, distance * 2);
+}
+
+function updateCameraDepthRange(bounds: Bounds, camera: ArcRotateCamera) {
+  const [width, depth, height] = getBoundsSize(bounds);
+  const radius = Math.max(Math.hypot(width, depth, height) * 0.5, 0.5);
+  const distance = Math.max(camera.radius, radius * 0.1, 0.01);
+  camera.minZ = Math.max(0.001, distance * CAMERA_NEAR_DISTANCE_FACTOR, radius * CAMERA_NEAR_SCENE_FACTOR);
+  camera.maxZ = Math.max(camera.minZ * 10, distance + radius * CAMERA_FAR_RADIUS_MULTIPLIER);
+}
+
+function createGridAndAxes(scene: Scene, bounds: Bounds) {
+  const [width, depth, height] = getBoundsSize(bounds);
+  const size = Math.max(120, Math.ceil(Math.max(width, depth, height, 1) * 1.8));
+  const divisions = Math.max(10, Math.round(size / 12));
+  const half = size / 2;
+  const lines: Vector3[][] = [];
+
+  for (let index = 0; index <= divisions; index += 1) {
+    const position = -half + (size * index) / divisions;
+    lines.push([new Vector3(position, -half, 0), new Vector3(position, half, 0)]);
+    lines.push([new Vector3(-half, position, 0), new Vector3(half, position, 0)]);
+  }
+
+  const grid = MeshBuilder.CreateLineSystem("grid", { lines }, scene);
+  grid.color = colorFromNumber(0x6b7280);
+  grid.alpha = 0.45;
+  grid.isPickable = false;
+
+  const axisLength = Math.max(Math.max(width, depth, height) * 0.22, 18);
+  for (const [name, end, color] of [
+    ["x-axis", new Vector3(axisLength, 0, 0), Color3.Red()],
+    ["y-axis", new Vector3(0, axisLength, 0), Color3.Green()],
+    ["z-axis", new Vector3(0, 0, axisLength), Color3.Blue()],
+  ] as const) {
+    const axis = MeshBuilder.CreateLines(name, { points: [Vector3.Zero(), end] }, scene);
+    axis.color = color;
+    axis.isPickable = false;
+  }
+}
+
+function toolRotation(
+  current: PolylinePoint,
+  previous: PolylinePoint | null,
+  next: PolylinePoint | null,
+  fallback: number,
+) {
+  for (const point of [previous, next]) {
+    if (!point) continue;
+    const [dx, dy] = point === previous
+      ? [current[0] - point[0], current[1] - point[1]]
+      : [point[0] - current[0], point[1] - current[1]];
+    if (Math.hypot(dx, dy) > 1e-6) return Math.atan2(dy, dx);
+  }
+  return fallback;
+}
 
 export function usePolylineViewerScene(
   containerRef: RefObject<HTMLDivElement | null>,
@@ -85,42 +302,122 @@ export function usePolylineViewerScene(
   }: PolylineViewerSceneProps,
 ) {
   const currentPolylinesRef = useRef(polylines);
-  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
-  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
-  const controlsRef = useRef<OrbitControls | null>(null);
-  const polylineGroupRef = useRef<THREE.Group | null>(null);
-  const meshGroupRef = useRef<THREE.Group | null>(null);
-  const secondaryMeshGroupRef = useRef<THREE.Group | null>(null);
-  const meshRef = useRef<THREE.Mesh | null>(null);
-  const meshSelectionMeshRef = useRef<THREE.Mesh | null>(null);
-  const meshSelectionDataRef = useRef<MeshSelectionData | null>(null);
-  const meshBoundsRef = useRef<THREE.Box3 | null>(null);
-  const selectionHighlightGroupRef = useRef<THREE.Group | null>(null);
-  const selectionOutlineMaterialRef = useRef<LineMaterial | null>(null);
-  const meshEdgeMaterialRef = useRef<LineMaterial | null>(null);
-  const polylineMaterialsRef = useRef<LineMaterial[]>([]);
-  const scsRendererRef = useRef<SCSRenderer | null>(null);
-  const simulationDummyMeshRef = useRef<THREE.Mesh | null>(null);
-  const simulationToolPreviewMeshRef = useRef<THREE.Mesh | null>(null);
-  const simulationToolPreviewBaseGeometryRef = useRef<THREE.BufferGeometry | null>(null);
-  const simulationToolPreviewLoadedGeometryRef = useRef<THREE.BufferGeometry | null>(null);
-  const simulationStockMeshRef = useRef<THREE.Mesh | null>(null);
-  const simulationCutterGeometryRef = useRef<THREE.BufferGeometry | null>(null);
-  const simulationCutterMaterialRef = useRef<THREE.MeshBasicMaterial | null>(null);
-  const simulationCuttersRef = useRef<THREE.Mesh[]>([]);
-  const simulationPreparedStepRef = useRef(0);
-  const simulationToolRotationRef = useRef(0);
+  const engineRef = useRef<Engine | null>(null);
+  const sceneRef = useRef<Scene | null>(null);
+  const cameraRef = useRef<ArcRotateCamera | null>(null);
+  const primaryMeshRef = useRef<DisplayMesh | null>(null);
+  const secondaryMeshRef = useRef<DisplayMesh | null>(null);
+  const polylineMeshesRef = useRef<Mesh[]>([]);
+  const selectionMeshesRef = useRef<Mesh[]>([]);
+  const toolPreviewRef = useRef<ToolPreview | null>(null);
+  const selectedMeshFacesRef = useRef<ReadonlyArray<MeshFaceSelection>>(
+    selectedMeshFaces.length > 0 ? selectedMeshFaces : selectedMeshFace ? [selectedMeshFace] : [],
+  );
   const faceSelectionModeRef = useRef(faceSelectionMode);
   const onMeshFaceSelectRef = useRef(onMeshFaceSelect);
-  const selectedMeshFacesRef = useRef<ReadonlyArray<MeshFaceSelection>>(selectedMeshFaces.length > 0 ? selectedMeshFaces : selectedMeshFace ? [selectedMeshFace] : []);
   const simulationToolRef = useRef(simulationTool);
   const simulationSamplesRef = useRef(simulationSamples);
   const simulationStepRef = useRef(simulationStep);
   const simulationToolPositionRef = useRef<PolylinePoint | null>(simulationToolPosition);
-  const simulationToolRotationPropRef = useRef<number | null>(simulationToolRotation);
+  const simulationToolRotationRef = useRef<number | null>(simulationToolRotation);
   const simulationToolRotationEnabledRef = useRef(simulationToolRotationEnabled);
   const showOriginalMeshRef = useRef(showOriginalMesh);
+  const currentToolRotationRef = useRef(0);
   const hasUserInteractedRef = useRef(false);
+
+  const clearSelectionHighlights = useCallback(() => {
+    for (const mesh of selectionMeshesRef.current) mesh.dispose(false, true);
+    selectionMeshesRef.current = [];
+  }, []);
+
+  const renderSelectionHighlights = useCallback(() => {
+    clearSelectionHighlights();
+    const scene = sceneRef.current;
+    if (!scene || !showOriginalMeshRef.current) return;
+
+    const lift = getOverlayLift(getSceneBounds(currentPolylinesRef.current, primaryMeshRef.current?.bounds));
+    for (const selection of selectedMeshFacesRef.current) {
+      if (!selection.boundaryLoop) continue;
+      const segments = createBoundarySegments(selection.boundaryLoop).map(([x, y, z]) => [x, y, z + lift]);
+      if (segments.length < 2) continue;
+      selectionMeshesRef.current.push(createOverlayLine(
+        scene,
+        `${selection.id}-highlight`,
+        segments,
+        colorFromNumber(0x22c55e),
+        POLYLINE_LINEWIDTH,
+        3,
+        true,
+      ));
+    }
+  }, [clearSelectionHighlights]);
+
+  const updateToolPreview = useCallback(() => {
+    const preview = toolPreviewRef.current;
+    if (!preview) return;
+
+    if (showOriginalMeshRef.current) {
+      preview.root.setEnabled(false);
+      return;
+    }
+
+    const explicitPosition = simulationToolPositionRef.current;
+    const samples = simulationSamplesRef.current;
+    const step = simulationStepRef.current;
+    const tool = simulationToolRef.current;
+    let position = explicitPosition;
+    let previous: PolylinePoint | null = null;
+    let next: PolylinePoint | null = null;
+
+    if (!position) {
+      if (!tool || step <= 0 || samples.length === 0) {
+        preview.root.setEnabled(false);
+        return;
+      }
+      const index = Math.min(step, samples.length) - 1;
+      const sample = samples[index];
+      position = [sample.x, sample.y, sample.z];
+      previous = index > 0 ? [samples[index - 1].x, samples[index - 1].y, samples[index - 1].z] : null;
+      next = index + 1 < samples.length ? [samples[index + 1].x, samples[index + 1].y, samples[index + 1].z] : null;
+    } else {
+      previous = step > 0 && step - 1 < samples.length
+        ? [samples[Math.max(step - 1, 0)].x, samples[Math.max(step - 1, 0)].y, samples[Math.max(step - 1, 0)].z]
+        : null;
+      next = step < samples.length ? [samples[step].x, samples[step].y, samples[step].z] : null;
+    }
+
+    if (!preview.asset && !tool) {
+      preview.root.setEnabled(false);
+      return;
+    }
+
+    const isCustomTool = preview.asset != null;
+    preview.root.scaling.set(
+      isCustomTool ? 1 : tool?.diameter ?? 1,
+      isCustomTool ? 1 : tool?.diameter ?? 1,
+      isCustomTool ? 1 : tool?.cuttingHeight ?? 1,
+    );
+    preview.root.position.set(
+      position[0],
+      position[1],
+      position[2] + (isCustomTool ? 0 : (tool?.cuttingHeight ?? 0) / 2),
+    );
+
+    if (!simulationToolRotationEnabledRef.current) {
+      currentToolRotationRef.current = 0;
+    } else if (explicitPosition && simulationToolRotationRef.current != null) {
+      currentToolRotationRef.current = simulationToolRotationRef.current;
+    } else {
+      currentToolRotationRef.current = toolRotation(
+        position,
+        previous,
+        next,
+        currentToolRotationRef.current,
+      );
+    }
+    preview.root.rotation.set(0, 0, currentToolRotationRef.current);
+    preview.root.setEnabled(true);
+  }, []);
 
   useEffect(() => {
     currentPolylinesRef.current = polylines;
@@ -128,11 +425,10 @@ export function usePolylineViewerScene(
 
   useEffect(() => {
     faceSelectionModeRef.current = faceSelectionMode;
-
-    const renderer = rendererRef.current;
-    if (renderer) {
-      renderer.domElement.style.cursor = faceSelectionMode ? "crosshair" : "default";
-    }
+    engineRef.current?.getRenderingCanvas()?.style.setProperty(
+      "cursor",
+      faceSelectionMode ? "crosshair" : "default",
+    );
   }, [faceSelectionMode]);
 
   useEffect(() => {
@@ -140,1028 +436,290 @@ export function usePolylineViewerScene(
   }, [onMeshFaceSelect]);
 
   useEffect(() => {
-    selectedMeshFacesRef.current = selectedMeshFaces.length > 0 ? selectedMeshFaces : selectedMeshFace ? [selectedMeshFace] : [];
-  }, [selectedMeshFace, selectedMeshFaces]);
-
-  useEffect(() => {
-    simulationToolPositionRef.current = simulationToolPosition;
-  }, [simulationToolPosition]);
-
-  useEffect(() => {
-    simulationToolRotationPropRef.current = simulationToolRotation;
-  }, [simulationToolRotation]);
-
-  useEffect(() => {
-    simulationToolRotationEnabledRef.current = simulationToolRotationEnabled;
-  }, [simulationToolRotationEnabled]);
-
-  useEffect(() => {
-    showOriginalMeshRef.current = showOriginalMesh;
-  }, [showOriginalMesh]);
-
-  const clearSimulationResources = useCallback(() => {
-    if (simulationStockMeshRef.current) {
-      simulationStockMeshRef.current.geometry.dispose();
-      const stockMaterial = Array.isArray(simulationStockMeshRef.current.material)
-        ? simulationStockMeshRef.current.material
-        : [simulationStockMeshRef.current.material];
-      stockMaterial.forEach((material) => material.dispose());
-      simulationStockMeshRef.current = null;
-    }
-
-    if (simulationToolPreviewMeshRef.current) {
-      simulationToolPreviewMeshRef.current.visible = false;
-    }
-
-    simulationCuttersRef.current = [];
-    simulationPreparedStepRef.current = 0;
-  }, []);
-
-  const resetPrimaryMeshRefs = useCallback(() => {
-    meshRef.current = null;
-    meshSelectionMeshRef.current = null;
-    meshSelectionDataRef.current = null;
-    meshBoundsRef.current = null;
-    selectionHighlightGroupRef.current = null;
-    selectionOutlineMaterialRef.current = null;
-    meshEdgeMaterialRef.current = null;
-  }, []);
-
-  const commitPrimaryMesh = useCallback(
-    (targetGroup: THREE.Group, loadedMesh: LoadedDisplayMesh) => {
-      resetPrimaryMeshRefs();
-      clearGroup(targetGroup);
-      targetGroup.add(loadedMesh.group);
-      meshRef.current = loadedMesh.mesh;
-      meshSelectionMeshRef.current = loadedMesh.selectionMesh;
-      meshSelectionDataRef.current = loadedMesh.selectionData;
-      meshBoundsRef.current = loadedMesh.bounds?.clone() ?? null;
-      selectionHighlightGroupRef.current = loadedMesh.selectionHighlightGroup;
-      meshEdgeMaterialRef.current = loadedMesh.edgeMaterial;
-    },
-    [resetPrimaryMeshRefs],
-  );
-
-  const swapGroupContents = useCallback((targetGroup: THREE.Group, nextGroup: THREE.Group) => {
-    targetGroup.add(nextGroup);
-    while (targetGroup.children.length > 1) {
-      const child = targetGroup.children[0];
-      targetGroup.remove(child);
-      disposeObject(child);
-    }
-  }, []);
-
-  const loadDisplayMeshIntoGroup = useCallback(
-    async (
-      sourceUrl: string,
-      color: number,
-      edgeColor: number | null,
-      opacity: number,
-      useVertexColors: boolean,
-      renderer: THREE.WebGLRenderer,
-      enableSelection: boolean,
-      cancelled: () => boolean,
-    ) => {
-      const targetGroup = new THREE.Group();
-      const sourceGeometry = await loadMeshGeometry(sourceUrl);
-
-      if (cancelled()) {
-        sourceGeometry.dispose();
-        return null;
-      }
-
-      sourceGeometry.deleteAttribute("normal");
-      const weldedGeometry = mergeVertices(sourceGeometry);
-      sourceGeometry.dispose();
-      weldedGeometry.computeBoundingBox();
-      weldedGeometry.computeBoundingSphere();
-
-      const renderGeometry = toCreasedNormals(
-        weldedGeometry.clone(),
-        THREE.MathUtils.degToRad(DISPLAY_SHADING_CREASE_ANGLE_DEGREES),
-      );
-      renderGeometry.computeBoundingBox();
-      renderGeometry.computeBoundingSphere();
-
-      const clampedOpacity = Math.max(0, Math.min(opacity, 1));
-      if (clampedOpacity >= 1) {
-        const depthMaterial = new THREE.MeshDepthMaterial({
-          depthWrite: true,
-          depthTest: true,
-          polygonOffset: true,
-          polygonOffsetFactor: MESH_DEPTH_OFFSET_FACTOR,
-          polygonOffsetUnits: MESH_DEPTH_OFFSET_UNITS,
-        });
-        depthMaterial.colorWrite = false;
-
-        const depthMesh = new THREE.Mesh(renderGeometry, depthMaterial);
-        depthMesh.renderOrder = 0;
-        depthMesh.frustumCulled = false;
-        targetGroup.add(depthMesh);
-      }
-
-      const hasVertexColors = useVertexColors && renderGeometry.hasAttribute("color");
-      const meshMaterial = new THREE.MeshStandardMaterial({
-        color: hasVertexColors ? 0xffffff : color,
-        vertexColors: hasVertexColors,
-        roughness: 0.72,
-        metalness: 0.02,
-        transparent: clampedOpacity < 1,
-        opacity: clampedOpacity,
-        depthWrite: false,
-        depthFunc: THREE.LessEqualDepth,
-      });
-      const mesh = new THREE.Mesh(renderGeometry, meshMaterial);
-      mesh.renderOrder = clampedOpacity < 1 ? 3 : 1;
-      mesh.frustumCulled = false;
-      targetGroup.add(mesh);
-
-      let loadedEdgeMaterial: LineMaterial | null = null;
-      if (edgeColor != null) {
-        const edgeGeometry = new THREE.EdgesGeometry(
-          weldedGeometry,
-          DISPLAY_EDGE_THRESHOLD_ANGLE_DEGREES,
-        );
-        const edgePositions = edgeGeometry.getAttribute("position");
-        const edgeSegmentsGeometry = new LineSegmentsGeometry();
-        edgeSegmentsGeometry.setPositions(
-          Array.from(edgePositions.array as Iterable<number>),
-        );
-        edgeGeometry.dispose();
-
-        const edgeMaterial = new LineMaterial({
-          color: edgeColor,
-          linewidth: MESH_EDGE_LINEWIDTH,
-          transparent: true,
-          opacity: 0.9,
-          depthTest: true,
-          depthWrite: false,
-        });
-        edgeMaterial.alphaToCoverage = true;
-        edgeMaterial.resolution.set(
-          renderer.domElement.clientWidth,
-          renderer.domElement.clientHeight,
-        );
-
-        const edgeLine = new LineSegments2(edgeSegmentsGeometry, edgeMaterial);
-        edgeLine.renderOrder = 2;
-        edgeLine.frustumCulled = false;
-        targetGroup.add(edgeLine);
-        loadedEdgeMaterial = edgeMaterial;
-      }
-
-      if (!enableSelection) {
-        weldedGeometry.dispose();
-        return {
-          group: targetGroup,
-          mesh,
-          bounds: renderGeometry.boundingBox?.clone() ?? null,
-          edgeMaterial: loadedEdgeMaterial,
-          selectionMesh: null,
-          selectionData: null,
-          selectionHighlightGroup: null,
-        } satisfies LoadedDisplayMesh;
-      }
-
-      const selectionMeshMaterial = new THREE.MeshBasicMaterial({
-        side: THREE.DoubleSide,
-        transparent: true,
-        opacity: 0,
-        depthTest: false,
-        depthWrite: false,
-      });
-      selectionMeshMaterial.colorWrite = false;
-      const selectionMesh = new THREE.Mesh(weldedGeometry, selectionMeshMaterial);
-      selectionMesh.frustumCulled = false;
-      targetGroup.add(selectionMesh);
-
-      const selectionHighlightGroup = new THREE.Group();
-      mesh.add(selectionHighlightGroup);
-
-      const selectionData = createMeshSelectionData(weldedGeometry);
-
-      return {
-        group: targetGroup,
-        mesh,
-        bounds: selectionData.bounds.clone(),
-        edgeMaterial: loadedEdgeMaterial,
-        selectionMesh,
-        selectionData,
-        selectionHighlightGroup,
-      } satisfies LoadedDisplayMesh;
-    },
-    [],
-  );
-
-  const updateToolPreview = useCallback(() => {
-    const previewMesh = simulationToolPreviewMeshRef.current;
-    const tool = simulationToolRef.current;
-    const samples = simulationSamplesRef.current;
-    const step = simulationStepRef.current;
-    const toolPosition = simulationToolPositionRef.current;
-    const hasLoadedToolMesh = simulationToolPreviewLoadedGeometryRef.current != null;
-    const explicitToolRotation = simulationToolRotationPropRef.current;
-    const toolRotationEnabled = simulationToolRotationEnabledRef.current;
-
-    const updateToolRotation = (
-      currentPosition: PolylinePoint,
-      previousPosition: PolylinePoint | null,
-      nextPosition: PolylinePoint | null,
-    ) => {
-      const candidateVectors: PolylinePoint[] = [];
-
-      if (previousPosition) {
-        candidateVectors.push([
-          currentPosition[0] - previousPosition[0],
-          currentPosition[1] - previousPosition[1],
-          currentPosition[2] - previousPosition[2],
-        ]);
-      }
-
-      if (nextPosition) {
-        candidateVectors.push([
-          nextPosition[0] - currentPosition[0],
-          nextPosition[1] - currentPosition[1],
-          nextPosition[2] - currentPosition[2],
-        ]);
-      }
-
-      for (const [dx, dy] of candidateVectors) {
-        if (Math.hypot(dx, dy) <= 1e-6) {
-          continue;
-        }
-        simulationToolRotationRef.current = Math.atan2(dy, dx);
-        break;
-      }
-
-      if (previewMesh) {
-        previewMesh.rotation.set(0, 0, simulationToolRotationRef.current);
-      }
-    };
-
-    if (!previewMesh || showOriginalMeshRef.current) {
-      if (previewMesh) {
-        previewMesh.visible = false;
-      }
-      return;
-    }
-
-    if (toolPosition) {
-      const previousSample = step > 0 && step - 1 < samples.length
-        ? samples[Math.max(step - 1, 0)]
-        : null;
-      const nextSample = step < samples.length ? samples[step] : null;
-
-      if (hasLoadedToolMesh) {
-        previewMesh.scale.set(1, 1, 1);
-        previewMesh.position.set(toolPosition[0], toolPosition[1], toolPosition[2]);
-      } else if (tool) {
-        previewMesh.scale.set(tool.diameter, tool.diameter, tool.cuttingHeight);
-        previewMesh.position.set(
-          toolPosition[0],
-          toolPosition[1],
-          toolPosition[2] + tool.cuttingHeight / 2,
-        );
-      } else {
-        previewMesh.visible = false;
-        return;
-      }
-
-      if (!toolRotationEnabled) {
-        simulationToolRotationRef.current = 0;
-        previewMesh.rotation.set(0, 0, 0);
-      } else if (explicitToolRotation != null) {
-        simulationToolRotationRef.current = explicitToolRotation;
-        previewMesh.rotation.set(0, 0, simulationToolRotationRef.current);
-      } else {
-        updateToolRotation(
-          toolPosition,
-          previousSample ? [previousSample.x, previousSample.y, previousSample.z] : null,
-          nextSample ? [nextSample.x, nextSample.y, nextSample.z] : null,
-        );
-      }
-      previewMesh.visible = true;
-      previewMesh.updateMatrixWorld(true);
-      return;
-    }
-
-    if (!tool || step <= 0 || samples.length === 0) {
-      previewMesh.visible = false;
-      return;
-    }
-
-    const sampleIndex = Math.min(step, samples.length) - 1;
-    const sample = samples[sampleIndex];
-    const previousSample = sampleIndex > 0 ? samples[sampleIndex - 1] : null;
-    const nextSample = sampleIndex + 1 < samples.length ? samples[sampleIndex + 1] : null;
-    previewMesh.scale.set(tool.diameter, tool.diameter, tool.cuttingHeight);
-    previewMesh.position.set(sample.x, sample.y, sample.z + tool.cuttingHeight / 2);
-    if (!toolRotationEnabled) {
-      simulationToolRotationRef.current = 0;
-      previewMesh.rotation.set(0, 0, 0);
-    } else {
-      updateToolRotation(
-        [sample.x, sample.y, sample.z],
-        previousSample ? [previousSample.x, previousSample.y, previousSample.z] : null,
-        nextSample ? [nextSample.x, nextSample.y, nextSample.z] : null,
-      );
-    }
-    previewMesh.visible = true;
-    previewMesh.updateMatrixWorld(true);
-  }, []);
-
-  const prepareSimulationCutters = useCallback((targetStep: number) => {
-    const tool = simulationToolRef.current;
-    const samples = simulationSamplesRef.current;
-    const baseGeometry = simulationCutterGeometryRef.current;
-    const cutterMaterial = simulationCutterMaterialRef.current;
-    const toolRotationEnabled = simulationToolRotationEnabledRef.current;
-
-    if (!tool || !baseGeometry || !cutterMaterial) {
-      return;
-    }
-
-    const clampedTargetStep = Math.max(0, Math.min(targetStep, samples.length));
-    for (
-      let index = simulationPreparedStepRef.current;
-      index < clampedTargetStep;
-      index += 1
-    ) {
-      const sample = samples[index];
-      const previousSample = index > 0 ? samples[index - 1] : null;
-      const nextSample = index + 1 < samples.length ? samples[index + 1] : null;
-      const cutter = new THREE.Mesh(baseGeometry, cutterMaterial);
-      cutter.scale.set(tool.diameter, tool.diameter, tool.cuttingHeight);
-      cutter.position.set(sample.x, sample.y, sample.z + tool.cuttingHeight / 2);
-
-      if (toolRotationEnabled) {
-        const candidateVectors: Array<readonly [number, number]> = [];
-        if (previousSample) {
-          candidateVectors.push([sample.x - previousSample.x, sample.y - previousSample.y]);
-        }
-        if (nextSample) {
-          candidateVectors.push([nextSample.x - sample.x, nextSample.y - sample.y]);
-        }
-        for (const [dx, dy] of candidateVectors) {
-          if (Math.hypot(dx, dy) <= 1e-6) {
-            continue;
-          }
-          cutter.rotation.set(0, 0, Math.atan2(dy, dx));
-          break;
-        }
-      } else {
-        cutter.rotation.set(0, 0, 0);
-      }
-
-      cutter.updateMatrixWorld(true);
-      simulationCuttersRef.current.push(cutter);
-    }
-
-    simulationPreparedStepRef.current = Math.max(
-      simulationPreparedStepRef.current,
-      clampedTargetStep,
-    );
-  }, []);
-
-  const rebuildSimulationResources = useCallback(() => {
-    clearSimulationResources();
-
-    const tool = simulationToolRef.current;
-    const samples = simulationSamplesRef.current;
-    const bounds = meshBoundsRef.current;
-
-    if (!tool || samples.length === 0 || !bounds) {
-      updateToolPreview();
-      return;
-    }
-
-    if (!simulationCutterGeometryRef.current) {
-      simulationCutterGeometryRef.current = createBaseSimulationCylinderGeometry();
-    }
-
-    if (!simulationCutterMaterialRef.current) {
-      simulationCutterMaterialRef.current = new THREE.MeshBasicMaterial({
-        color: CUT_SURFACE_COLOR,
-      });
-    }
-
-    simulationStockMeshRef.current = createSimulationStockMesh(bounds);
-    prepareSimulationCutters(simulationStepRef.current);
-    updateToolPreview();
-  }, [clearSimulationResources, prepareSimulationCutters, updateToolPreview]);
+    selectedMeshFacesRef.current = selectedMeshFaces.length > 0
+      ? selectedMeshFaces
+      : selectedMeshFace ? [selectedMeshFace] : [];
+    renderSelectionHighlights();
+  }, [renderSelectionHighlights, selectedMeshFace, selectedMeshFaces]);
 
   useEffect(() => {
     simulationToolRef.current = simulationTool;
     simulationSamplesRef.current = simulationSamples;
+    simulationStepRef.current = simulationStep;
+    simulationToolPositionRef.current = simulationToolPosition;
+    simulationToolRotationRef.current = simulationToolRotation;
     simulationToolRotationEnabledRef.current = simulationToolRotationEnabled;
-    rebuildSimulationResources();
-  }, [rebuildSimulationResources, simulationSamples, simulationTool, simulationToolRotationEnabled]);
+    updateToolPreview();
+  }, [
+    simulationSamples,
+    simulationStep,
+    simulationTool,
+    simulationToolPosition,
+    simulationToolRotation,
+    simulationToolRotationEnabled,
+    updateToolPreview,
+  ]);
 
   useEffect(() => {
-    const previewMesh = simulationToolPreviewMeshRef.current;
-    const baseGeometry = simulationToolPreviewBaseGeometryRef.current;
+    showOriginalMeshRef.current = showOriginalMesh;
+    renderSelectionHighlights();
+    updateToolPreview();
+  }, [renderSelectionHighlights, showOriginalMesh, updateToolPreview]);
 
-    if (!previewMesh || !baseGeometry) {
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return undefined;
+
+    const canvas = document.createElement("canvas");
+    canvas.style.display = "block";
+    canvas.style.height = "100%";
+    canvas.style.width = "100%";
+    canvas.style.cursor = faceSelectionModeRef.current ? "crosshair" : "default";
+    container.appendChild(canvas);
+
+    const engine = new Engine(canvas, true, { stencil: true });
+    engine.setHardwareScalingLevel(1 / Math.min(window.devicePixelRatio, 2));
+    const scene = new Scene(engine);
+    scene.clearColor = new Color4(0, 0, 0, 0);
+    scene.setRenderingAutoClearDepthStencil(2, false, false, false);
+    scene.setRenderingAutoClearDepthStencil(3, false, false, false);
+    engineRef.current = engine;
+    sceneRef.current = scene;
+
+    const camera = new ArcRotateCamera("camera", -Math.PI / 4, Math.PI / 3, 200, Vector3.Zero(), scene);
+    camera.upVector = new Vector3(0, 0, 1);
+    (camera.inputs.attached.pointers as unknown as { buttons: number[] }).buttons = [2];
+    camera.attachControl(false, false, 1);
+    camera.wheelDeltaPercentage = 0.01;
+    camera.panningSensibility = 1000;
+    cameraRef.current = camera;
+
+    const light = new HemisphericLight("ambient-light", new Vector3(0, 0, 1), scene);
+    light.intensity = 1.25;
+    createGridAndAxes(scene, getSceneBounds(currentPolylinesRef.current));
+
+    const previewRoot = new TransformNode("simulation-tool-preview-root", scene);
+    const fallback = createSimulationToolMesh(scene);
+    fallback.parent = previewRoot;
+    previewRoot.setEnabled(false);
+    toolPreviewRef.current = { root: previewRoot, fallback, asset: null };
+
+    const pointerObserver = scene.onPointerObservable.add((pointerInfo) => {
+      if (pointerInfo.type !== PointerEventTypes.POINTERDOWN) return;
+      const event = pointerInfo.event as PointerEvent;
+      if (event.button === 1 || event.button === 2) hasUserInteractedRef.current = true;
+      if (!faceSelectionModeRef.current || event.button !== 0) return;
+
+      const display = primaryMeshRef.current;
+      const pick = scene.pick(
+        scene.pointerX,
+        scene.pointerY,
+        (mesh) => mesh instanceof Mesh && Boolean(display?.selectionData.get(mesh)),
+      );
+      if (!pick?.hit || !(pick.pickedMesh instanceof Mesh) || pick.faceId == null) return;
+      const selectionData = display?.selectionData.get(pick.pickedMesh);
+      if (!selectionData) return;
+
+      onMeshFaceSelectRef.current?.(createMeshFaceSelection(
+        selectionData,
+        pick.faceId,
+      ));
+      event.preventDefault();
+    });
+
+    const initialBounds = getSceneBounds(currentPolylinesRef.current);
+    fitCameraToBounds(initialBounds, camera);
+    engine.runRenderLoop(() => {
+      updateCameraDepthRange(
+        getSceneBounds(currentPolylinesRef.current, primaryMeshRef.current?.bounds),
+        camera,
+      );
+      scene.render();
+    });
+
+    const resize = () => engine.resize();
+    const resizeObserver = new ResizeObserver(resize);
+    resizeObserver.observe(container);
+    resize();
+
+    return () => {
+      resizeObserver.disconnect();
+      scene.onPointerObservable.remove(pointerObserver);
+      engine.stopRenderLoop();
+      clearSelectionHighlights();
+      disposeDisplayMesh(primaryMeshRef.current);
+      disposeDisplayMesh(secondaryMeshRef.current);
+      for (const mesh of polylineMeshesRef.current) mesh.dispose(false, true);
+      toolPreviewRef.current?.asset?.dispose();
+      scene.dispose();
+      engine.dispose();
+      canvas.remove();
+      engineRef.current = null;
+      sceneRef.current = null;
+      cameraRef.current = null;
+      primaryMeshRef.current = null;
+      secondaryMeshRef.current = null;
+      polylineMeshesRef.current = [];
+      toolPreviewRef.current = null;
+    };
+  }, [clearSelectionHighlights, containerRef]);
+
+  useEffect(() => {
+    const scene = sceneRef.current;
+    const camera = cameraRef.current;
+    if (!scene || !camera) return undefined;
+
+    disposeDisplayMesh(primaryMeshRef.current);
+    primaryMeshRef.current = null;
+    clearSelectionHighlights();
+    if (!meshUrl) {
+      if (!hasUserInteractedRef.current) fitCameraToBounds(getSceneBounds(currentPolylinesRef.current), camera);
       return undefined;
     }
 
     let cancelled = false;
+    void importMesh(meshUrl, scene)
+      .then((asset) => {
+        if (cancelled) {
+          asset.dispose();
+          return;
+        }
+        const display = createDisplayMesh(
+          asset,
+          scene,
+          meshColor,
+          meshEdgeColor,
+          meshOpacity,
+          meshUseVertexColors,
+          true,
+        );
+        primaryMeshRef.current = display;
+        if (!hasUserInteractedRef.current && display.bounds) {
+          fitCameraToBounds(getSceneBounds(currentPolylinesRef.current, display.bounds), camera);
+        }
+        renderSelectionHighlights();
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) console.error("Failed to load mesh", error);
+      });
 
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    clearSelectionHighlights,
+    meshColor,
+    meshEdgeColor,
+    meshOpacity,
+    meshUrl,
+    meshUseVertexColors,
+    renderSelectionHighlights,
+  ]);
+
+  useEffect(() => {
+    const scene = sceneRef.current;
+    if (!scene) return undefined;
+
+    disposeDisplayMesh(secondaryMeshRef.current);
+    secondaryMeshRef.current = null;
+    if (!secondaryMeshUrl) return undefined;
+
+    let cancelled = false;
+    void importMesh(secondaryMeshUrl, scene)
+      .then((asset) => {
+        if (cancelled) {
+          asset.dispose();
+          return;
+        }
+        secondaryMeshRef.current = createDisplayMesh(
+          asset,
+          scene,
+          secondaryMeshColor,
+          secondaryMeshEdgeColor,
+          secondaryMeshOpacity,
+          secondaryMeshUseVertexColors,
+          false,
+        );
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) console.error("Failed to load secondary mesh", error);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    secondaryMeshColor,
+    secondaryMeshEdgeColor,
+    secondaryMeshOpacity,
+    secondaryMeshUrl,
+    secondaryMeshUseVertexColors,
+  ]);
+
+  useEffect(() => {
+    const scene = sceneRef.current;
+    const camera = cameraRef.current;
+    if (!scene) return;
+
+    for (const mesh of polylineMeshesRef.current) mesh.dispose(false, true);
+    polylineMeshesRef.current = [];
+    const bounds = getSceneBounds(polylines, primaryMeshRef.current?.bounds);
+    if (!hasUserInteractedRef.current && camera) fitCameraToBounds(bounds, camera);
+    const lift = getOverlayLift(bounds);
+
+    polylines.forEach((polyline, index) => {
+      if (polyline.points.length < 2) return;
+      const color = colorFromString(polyline.color ?? POLYLINE_COLORS[index % POLYLINE_COLORS.length]);
+      const width = polyline.kind === "rapid" ? CLEARANCE_POLYLINE_LINEWIDTH : POLYLINE_LINEWIDTH;
+      polylineMeshesRef.current.push(createOverlayLine(
+        scene,
+        polyline.id,
+        polyline.points.map(([x, y, z]) => [x, y, z + lift]),
+        color,
+        width,
+        2,
+      ));
+    });
+  }, [polylines]);
+
+  useEffect(() => {
+    const scene = sceneRef.current;
+    const preview = toolPreviewRef.current;
+    if (!scene || !preview) return undefined;
+
+    preview.asset?.dispose();
+    preview.asset = null;
+    preview.fallback.setEnabled(true);
     if (!simulationToolMeshUrl) {
-      if (simulationToolPreviewLoadedGeometryRef.current) {
-        previewMesh.geometry = baseGeometry;
-        simulationToolPreviewLoadedGeometryRef.current.dispose();
-        simulationToolPreviewLoadedGeometryRef.current = null;
-      }
       updateToolPreview();
       return undefined;
     }
 
-    const loadToolMesh = async () => {
-      try {
-        const geometry = await loadMeshGeometry(simulationToolMeshUrl);
+    let cancelled = false;
+    void importMesh(simulationToolMeshUrl, scene)
+      .then((asset) => {
         if (cancelled) {
-          geometry.dispose();
+          asset.dispose();
           return;
         }
-
-        geometry.deleteAttribute("normal");
-        const weldedGeometry = mergeVertices(geometry);
-        geometry.dispose();
-
-        const renderGeometry = toCreasedNormals(
-          weldedGeometry,
-          THREE.MathUtils.degToRad(DISPLAY_SHADING_CREASE_ANGLE_DEGREES),
-        );
-        renderGeometry.computeBoundingBox();
-        renderGeometry.computeBoundingSphere();
-        weldedGeometry.dispose();
-
-        if (cancelled) {
-          renderGeometry.dispose();
-          return;
+        for (const mesh of asset.meshes) {
+          replaceMaterial(mesh, scene, 0x6b7280, 0.75, true);
+          const material = mesh.material;
+          if (material instanceof StandardMaterial) material.wireframe = true;
+          mesh.isPickable = false;
+          mesh.renderingGroupId = 2;
         }
-
-        if (simulationToolPreviewLoadedGeometryRef.current) {
-          simulationToolPreviewLoadedGeometryRef.current.dispose();
-        }
-
-        previewMesh.geometry = renderGeometry;
-        simulationToolPreviewLoadedGeometryRef.current = renderGeometry;
+        for (const root of asset.roots) root.parent = preview.root;
+        preview.fallback.setEnabled(false);
+        preview.asset = asset;
         updateToolPreview();
-      } catch (error) {
-        if (!cancelled) {
-          console.error("Failed to load tool mesh", error);
-        }
-      }
-    };
-
-    void loadToolMesh();
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) console.error("Failed to load tool mesh", error);
+      });
 
     return () => {
       cancelled = true;
     };
   }, [simulationToolMeshUrl, updateToolPreview]);
-
-  useEffect(() => {
-    simulationStepRef.current = simulationStep;
-    prepareSimulationCutters(simulationStep);
-    updateToolPreview();
-  }, [prepareSimulationCutters, simulationStep, updateToolPreview]);
-
-  useEffect(() => {
-    updateToolPreview();
-  }, [simulationToolPosition, simulationToolRotation, simulationToolRotationEnabled, showOriginalMesh, updateToolPreview]);
-
-  const renderSelectionHighlight = useCallback((selections: ReadonlyArray<MeshFaceSelection>) => {
-    const mesh = meshRef.current;
-    const selectionHighlightGroup = selectionHighlightGroupRef.current;
-    const renderer = rendererRef.current;
-    const selectionData = meshSelectionDataRef.current;
-
-    if (!selectionHighlightGroup) {
-      return;
-    }
-
-    clearGroup(selectionHighlightGroup);
-    selectionOutlineMaterialRef.current = null;
-
-    if (!showOriginalMeshRef.current || !renderer) {
-      return;
-    }
-
-    if (!mesh || !(mesh.geometry instanceof THREE.BufferGeometry)) {
-      return;
-    }
-
-    for (const selection of selections) {
-      if (!selection.boundaryLoop) {
-        continue;
-      }
-
-      if (
-        selectionData &&
-        selection.triangleIndices.some(
-          (triangleIndex) => triangleIndex < 0 || triangleIndex >= selectionData.triangles.length,
-        )
-      ) {
-        continue;
-      }
-
-      const boundaryPositions = createBoundarySegments(selection.boundaryLoop);
-      if (boundaryPositions.length === 0) {
-        continue;
-      }
-
-      const outlineGeometry = new LineSegmentsGeometry();
-      outlineGeometry.setPositions(boundaryPositions);
-
-      const outlineMaterial = new LineMaterial({
-        color: 0x22c55e,
-        linewidth: POLYLINE_LINEWIDTH,
-        transparent: true,
-        opacity: 1,
-        depthTest: false,
-        depthWrite: false,
-      });
-      outlineMaterial.alphaToCoverage = true;
-      outlineMaterial.resolution.set(
-        renderer.domElement.clientWidth,
-        renderer.domElement.clientHeight,
-      );
-
-      const outline = new LineSegments2(outlineGeometry, outlineMaterial);
-      outline.renderOrder = 20;
-      outline.frustumCulled = false;
-      selectionHighlightGroup.add(outline);
-      selectionOutlineMaterialRef.current = outlineMaterial;
-    }
-  }, []);
-
-  useEffect(() => {
-    const meshGroup = meshGroupRef.current;
-    if (!meshGroup) {
-      return;
-    }
-
-    meshGroup.visible = true;
-    renderSelectionHighlight(selectedMeshFacesRef.current);
-  }, [faceSelectionMode, renderSelectionHighlight, showOriginalMesh]);
-
-  useEffect(() => {
-    const container = containerRef.current;
-
-    if (!container) {
-      return undefined;
-    }
-
-    const scene = new THREE.Scene();
-    scene.background = null;
-
-    const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 2000);
-    camera.up.set(0, 0, 1);
-    cameraRef.current = camera;
-
-    const renderer = new THREE.WebGLRenderer({
-      antialias: true,
-      alpha: true,
-      stencil: true,
-      reversedDepthBuffer: true,
-    });
-    renderer.outputColorSpace = THREE.SRGBColorSpace;
-    renderer.autoClear = false;
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.domElement.style.width = "100%";
-    renderer.domElement.style.height = "100%";
-    renderer.domElement.style.display = "block";
-    renderer.domElement.style.cursor = faceSelectionModeRef.current ? "crosshair" : "default";
-    container.appendChild(renderer.domElement);
-    rendererRef.current = renderer;
-
-    const controls = new OrbitControls(camera, renderer.domElement);
-    controls.enableDamping = false;
-    controls.screenSpacePanning = true;
-    controls.mouseButtons = {
-      LEFT: null,
-      MIDDLE: THREE.MOUSE.DOLLY,
-      RIGHT: THREE.MOUSE.ROTATE,
-    };
-    controls.addEventListener("start", () => {
-      hasUserInteractedRef.current = true;
-    });
-    controlsRef.current = controls;
-
-    const initialBounds = getSceneBounds(currentPolylinesRef.current);
-    fitCameraToBox(initialBounds, camera, controls);
-
-    const size = initialBounds.getSize(new THREE.Vector3());
-    const maxDimension = Math.max(size.x, size.y, size.z, 1);
-    const gridSize = Math.max(120, Math.ceil(maxDimension * 1.8));
-    const gridDivisions = Math.max(10, Math.round(gridSize / 12));
-
-    const ambientLight = new THREE.AmbientLight(0xffffff, 1.1);
-    scene.add(ambientLight);
-
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 1.2);
-    directionalLight.position.set(90, -70, 120);
-    scene.add(directionalLight);
-
-    const grid = new THREE.GridHelper(gridSize, gridDivisions, 0x6b7280, 0x3f3f46);
-    grid.rotation.x = Math.PI / 2;
-    const gridMaterials = Array.isArray(grid.material) ? grid.material : [grid.material];
-    for (const material of gridMaterials) {
-      material.transparent = true;
-      material.opacity = 0.45;
-    }
-    scene.add(grid);
-
-    const axesHelper = new THREE.AxesHelper(Math.max(maxDimension * 0.22, 18));
-    scene.add(axesHelper);
-
-    const polylineGroup = new THREE.Group();
-    scene.add(polylineGroup);
-    polylineGroupRef.current = polylineGroup;
-
-    const meshGroup = new THREE.Group();
-    scene.add(meshGroup);
-    meshGroupRef.current = meshGroup;
-
-    const secondaryMeshGroup = new THREE.Group();
-    scene.add(secondaryMeshGroup);
-    secondaryMeshGroupRef.current = secondaryMeshGroup;
-
-    const simulationToolPreviewGeometry = createBaseSimulationCylinderGeometry();
-    simulationToolPreviewBaseGeometryRef.current = simulationToolPreviewGeometry;
-    const simulationToolPreviewMesh = new THREE.Mesh(
-      simulationToolPreviewGeometry,
-      new THREE.MeshStandardMaterial({
-        color: TOOL_PREVIEW_COLOR,
-        transparent: true,
-        opacity: 0.75,
-        wireframe: true,
-        roughness: 0.45,
-        metalness: 0.05,
-      }),
-    );
-    simulationToolPreviewMesh.visible = false;
-    scene.add(simulationToolPreviewMesh);
-    simulationToolPreviewMeshRef.current = simulationToolPreviewMesh;
-
-    const simulationDummyMesh = new THREE.Mesh(
-      new THREE.PlaneGeometry(1, 1),
-      new THREE.MeshBasicMaterial({ transparent: true, opacity: 0 }),
-    );
-    simulationDummyMesh.position.set(1_000_000, 1_000_000, 1_000_000);
-    simulationDummyMesh.visible = false;
-    scene.add(simulationDummyMesh);
-    simulationDummyMeshRef.current = simulationDummyMesh;
-
-    scsRendererRef.current = new SCSRenderer(renderer);
-
-    const raycaster = new THREE.Raycaster();
-    const pointer = new THREE.Vector2();
-
-    const handlePointerDown = (event: PointerEvent) => {
-      if (!faceSelectionModeRef.current || event.button !== 0) {
-        return;
-      }
-
-      const currentCamera = cameraRef.current;
-      const currentSelectionMesh = meshSelectionMeshRef.current;
-      const selectionData = meshSelectionDataRef.current;
-
-      if (!currentCamera || !currentSelectionMesh || !selectionData) {
-        return;
-      }
-
-      const rect = renderer.domElement.getBoundingClientRect();
-      pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-      pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-
-      raycaster.setFromCamera(pointer, currentCamera);
-      const [intersection] = raycaster.intersectObject(currentSelectionMesh, false);
-
-      if (!intersection || intersection.faceIndex == null) {
-        return;
-      }
-
-      const selection = createMeshFaceSelection(
-        currentSelectionMesh.geometry as THREE.BufferGeometry,
-        selectionData,
-        intersection.faceIndex,
-      );
-      onMeshFaceSelectRef.current?.(selection);
-      event.preventDefault();
-    };
-
-    renderer.domElement.addEventListener("pointerdown", handlePointerDown);
-
-    const resize = () => {
-      const width = container.clientWidth;
-      const height = container.clientHeight;
-
-      if (width === 0 || height === 0) {
-        return;
-      }
-
-      camera.aspect = width / height;
-      camera.updateProjectionMatrix();
-      renderer.setSize(width, height, false);
-      selectionOutlineMaterialRef.current?.resolution.set(width, height);
-      meshEdgeMaterialRef.current?.resolution.set(width, height);
-      for (const material of polylineMaterialsRef.current) {
-        material.resolution.set(width, height);
-      }
-    };
-
-    resize();
-
-    const resizeObserver = new ResizeObserver(() => resize());
-    resizeObserver.observe(container);
-
-    let animationFrame = 0;
-
-    const render = () => {
-      controls.update();
-      updateCameraDepthRange(
-        getSceneBounds(currentPolylinesRef.current, meshBoundsRef.current),
-        camera,
-        controls,
-      );
-      renderer.clear();
-      renderer.render(scene, camera);
-
-      const scsRenderer = scsRendererRef.current;
-      const simulationStock = simulationStockMeshRef.current;
-      const currentSimulationDummyMesh = simulationDummyMeshRef.current;
-
-      if (scsRenderer && simulationStock && currentSimulationDummyMesh) {
-        const activeCutters = simulationCuttersRef.current.slice(
-          0,
-          Math.min(simulationStepRef.current, simulationCuttersRef.current.length),
-        );
-
-        renderer.clearDepth();
-        scsRenderer.renderSubtract(
-          scene,
-          camera,
-          simulationStock,
-          activeCutters,
-          currentSimulationDummyMesh,
-        );
-      }
-
-      animationFrame = window.requestAnimationFrame(render);
-    };
-
-    render();
-
-    return () => {
-      window.cancelAnimationFrame(animationFrame);
-      resizeObserver.disconnect();
-      renderer.domElement.removeEventListener("pointerdown", handlePointerDown);
-      controls.dispose();
-      clearSimulationResources();
-      simulationCutterGeometryRef.current?.dispose();
-      simulationCutterMaterialRef.current?.dispose();
-      scsRendererRef.current?.dispose();
-
-      const previewMesh = simulationToolPreviewMeshRef.current;
-      const previewBaseGeometry = simulationToolPreviewBaseGeometryRef.current;
-      if (previewMesh && previewBaseGeometry && previewMesh.geometry !== previewBaseGeometry) {
-        previewBaseGeometry.dispose();
-      }
-
-      disposeObject(scene);
-      renderer.dispose();
-
-      if (container.contains(renderer.domElement)) {
-        container.removeChild(renderer.domElement);
-      }
-
-      rendererRef.current = null;
-      cameraRef.current = null;
-      controlsRef.current = null;
-      polylineGroupRef.current = null;
-      meshGroupRef.current = null;
-      secondaryMeshGroupRef.current = null;
-      meshRef.current = null;
-      meshSelectionMeshRef.current = null;
-      meshSelectionDataRef.current = null;
-      meshBoundsRef.current = null;
-      selectionHighlightGroupRef.current = null;
-      selectionOutlineMaterialRef.current = null;
-      meshEdgeMaterialRef.current = null;
-      polylineMaterialsRef.current = [];
-      scsRendererRef.current = null;
-      simulationDummyMeshRef.current = null;
-      simulationToolPreviewMeshRef.current = null;
-      simulationToolPreviewBaseGeometryRef.current = null;
-      simulationToolPreviewLoadedGeometryRef.current = null;
-      simulationStockMeshRef.current = null;
-      simulationCutterGeometryRef.current = null;
-      simulationCutterMaterialRef.current = null;
-      simulationCuttersRef.current = [];
-      simulationPreparedStepRef.current = 0;
-    };
-  }, [clearSimulationResources, containerRef, renderSelectionHighlight]);
-
-  useEffect(() => {
-    const meshGroup = meshGroupRef.current;
-    const camera = cameraRef.current;
-    const controls = controlsRef.current;
-    const renderer = rendererRef.current;
-
-    if (!meshGroup || !camera || !controls || !renderer) {
-      return undefined;
-    }
-
-    if (!meshUrl) {
-      clearGroup(meshGroup);
-      clearSimulationResources();
-      resetPrimaryMeshRefs();
-
-      if (!hasUserInteractedRef.current) {
-        fitCameraToBox(getSceneBounds(currentPolylinesRef.current), camera, controls);
-      }
-
-      return undefined;
-    }
-
-    let cancelled = false;
-
-    const loadMesh = async () => {
-      try {
-        const result = await loadDisplayMeshIntoGroup(
-          meshUrl,
-          meshColor,
-          meshEdgeColor,
-          meshOpacity,
-          meshUseVertexColors,
-          renderer,
-          true,
-          () => cancelled,
-        );
-
-        if (!result || cancelled) {
-          if (result) {
-            disposeObject(result.group);
-          }
-          return;
-        }
-
-        clearSimulationResources();
-        commitPrimaryMesh(meshGroup, result);
-        meshGroup.visible = true;
-
-        if (!hasUserInteractedRef.current && result.bounds) {
-          const bounds = getSceneBounds(currentPolylinesRef.current, result.bounds);
-          fitCameraToBox(bounds, camera, controls);
-        }
-
-        renderSelectionHighlight(selectedMeshFacesRef.current);
-        rebuildSimulationResources();
-      } catch (error) {
-        if (!cancelled) {
-          console.error("Failed to load mesh", error);
-        }
-      }
-    };
-
-    void loadMesh();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    clearSimulationResources,
-    commitPrimaryMesh,
-    loadDisplayMeshIntoGroup,
-    meshColor,
-    meshEdgeColor,
-    meshOpacity,
-    meshUseVertexColors,
-    meshUrl,
-    rebuildSimulationResources,
-    renderSelectionHighlight,
-    resetPrimaryMeshRefs,
-    showOriginalMesh,
-  ]);
-
-  useEffect(() => {
-    const secondaryMeshGroup = secondaryMeshGroupRef.current;
-    const renderer = rendererRef.current;
-
-    if (!secondaryMeshGroup || !renderer) {
-      return undefined;
-    }
-
-    if (!secondaryMeshUrl) {
-      clearGroup(secondaryMeshGroup);
-      return undefined;
-    }
-
-    let cancelled = false;
-
-    const loadSecondaryMesh = async () => {
-      try {
-        const result = await loadDisplayMeshIntoGroup(
-          secondaryMeshUrl,
-          secondaryMeshColor,
-          secondaryMeshEdgeColor,
-          secondaryMeshOpacity,
-          secondaryMeshUseVertexColors,
-          renderer,
-          false,
-          () => cancelled,
-        );
-
-        if (!result || cancelled) {
-          if (result) {
-            disposeObject(result.group);
-          }
-          return;
-        }
-
-        swapGroupContents(secondaryMeshGroup, result.group);
-      } catch (error) {
-        if (!cancelled) {
-          console.error("Failed to load secondary mesh", error);
-        }
-      }
-    };
-
-    void loadSecondaryMesh();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    loadDisplayMeshIntoGroup,
-    secondaryMeshColor,
-    secondaryMeshEdgeColor,
-    secondaryMeshOpacity,
-    secondaryMeshUseVertexColors,
-    secondaryMeshUrl,
-    swapGroupContents,
-  ]);
-
-  useEffect(() => {
-    const polylineGroup = polylineGroupRef.current;
-    const renderer = rendererRef.current;
-
-    if (!polylineGroup || !renderer) {
-      return;
-    }
-
-    clearGroup(polylineGroup);
-    polylineMaterialsRef.current = [];
-
-    const bounds = getSceneBounds(polylines, meshBoundsRef.current);
-    const camera = cameraRef.current;
-    const controls = controlsRef.current;
-
-    if (!hasUserInteractedRef.current && camera && controls) {
-      fitCameraToBox(bounds, camera, controls);
-    }
-
-    const overlayLift = getOverlayLift(bounds);
-
-    polylines.forEach((polyline, index) => {
-      const color = polyline.color ?? POLYLINE_COLORS[index % POLYLINE_COLORS.length];
-      const isClearanceMove = polyline.kind === "rapid";
-
-      if (polyline.points.length < 2) {
-        return;
-      }
-
-      const positions = polyline.points.flatMap(([x, y, z]) => [x, y, z + overlayLift]);
-      const lineGeometry = new LineGeometry();
-      lineGeometry.setPositions(positions);
-
-      const lineMaterial = new LineMaterial({
-        color,
-        linewidth: isClearanceMove ? CLEARANCE_POLYLINE_LINEWIDTH : POLYLINE_LINEWIDTH,
-        transparent: true,
-        opacity: 1,
-        depthTest: true,
-        depthWrite: false,
-      });
-      lineMaterial.alphaToCoverage = true;
-      lineMaterial.resolution.set(
-        renderer.domElement.clientWidth,
-        renderer.domElement.clientHeight,
-      );
-
-      const line = new Line2(lineGeometry, lineMaterial);
-      line.renderOrder = 18;
-      line.frustumCulled = false;
-      polylineGroup.add(line);
-      polylineMaterialsRef.current.push(lineMaterial);
-    });
-  }, [polylines]);
-
-  useEffect(() => {
-    renderSelectionHighlight(selectedMeshFacesRef.current);
-  }, [renderSelectionHighlight, selectedMeshFace, selectedMeshFaces]);
 }

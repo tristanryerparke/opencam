@@ -1,34 +1,26 @@
-import * as THREE from "three";
-import { toCreasedNormals } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { Color3 } from "@babylonjs/core/Maths/math.color";
+import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder";
+import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial";
+import type { Mesh } from "@babylonjs/core/Meshes/mesh";
+import type { Scene } from "@babylonjs/core/scene";
 
-import { DISPLAY_SHADING_CREASE_ANGLE_DEGREES, STOCK_COLOR } from "./constants";
+import { TOOL_PREVIEW_COLOR } from "./constants";
 
-export function createSimulationStockMesh(bounds: THREE.Box3) {
-  const size = bounds.getSize(new THREE.Vector3());
-  const center = bounds.getCenter(new THREE.Vector3());
-  const geometry = new THREE.BoxGeometry(
-    Math.max(size.x, 0.001),
-    Math.max(size.y, 0.001),
-    Math.max(size.z, 0.001),
+export function createSimulationToolMesh(scene: Scene): Mesh {
+  const mesh = MeshBuilder.CreateCylinder(
+    "simulation-tool-preview",
+    { diameter: 1, height: 1, tessellation: 8 },
+    scene,
   );
-  const material = new THREE.MeshBasicMaterial({
-    color: STOCK_COLOR,
-  });
-  const mesh = new THREE.Mesh(geometry, material);
-  mesh.position.copy(center);
-  mesh.updateMatrixWorld(true);
+  mesh.rotation.x = Math.PI / 2;
+
+  const material = new StandardMaterial("simulation-tool-preview-material", scene);
+  material.diffuseColor = Color3.FromHexString(`#${TOOL_PREVIEW_COLOR.toString(16)}`);
+  material.alpha = 0.75;
+  material.wireframe = true;
+  material.disableDepthWrite = true;
+  mesh.material = material;
+  mesh.isPickable = false;
+  mesh.renderingGroupId = 2;
   return mesh;
-}
-
-export function createBaseSimulationCylinderGeometry() {
-  const geometry = new THREE.CylinderGeometry(0.5, 0.5, 1, 8, 1, false);
-  geometry.rotateX(Math.PI / 2);
-
-  const creasedGeometry = toCreasedNormals(
-    geometry,
-    THREE.MathUtils.degToRad(DISPLAY_SHADING_CREASE_ANGLE_DEGREES),
-  );
-  creasedGeometry.computeBoundingBox();
-  creasedGeometry.computeBoundingSphere();
-  return creasedGeometry;
 }

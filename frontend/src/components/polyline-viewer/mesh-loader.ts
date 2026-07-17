@@ -1,55 +1,39 @@
-import * as THREE from "three";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
-import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import { Mesh } from "@babylonjs/core/Meshes/mesh";
+import type { Node } from "@babylonjs/core/node";
+import type { Scene } from "@babylonjs/core/scene";
+import { ImportMeshAsync } from "@babylonjs/core/Loading/sceneLoader";
+import "@babylonjs/loaders/glTF";
+import "@babylonjs/loaders/STL";
 
-export async function loadMeshGeometry(meshUrl: string) {
+export type ImportedMesh = {
+  meshes: Mesh[];
+  roots: Node[];
+  dispose: () => void;
+};
+
+export async function importMesh(meshUrl: string, scene: Scene): Promise<ImportedMesh> {
   const response = await fetch(meshUrl);
+  if (!response.ok) throw new Error(`Failed to load mesh (${response.status}).`);
 
-  if (!response.ok) {
-    throw new Error(`Failed to load mesh (${response.status}).`);
-  }
-
-  const buffer = await response.arrayBuffer();
   const contentType = response.headers.get("content-type") ?? "";
-  const normalizedUrl = meshUrl.toLowerCase();
-  const isGlb = contentType.includes("model/gltf-binary") || normalizedUrl.endsWith(".glb");
+  const isGlb = contentType.includes("model/gltf-binary") || meshUrl.toLowerCase().endsWith(".glb");
+  const extension = isGlb ? ".glb" : ".stl";
+  const file = new File([await response.arrayBuffer()], `mesh${extension}`, { type: contentType });
+  const result = await ImportMeshAsync(file, scene, { pluginExtension: extension });
+  const nodes = [...result.transformNodes, ...result.meshes];
+  const roots = nodes.filter((node) => !node.parent);
+  const meshes = result.meshes.filter(
+    (mesh): mesh is Mesh => mesh instanceof Mesh && mesh.getTotalVertices() > 0,
+  );
 
-  if (!isGlb) {
-    return new STLLoader().parse(buffer);
+  if (meshes.length === 0) {
+    roots.forEach((node) => node.dispose(false, true));
+    throw new Error("Loaded mesh does not contain geometry.");
   }
 
-  const gltf = await new Promise<{ scene: THREE.Group }>((resolve, reject) => {
-    new GLTFLoader().parse(buffer, "", resolve, reject);
-  });
-
-  gltf.scene.updateMatrixWorld(true);
-  const geometries: THREE.BufferGeometry[] = [];
-
-  gltf.scene.traverse((object) => {
-    if (!(object instanceof THREE.Mesh)) {
-      return;
-    }
-
-    const geometry = object.geometry.clone();
-    geometry.applyMatrix4(object.matrixWorld);
-    geometries.push(geometry);
-  });
-
-  if (geometries.length === 0) {
-    throw new Error("Loaded GLB does not contain a mesh.");
-  }
-
-  if (geometries.length === 1) {
-    return geometries[0];
-  }
-
-  const mergedGeometry = mergeGeometries(geometries, false);
-  geometries.forEach((geometry) => geometry.dispose());
-
-  if (!mergedGeometry) {
-    throw new Error("Unable to merge GLB mesh geometry.");
-  }
-
-  return mergedGeometry;
+  return {
+    meshes,
+    roots,
+    dispose: () => roots.forEach((node) => node.dispose(false, true)),
+  };
 }

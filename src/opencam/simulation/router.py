@@ -13,14 +13,20 @@ import trimesh
 
 from opencam.schemas.cl_data import OperationRecord3D, PositionRecord3D
 from opencam.schemas.tools import CylindricalTool
+from opencam.services.mesh_cache import get_mesh_cache
 from opencam.simulation.models import (
     SweptSimulationFrameResponse,
     SweptSimulationFramesResponse,
+    SweptSimulationResampleRequest,
     SweptSimulationResponse,
     SweptSimulationStartResponse,
     SweptSimulationStatusResponse,
 )
 from opencam.simulation.swept_volume import (
+    DEFAULT_CHUNK_STEP_DISTANCE,
+    DEFAULT_INCLUDE_CORNER_ROTATION_SWEEPS,
+    DEFAULT_MAX_SIM_DISTANCE,
+    DEFAULT_ROTATE_TOOL_WITH_PATH,
     SIM_STEPDISTANCE,
     TOOL_SEGMENTS,
     PreparedSimulationChunk,
@@ -28,7 +34,10 @@ from opencam.simulation.swept_volume import (
     SimulationCancelledError,
     build_cylinder_mesh,
     manifold_to_simplified_glb,
+    map_positions_to_operation_progress,
+    positions_match,
     prepare_simulation_chunks,
+    sample_operation_points_with_progress,
     resample_chunk_cl_data,
     simulate_chunk_focus_mesh,
     write_glb,
@@ -42,6 +51,7 @@ class PreparedSimulationFrame:
     chunk_index: int
     point_index: int
     tool_position: PositionRecord3D
+    chunk_step_count: int = 0
 
 
 @dataclass
@@ -49,8 +59,11 @@ class BufferedSimulationResult:
     tool_mesh_bytes: bytes
     chunks: list[SimulatedChunk]
     prepared_chunks: list[PreparedSimulationChunk]
+    operation: OperationRecord3D
     frames: list[PreparedSimulationFrame]
     frame_step_distance: float
+    rotate_tool_with_path: bool = DEFAULT_ROTATE_TOOL_WITH_PATH
+    include_corner_rotation_sweeps: bool = DEFAULT_INCLUDE_CORNER_ROTATION_SWEEPS
     # ponytail: cache grows with viewed frames; add LRU eviction if live simulation memory proves material.
     active_mesh_cache: dict[int, bytes] = field(default_factory=dict)
     active_mesh_cache_lock: Lock = field(default_factory=Lock)
@@ -74,15 +87,15 @@ SIMULATION_TASKS_LOCK = Lock()
 
 
 def _tool_mesh_url(simulation_id: str) -> str:
-    return f"/simulate/swept/{simulation_id}/tool-mesh.glb"
+    return f"/simulate/{simulation_id}/tool-mesh.glb"
 
 
 def _frame_active_mesh_url(simulation_id: str, frame_index: int) -> str:
-    return f"/simulate/swept/{simulation_id}/frames/{frame_index}/active-mesh.glb"
+    return f"/simulate/{simulation_id}/frames/{frame_index}/active-mesh.glb"
 
 
 def _chunk_cached_mesh_url(simulation_id: str, chunk_index: int) -> str:
-    return f"/simulate/swept/{simulation_id}/chunks/{chunk_index}/cached-mesh.glb"
+    return f"/simulate/{simulation_id}/chunks/{chunk_index}/cached-mesh.glb"
 
 
 def _load_trimesh_from_bytes(mesh_bytes: bytes, file_type: str) -> trimesh.Trimesh:
@@ -145,14 +158,20 @@ def _rhino_mesh_response(mesh_bytes: bytes) -> Response:
 
 def _frame_response(
     simulation_id: str,
+    simulation: BufferedSimulationResult,
     frame_index: int,
     frame: PreparedSimulationFrame,
 ) -> SweptSimulationFrameResponse:
+    chunk = simulation.prepared_chunks[frame.chunk_index]
     return SweptSimulationFrameResponse(
         active_mesh_url=_frame_active_mesh_url(simulation_id, frame_index),
         cached_mesh_url=_chunk_cached_mesh_url(simulation_id, frame.chunk_index),
         chunk_index=frame.chunk_index,
+        chunk_step_index=frame.point_index if frame.point_index >= 0 else None,
+        chunk_step_count=frame.chunk_step_count,
+        chunk_toolpath_points=chunk.cl_data.points,
         tool_position=frame.tool_position,
+        rotate_tool_with_path=simulation.rotate_tool_with_path,
     )
 
 
@@ -178,20 +197,111 @@ def _get_buffered_chunk(simulation: BufferedSimulationResult, chunk_index: int) 
     return simulation.chunks[chunk_index]
 
 
+def _build_contact_frames(
+    prepared_chunks: list[PreparedSimulationChunk],
+    frame_step_distance: float,
+) -> list[PreparedSimulationFrame]:
+    frames: list[PreparedSimulationFrame] = []
+
+    for prepared_chunk in prepared_chunks:
+        sampled_points = resample_chunk_cl_data(prepared_chunk.cl_data, frame_step_distance)
+
+        if sampled_points:
+            chunk_step_count = len(sampled_points)
+            frames.extend(
+                PreparedSimulationFrame(
+                    chunk_index=prepared_chunk.chunk_index,
+                    point_index=point_index,
+                    tool_position=point,
+                    chunk_step_count=chunk_step_count,
+                )
+                for point_index, point in enumerate(sampled_points)
+            )
+            continue
+
+        fallback_position = prepared_chunk.cl_data.points[0] if prepared_chunk.cl_data.points else PositionRecord3D(x=0.0, y=0.0, z=0.0)
+        frames.append(
+            PreparedSimulationFrame(
+                chunk_index=prepared_chunk.chunk_index,
+                point_index=-1,
+                tool_position=fallback_position,
+                chunk_step_count=0,
+            )
+        )
+
+    return frames
+
+
+def _build_animation_frames(
+    mesh_frames: list[PreparedSimulationFrame],
+    operation: OperationRecord3D,
+    frame_step_distance: float,
+) -> list[PreparedSimulationFrame]:
+    sampled_points = sample_operation_points_with_progress(operation, frame_step_distance)
+    if not mesh_frames or not sampled_points:
+        return mesh_frames
+
+    mesh_frame_progresses = map_positions_to_operation_progress(
+        operation,
+        [frame.tool_position for frame in mesh_frames],
+    )
+    if len(mesh_frame_progresses) != len(mesh_frames):
+        return mesh_frames
+
+    current_mesh_frame = PreparedSimulationFrame(
+        chunk_index=mesh_frames[0].chunk_index,
+        point_index=-1,
+        tool_position=sampled_points[0][1],
+        chunk_step_count=mesh_frames[0].chunk_step_count,
+    )
+    mesh_frame_index = 0
+    animation_frames: list[PreparedSimulationFrame] = []
+
+    for progress, position in sampled_points:
+        while (
+            mesh_frame_index < len(mesh_frames)
+            and mesh_frame_progresses[mesh_frame_index] <= progress + 1e-6
+        ):
+            current_mesh_frame = mesh_frames[mesh_frame_index]
+            mesh_frame_index += 1
+
+        next_frame = PreparedSimulationFrame(
+            chunk_index=current_mesh_frame.chunk_index,
+            point_index=current_mesh_frame.point_index,
+            tool_position=position,
+            chunk_step_count=current_mesh_frame.chunk_step_count,
+        )
+        if (
+            animation_frames
+            and animation_frames[-1].chunk_index == next_frame.chunk_index
+            and animation_frames[-1].point_index == next_frame.point_index
+            and positions_match(animation_frames[-1].tool_position, next_frame.tool_position)
+        ):
+            continue
+
+        animation_frames.append(next_frame)
+
+    return animation_frames
+
+
 def _build_buffered_simulation(
     mesh_bytes: bytes,
     operation: OperationRecord3D,
     *,
-    max_sim_distance: float,
     chunk_padding: tuple[float, float, float],
+    chunk_step_distance: float,
     frame_step_distance: float,
+    rotate_tool_with_path: bool,
+    include_corner_rotation_sweeps: bool,
     should_cancel: Callable[[], bool] | None,
 ) -> BufferedSimulationResult:
     prepared_chunks = prepare_simulation_chunks(
         mesh_bytes,
         operation,
-        max_sim_distance=max_sim_distance,
+        max_sim_distance=DEFAULT_MAX_SIM_DISTANCE,
         chunk_padding=chunk_padding,
+        chunk_step_distance=chunk_step_distance,
+        rotate_tool_with_path=rotate_tool_with_path,
         should_cancel=should_cancel,
     )
     if not prepared_chunks:
@@ -202,43 +312,22 @@ def _build_buffered_simulation(
         operation.tool.cutting_height,
         TOOL_SEGMENTS,
     )
-    frames: list[PreparedSimulationFrame] = []
     chunks: list[SimulatedChunk] = []
 
     for prepared_chunk in prepared_chunks:
         if should_cancel and should_cancel():
             raise SimulationCancelledError("Simulation generation cancelled.")
 
-        frame_start_index = len(frames)
-        sampled_points = resample_chunk_cl_data(prepared_chunk.cl_data, frame_step_distance)
-
-        if sampled_points:
-            frames.extend(
-                PreparedSimulationFrame(
-                    chunk_index=prepared_chunk.chunk_index,
-                    point_index=point_index,
-                    tool_position=point,
-                )
-                for point_index, point in enumerate(sampled_points)
-            )
-        else:
-            frames.append(
-                PreparedSimulationFrame(
-                    chunk_index=prepared_chunk.chunk_index,
-                    point_index=-1,
-                    tool_position=PositionRecord3D(x=0.0, y=0.0, z=0.0),
-                )
-            )
-
+        cached_mesh_bytes = manifold_to_simplified_glb(
+            prepared_chunk.rest_mesh,
+            context=f"extracting cached mesh for chunk {prepared_chunk.chunk_index}",
+            stock_like_original_ids=prepared_chunk.stock_like_original_ids,
+        )
         chunks.append(
             SimulatedChunk(
-                cached_mesh_bytes=manifold_to_simplified_glb(
-                    prepared_chunk.rest_mesh,
-                    context=f"extracting cached mesh for chunk {prepared_chunk.chunk_index}",
-                    stock_like_original_ids=prepared_chunk.stock_like_original_ids,
-                ),
-                frame_start_index=frame_start_index,
-                frame_end_index=len(frames) - 1,
+                cached_mesh_bytes=cached_mesh_bytes,
+                frame_start_index=0,
+                frame_end_index=0,
             )
         )
 
@@ -246,9 +335,27 @@ def _build_buffered_simulation(
         tool_mesh_bytes=write_glb(tool_vertices, tool_faces),
         chunks=chunks,
         prepared_chunks=prepared_chunks,
-        frames=frames,
+        operation=operation,
+        frames=_build_animation_frames(_build_contact_frames(prepared_chunks, frame_step_distance), operation, frame_step_distance),
         frame_step_distance=frame_step_distance,
+        rotate_tool_with_path=rotate_tool_with_path,
+        include_corner_rotation_sweeps=include_corner_rotation_sweeps,
     )
+
+
+def _resample_buffered_simulation(
+    simulation: BufferedSimulationResult,
+    frame_step_distance: float,
+) -> None:
+    with simulation.active_mesh_cache_lock:
+        simulation.active_mesh_cache.clear()
+
+    simulation.frames = _build_animation_frames(
+        _build_contact_frames(simulation.prepared_chunks, frame_step_distance),
+        simulation.operation,
+        frame_step_distance,
+    )
+    simulation.frame_step_distance = frame_step_distance
 
 
 def _active_mesh_bytes(simulation: BufferedSimulationResult, frame_index: int) -> bytes:
@@ -268,6 +375,8 @@ def _active_mesh_bytes(simulation: BufferedSimulationResult, frame_index: int) -
                 resample_chunk_cl_data(prepared_chunk.cl_data, simulation.frame_step_distance),
                 frame.point_index,
                 context=f"chunk {frame.chunk_index} frame {frame.point_index}",
+                rotate_tool_with_path=simulation.rotate_tool_with_path,
+                include_corner_rotation_sweeps=simulation.include_corner_rotation_sweeps,
             )
         )
         mesh_bytes = manifold_to_simplified_glb(
@@ -332,11 +441,13 @@ def _run_swept_simulation_task(
     task_id: str,
     mesh_bytes: bytes,
     parsed_operation: OperationRecord3D,
-    max_sim_distance: float,
     chunk_padding_x: float,
     chunk_padding_y: float,
     chunk_padding_z: float,
+    chunk_step_distance: float,
     frame_step_distance: float,
+    rotate_tool_with_path: bool,
+    include_corner_rotation_sweeps: bool,
 ) -> None:
     def should_cancel() -> bool:
         with SIMULATION_TASKS_LOCK:
@@ -348,9 +459,11 @@ def _run_swept_simulation_task(
         simulation = _build_buffered_simulation(
             mesh_bytes,
             parsed_operation,
-            max_sim_distance=max_sim_distance,
             chunk_padding=(chunk_padding_x, chunk_padding_y, chunk_padding_z),
+            chunk_step_distance=chunk_step_distance,
             frame_step_distance=frame_step_distance,
+            rotate_tool_with_path=rotate_tool_with_path,
+            include_corner_rotation_sweeps=include_corner_rotation_sweeps,
             should_cancel=should_cancel,
         )
         if should_cancel():
@@ -362,6 +475,7 @@ def _run_swept_simulation_task(
 
         final_frame_index = len(simulation.frames) - 1
         final_frame = simulation.frames[final_frame_index]
+        final_chunk = simulation.prepared_chunks[final_frame.chunk_index]
         result = SweptSimulationResponse(
             active_mesh_url=_frame_active_mesh_url(simulation_id, final_frame_index),
             cached_mesh_url=_chunk_cached_mesh_url(simulation_id, final_frame.chunk_index),
@@ -369,8 +483,12 @@ def _run_swept_simulation_task(
             frame_count=len(simulation.frames),
             chunk_count=len(simulation.chunks),
             chunk_index=final_frame.chunk_index,
+            chunk_step_index=final_frame.point_index if final_frame.point_index >= 0 else None,
+            chunk_step_count=final_frame.chunk_step_count,
+            chunk_toolpath_points=final_chunk.cl_data.points,
             tool_mesh_url=_tool_mesh_url(simulation_id),
             tool_position=final_frame.tool_position,
+            rotate_tool_with_path=simulation.rotate_tool_with_path,
         )
         _update_simulation_task(
             task_id,
@@ -395,15 +513,17 @@ def _run_swept_simulation_task(
         _update_simulation_task(task_id, status="error", message="Simulation failed.", error_detail=str(exc))
 
 
-@router.post("/simulate/swept", response_model=SweptSimulationStartResponse)
+@router.post("/simulate", response_model=SweptSimulationStartResponse)
 async def simulate_swept(
-    mesh: UploadFile = File(...),
+    mesh: UploadFile | None = File(None),
     operation: str = Form(...),
-    max_sim_distance: float = Form(40.0),
     chunk_padding_x: float = Form(5.0),
     chunk_padding_y: float = Form(5.0),
     chunk_padding_z: float = Form(1.0),
+    chunk_step_distance: float = Form(DEFAULT_CHUNK_STEP_DISTANCE),
     frame_step_distance: float = Form(SIM_STEPDISTANCE),
+    rotate_tool_with_path: bool = Form(DEFAULT_ROTATE_TOOL_WITH_PATH),
+    include_corner_rotation_sweeps: bool = Form(DEFAULT_INCLUDE_CORNER_ROTATION_SWEEPS),
 ):
     try:
         parsed_operation = OperationRecord3D.model_validate_json(operation)
@@ -416,15 +536,20 @@ async def simulate_swept(
             detail=f"Tool type {parsed_operation.tool.type!r} is not supported for swept simulation.",
         )
 
-    mesh_bytes = await mesh.read()
-    if not mesh_bytes:
+    mesh_bytes = await mesh.read() if mesh is not None else None
+    if mesh is not None and not mesh_bytes:
         raise HTTPException(status_code=400, detail="Mesh upload is empty.")
-
-    if not np.isfinite(max_sim_distance) or max_sim_distance <= 0:
-        raise HTTPException(status_code=400, detail="max_sim_distance must be positive.")
+    if mesh_bytes is None:
+        cached_mesh = get_mesh_cache().get_mesh()
+        if cached_mesh is None:
+            raise HTTPException(status_code=400, detail="Upload an STL before running simulation.")
+        mesh_bytes = cached_mesh.mesh_bytes
 
     if any(not np.isfinite(padding) or padding < 0 for padding in (chunk_padding_x, chunk_padding_y, chunk_padding_z)):
         raise HTTPException(status_code=400, detail="Chunk padding values must be non-negative.")
+
+    if not np.isfinite(chunk_step_distance) or chunk_step_distance <= 0:
+        raise HTTPException(status_code=400, detail="chunk_step_distance must be positive.")
 
     if not np.isfinite(frame_step_distance) or frame_step_distance <= 0:
         raise HTTPException(status_code=400, detail="frame_step_distance must be positive.")
@@ -439,11 +564,13 @@ async def simulate_swept(
             task_id,
             mesh_bytes,
             parsed_operation,
-            max_sim_distance,
             chunk_padding_x,
             chunk_padding_y,
             chunk_padding_z,
+            chunk_step_distance,
             frame_step_distance,
+            rotate_tool_with_path,
+            include_corner_rotation_sweeps,
         ),
         daemon=True,
     ).start()
@@ -451,14 +578,42 @@ async def simulate_swept(
     return SweptSimulationStartResponse(task_id=task_id)
 
 
-@router.get("/simulate/swept/{task_id}/status", response_model=SweptSimulationStatusResponse)
+@router.post("/simulate/{simulation_id}/resample", response_model=SweptSimulationResponse)
+def resample_simulation(simulation_id: str, request: SweptSimulationResampleRequest):
+    if not np.isfinite(request.frame_step_distance) or request.frame_step_distance <= 0:
+        raise HTTPException(status_code=400, detail="frame_step_distance must be positive.")
+
+    with SIMULATION_FRAME_BUFFER_LOCK:
+        simulation = _get_buffered_simulation(simulation_id)
+        _resample_buffered_simulation(simulation, request.frame_step_distance)
+        final_frame_index = len(simulation.frames) - 1
+        final_frame = simulation.frames[final_frame_index]
+        final_chunk = simulation.prepared_chunks[final_frame.chunk_index]
+
+    return SweptSimulationResponse(
+        active_mesh_url=_frame_active_mesh_url(simulation_id, final_frame_index),
+        cached_mesh_url=_chunk_cached_mesh_url(simulation_id, final_frame.chunk_index),
+        simulation_id=simulation_id,
+        frame_count=len(simulation.frames),
+        chunk_count=len(simulation.chunks),
+        chunk_index=final_frame.chunk_index,
+        chunk_step_index=final_frame.point_index if final_frame.point_index >= 0 else None,
+        chunk_step_count=final_frame.chunk_step_count,
+        chunk_toolpath_points=final_chunk.cl_data.points,
+        tool_mesh_url=_tool_mesh_url(simulation_id),
+        tool_position=final_frame.tool_position,
+        rotate_tool_with_path=simulation.rotate_tool_with_path,
+    )
+
+
+@router.get("/simulate/{task_id}/status", response_model=SweptSimulationStatusResponse)
 def simulate_swept_status(task_id: str):
     with SIMULATION_TASKS_LOCK:
         task = _get_simulation_task(task_id)
         return _build_status_response(task_id, task)
 
 
-@router.delete("/simulate/swept/{task_id}", response_model=SweptSimulationStatusResponse)
+@router.delete("/simulate/{task_id}", response_model=SweptSimulationStatusResponse)
 def cancel_simulate_swept(task_id: str):
     with SIMULATION_TASKS_LOCK:
         task = _get_simulation_task(task_id)
@@ -470,7 +625,7 @@ def cancel_simulate_swept(task_id: str):
 
 
 @router.get(
-    "/simulate/swept/{simulation_id}/frames",
+    "/simulate/{simulation_id}/frames",
     response_model=SweptSimulationFramesResponse,
 )
 def simulate_swept_frames(simulation_id: str, start_index: int, count: int):
@@ -487,7 +642,7 @@ def simulate_swept_frames(simulation_id: str, start_index: int, count: int):
 
         end_index = min(start_index + count, len(simulation.frames))
         frames = [
-            _frame_response(simulation_id, frame_index, simulation.frames[frame_index])
+            _frame_response(simulation_id, simulation, frame_index, simulation.frames[frame_index])
             for frame_index in range(start_index, end_index)
         ]
 
@@ -495,7 +650,7 @@ def simulate_swept_frames(simulation_id: str, start_index: int, count: int):
 
 
 @router.get(
-    "/simulate/swept/{simulation_id}/frames/{frame_index}",
+    "/simulate/{simulation_id}/frames/{frame_index}",
     response_model=SweptSimulationFrameResponse,
 )
 def simulate_swept_frame(simulation_id: str, frame_index: int):
@@ -503,10 +658,10 @@ def simulate_swept_frame(simulation_id: str, frame_index: int):
         simulation = _get_buffered_simulation(simulation_id)
         frame = _get_buffered_frame(simulation, frame_index)
 
-    return _frame_response(simulation_id, frame_index, frame)
+    return _frame_response(simulation_id, simulation, frame_index, frame)
 
 
-@router.get("/simulate/swept/{simulation_id}/tool-mesh.glb")
+@router.get("/simulate/{simulation_id}/tool-mesh.glb")
 def simulate_swept_tool_mesh(simulation_id: str):
     with SIMULATION_FRAME_BUFFER_LOCK:
         simulation = _get_buffered_simulation(simulation_id)
@@ -514,7 +669,7 @@ def simulate_swept_tool_mesh(simulation_id: str):
     return Response(content=simulation.tool_mesh_bytes, media_type="model/gltf-binary")
 
 
-@router.get("/simulate/swept/{simulation_id}/tool-mesh.rhino.json")
+@router.get("/simulate/{simulation_id}/tool-mesh.rhino.json")
 def simulate_swept_tool_mesh_rhino_json(simulation_id: str):
     with SIMULATION_FRAME_BUFFER_LOCK:
         simulation = _get_buffered_simulation(simulation_id)
@@ -525,7 +680,7 @@ def simulate_swept_tool_mesh_rhino_json(simulation_id: str):
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-@router.get("/simulate/swept/{simulation_id}/frames/{frame_index}/active-mesh.glb")
+@router.get("/simulate/{simulation_id}/frames/{frame_index}/active-mesh.glb")
 def simulate_swept_frame_active_mesh(simulation_id: str, frame_index: int):
     with SIMULATION_FRAME_BUFFER_LOCK:
         simulation = _get_buffered_simulation(simulation_id)
@@ -534,7 +689,7 @@ def simulate_swept_frame_active_mesh(simulation_id: str, frame_index: int):
     return Response(content=_active_mesh_bytes(simulation, frame_index), media_type="model/gltf-binary")
 
 
-@router.get("/simulate/swept/{simulation_id}/frames/{frame_index}/active-mesh.rhino.json")
+@router.get("/simulate/{simulation_id}/frames/{frame_index}/active-mesh.rhino.json")
 def simulate_swept_frame_active_mesh_rhino_json(simulation_id: str, frame_index: int):
     with SIMULATION_FRAME_BUFFER_LOCK:
         simulation = _get_buffered_simulation(simulation_id)
@@ -546,7 +701,7 @@ def simulate_swept_frame_active_mesh_rhino_json(simulation_id: str, frame_index:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
-@router.get("/simulate/swept/{simulation_id}/chunks/{chunk_index}/cached-mesh.glb")
+@router.get("/simulate/{simulation_id}/chunks/{chunk_index}/cached-mesh.glb")
 def simulate_swept_chunk_cached_mesh(simulation_id: str, chunk_index: int):
     with SIMULATION_FRAME_BUFFER_LOCK:
         simulation = _get_buffered_simulation(simulation_id)
@@ -555,7 +710,7 @@ def simulate_swept_chunk_cached_mesh(simulation_id: str, chunk_index: int):
     return Response(content=chunk.cached_mesh_bytes, media_type="model/gltf-binary")
 
 
-@router.get("/simulate/swept/{simulation_id}/chunks/{chunk_index}/cached-mesh.rhino.json")
+@router.get("/simulate/{simulation_id}/chunks/{chunk_index}/cached-mesh.rhino.json")
 def simulate_swept_chunk_cached_mesh_rhino_json(simulation_id: str, chunk_index: int):
     with SIMULATION_FRAME_BUFFER_LOCK:
         simulation = _get_buffered_simulation(simulation_id)

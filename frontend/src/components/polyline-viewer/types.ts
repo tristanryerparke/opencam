@@ -27,8 +27,12 @@ export type PolylineViewerProps = {
   meshUrl?: string | null;
   secondaryMeshUrl?: string | null;
   meshColor?: number;
+  meshOpacity?: number;
+  meshUseVertexColors?: boolean;
   meshEdgeColor?: number | null;
   secondaryMeshColor?: number;
+  secondaryMeshOpacity?: number;
+  secondaryMeshUseVertexColors?: boolean;
   secondaryMeshEdgeColor?: number | null;
   polylines: ReadonlyArray<PolylineDefinition>;
   className?: string;
@@ -41,6 +45,7 @@ export type PolylineViewerProps = {
   simulationToolMeshUrl?: string | null;
   simulationToolPosition?: PolylinePoint | null;
   simulationToolRotation?: number | null;
+  simulationToolRotationEnabled?: boolean;
   showOriginalMesh?: boolean;
   onMeshFaceSelect?: (selection: MeshFaceSelection) => void;
 };

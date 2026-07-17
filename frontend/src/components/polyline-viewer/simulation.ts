@@ -21,7 +21,7 @@ export function createSimulationStockMesh(bounds: THREE.Box3) {
 }
 
 export function createBaseSimulationCylinderGeometry() {
-  const geometry = new THREE.CylinderGeometry(0.5, 0.5, 1, 24, 1, false);
+  const geometry = new THREE.CylinderGeometry(0.5, 0.5, 1, 8, 1, false);
   geometry.rotateX(Math.PI / 2);
 
   const creasedGeometry = toCreasedNormals(

@@ -2,12 +2,15 @@
 from pathlib import Path
 from time import perf_counter
 
+from opencam.simulation.swept_volume import DEFAULT_STRAIGHT_LINE_TOLERANCE_DEGREES
+
 MAX_SIM_DISTANCE = 40.0
 CHUNK_PADDING = (5.0, 5.0, 1.0)
 FRAME_STEP_DISTANCE = 5.0
 CHUNK_INDEX = 10
 FRAME_POINT_INDEX = -1
-STRAIGHT_LINE_TOLERANCE_DEGREES = 0.1
+STRAIGHT_LINE_TOLERANCE_DEGREES = DEFAULT_STRAIGHT_LINE_TOLERANCE_DEGREES
+INCLUDE_CORNER_ROTATION_SWEEPS = True
 OUTPUT_PATH = Path("pocket-simulation-frame-result.stl")
 
 
@@ -79,6 +82,7 @@ if __name__ == "__main__":
         frame_point_index,
         context=f"demo chunk {CHUNK_INDEX} frame {frame_point_index}",
         straight_line_tolerance_degrees=STRAIGHT_LINE_TOLERANCE_DEGREES,
+        include_corner_rotation_sweeps=INCLUDE_CORNER_ROTATION_SWEEPS,
     )
     frame_seconds = perf_counter() - started_at
 
@@ -109,6 +113,7 @@ if __name__ == "__main__":
     print(f"Resampled points: {len(sampled_points)}")
     print(f"Selected frame point index: {frame_point_index}")
     print(f"Coalesced points up to frame: {len(coalesced_positions)}")
+    print(f"Corner rotation sweeps: {INCLUDE_CORNER_ROTATION_SWEEPS}")
     print(f"Simulation import: {simulation_import_seconds:.3f}s")
     print(f"Stock STL read: {stock_read_seconds:.3f}s")
     print(f"Chunk generation: {chunk_generation_seconds:.3f}s")

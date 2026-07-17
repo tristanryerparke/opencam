@@ -4,6 +4,12 @@ import { Button } from "t-components/button";
 import { Input } from "t-components/input";
 import { Label } from "t-components/label";
 import { Sidebar, SidebarContent, SidebarMenuButton } from "t-components/sidebar";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { TreeView, type TreeNodeNested, type TreeNodeRenderProps } from "@/components/tree-view/tree-view";
 import { type Pocketing2DOp as Operation } from "@/generated_schemas/cam";
 import { cn } from "@/lib/utils";
@@ -30,6 +36,9 @@ type AppSidebarProps = {
   onMeshUpload: (file: File | null) => void;
   onAddOperation: () => void;
   onSelectNode: (nodeId: string) => void;
+  onEditOperation: (operationId: string) => void;
+  onDeleteOperation: (operationId: string) => void;
+  canManageOperations: boolean;
   canCancelGeneration: boolean;
   onCancelGeneration: () => void;
 };
@@ -41,16 +50,22 @@ function getOperationSummary(operation: Operation) {
     : "Cut depth not set";
 }
 
-function renderTreeNode({
-  node,
-  isExpanded,
-  isSelected,
-  depth,
-  hasChildren,
-  toggle,
-  select,
-}: TreeNodeRenderProps<OperationTreeItem>) {
-  return (
+function renderTreeNode(
+  {
+    node,
+    isExpanded,
+    isSelected,
+    depth,
+    hasChildren,
+    toggle,
+    select,
+  }: TreeNodeRenderProps<OperationTreeItem>,
+  onEditOperation: (operationId: string) => void,
+  onDeleteOperation: (operationId: string) => void,
+  canManageOperations: boolean,
+) {
+  const operationId = node.data.operationId;
+  const content = (
     <SidebarMenuButton
       type="button"
       isActive={isSelected}
@@ -78,6 +93,28 @@ function renderTreeNode({
       </span>
     </SidebarMenuButton>
   );
+
+  if (node.isGroup || !operationId) {
+    return content;
+  }
+
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>{content}</ContextMenuTrigger>
+      <ContextMenuContent>
+        <ContextMenuItem disabled={!canManageOperations} onSelect={() => onEditOperation(operationId)}>
+          Edit operation
+        </ContextMenuItem>
+        <ContextMenuItem
+          variant="destructive"
+          disabled={!canManageOperations}
+          onSelect={() => onDeleteOperation(operationId)}
+        >
+          Delete operation
+        </ContextMenuItem>
+      </ContextMenuContent>
+    </ContextMenu>
+  );
 }
 
 export function AppSidebar({
@@ -94,6 +131,9 @@ export function AppSidebar({
   onMeshUpload,
   onAddOperation,
   onSelectNode,
+  onEditOperation,
+  onDeleteOperation,
+  canManageOperations,
   canCancelGeneration,
   onCancelGeneration,
 }: AppSidebarProps) {
@@ -143,7 +183,8 @@ export function AppSidebar({
             defaultExpandedIds={["setup-1"]}
             selectedIds={[selectedNodeId]}
             onSelectedIdsChange={(ids) => onSelectNode(ids.at(-1) ?? "setup-1")}
-            renderNode={renderTreeNode}
+            renderNode={(props) =>
+              renderTreeNode(props, onEditOperation, onDeleteOperation, canManageOperations)}
             aria-label="CAM setup tree"
           />
         </div>

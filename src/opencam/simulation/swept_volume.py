@@ -17,7 +17,13 @@ from opencam.services.mesh.planar_region_2d_reduction import simplify_mesh_data_
 TOOL_SEGMENTS = 16
 SIM_STEPDISTANCE = 5
 SIMPLIFY_AFTER_EACH_CHUNK = False
+DEFAULT_MAX_SIM_DISTANCE = 10.0
 DEFAULT_CHUNK_PADDING = (5.0, 5.0, 1.0)
+DEFAULT_CHUNK_STEP_DISTANCE = 0.5
+DEFAULT_PATH_ANGLE_TOLERANCE_DEGREES = 15
+DEFAULT_STRAIGHT_LINE_TOLERANCE_DEGREES = 2
+DEFAULT_ROTATE_TOOL_WITH_PATH = False
+DEFAULT_INCLUDE_CORNER_ROTATION_SWEEPS = True
 DEFAULT_PLANAR_ANGLE_DEGREES = 0.01
 DEFAULT_MIN_REGION_FACES = 3
 STOCK_FACE_COLOR_RGBA = np.array([251, 146, 60, 255], dtype=np.uint8)
@@ -271,6 +277,35 @@ def rotation_matrix_about_z_to_face_xy_direction(direction: np.ndarray) -> np.nd
         ],
         dtype=np.float64,
     )
+
+
+def tool_rotation_matrix(direction: np.ndarray, *, rotate_tool_with_path: bool) -> np.ndarray:
+    if not rotate_tool_with_path:
+        return np.eye(3, dtype=np.float64)
+    return rotation_matrix_about_z_to_face_xy_direction(direction)
+
+
+def xy_unit_direction(vector: np.ndarray) -> np.ndarray | None:
+    xy = np.asarray(vector, dtype=np.float64)[:2]
+    norm = float(np.linalg.norm(xy))
+    if norm < 1e-12:
+        return None
+    return xy / norm
+
+
+def directions_form_non_collinear_turn(
+    previous_translation: np.ndarray,
+    next_translation: np.ndarray,
+    tolerance_degrees: float,
+) -> bool:
+    previous_direction = xy_unit_direction(previous_translation)
+    next_direction = xy_unit_direction(next_translation)
+    if previous_direction is None or next_direction is None:
+        return False
+
+    min_alignment = math.cos(math.radians(max(tolerance_degrees, 0.0)))
+    alignment = float(np.clip(np.dot(previous_direction, next_direction), -1.0, 1.0))
+    return alignment < min_alignment
 
 
 def swept_volume_manifold(
@@ -925,9 +960,41 @@ def filter_contact_position_sequences(
     return contact_sequences, retained_segments, skipped_segments, trimmed_segments
 
 
+def coalesce_collinear_tool_positions(
+    positions: list[np.ndarray],
+    tolerance: float = 1e-8,
+) -> list[np.ndarray]:
+    if len(positions) <= 2:
+        return positions[:]
+
+    coalesced = [np.asarray(positions[0], dtype=np.float64), np.asarray(positions[1], dtype=np.float64)]
+    for next_position in positions[2:]:
+        start = coalesced[-2]
+        middle = coalesced[-1]
+        end = np.asarray(next_position, dtype=np.float64)
+        previous = middle - start
+        current = end - middle
+        whole = end - start
+        whole_length = float(np.linalg.norm(whole))
+
+        if whole_length <= tolerance:
+            coalesced[-1] = end
+            continue
+
+        distance_from_line = float(np.linalg.norm(np.cross(previous, whole)) / whole_length)
+        if distance_from_line <= tolerance and float(np.dot(previous, current)) >= -tolerance:
+            coalesced[-1] = end
+            continue
+
+        coalesced.append(end)
+
+    return coalesced
+
+
 def build_position_chunks(
     position_sequences: list[list[np.ndarray]],
     max_sim_distance: float,
+    chunk_step_distance: float = DEFAULT_CHUNK_STEP_DISTANCE,
 ) -> tuple[list[list[np.ndarray]], int]:
     position_chunks: list[list[np.ndarray]] = []
     chunk_seed_position_count = 0
@@ -935,7 +1002,10 @@ def build_position_chunks(
     for sequence in position_sequences:
         if not sequence:
             continue
-        chunk_seed_positions = subdivide_tool_positions(sequence, max_sim_distance)
+        chunk_seed_positions = subdivide_tool_positions(
+            coalesce_collinear_tool_positions(march_tool_positions(sequence, chunk_step_distance)),
+            max_sim_distance,
+        )
         chunk_seed_position_count += len(chunk_seed_positions)
         position_chunks.extend(chunk_tool_positions(chunk_seed_positions, max_sim_distance))
 
@@ -946,8 +1016,10 @@ def prepare_simulation_chunks(
     mesh_input: bytes | str,
     operation: OperationRecord3D,
     *,
-    max_sim_distance: float = 40.0,
+    max_sim_distance: float = DEFAULT_MAX_SIM_DISTANCE,
     chunk_padding: tuple[float, float, float] = DEFAULT_CHUNK_PADDING,
+    chunk_step_distance: float = DEFAULT_CHUNK_STEP_DISTANCE,
+    rotate_tool_with_path: bool = DEFAULT_ROTATE_TOOL_WITH_PATH,
     should_cancel: Callable[[], bool] | None = None,
 ) -> list[PreparedSimulationChunk]:
     if not isinstance(operation.tool, CylindricalTool):
@@ -956,6 +1028,8 @@ def prepare_simulation_chunks(
         raise ValueError("max_sim_distance must be positive.")
     if any(not math.isfinite(padding) or padding < 0 for padding in chunk_padding):
         raise ValueError("chunk_padding values must be non-negative.")
+    if not math.isfinite(chunk_step_distance) or chunk_step_distance <= 0:
+        raise ValueError("chunk_step_distance must be positive.")
 
     tool = operation.tool
     stock_original_id = Manifold.reserve_ids(1)
@@ -982,7 +1056,11 @@ def prepare_simulation_chunks(
         stock_min,
         stock_max,
     )
-    position_chunks, _chunk_seed_position_count = build_position_chunks(contact_position_sequences, max_sim_distance)
+    position_chunks, _chunk_seed_position_count = build_position_chunks(
+        contact_position_sequences,
+        max_sim_distance,
+        chunk_step_distance,
+    )
     stock_like_original_ids = {stock_original_id, chunk_boundary_original_id}
 
     if not position_chunks:
@@ -1029,27 +1107,27 @@ def prepare_simulation_chunks(
             current_stock - chunk_box_manifold,
             context=f"chunk {chunk_index} rest subtraction",
         )
-        prepared_chunks.append(
-            PreparedSimulationChunk(
-                chunk_index=chunk_index,
-                focus_mesh=focus_mesh,
-                rest_mesh=rest_mesh,
-                cl_data=ChunkClData(
-                    tool=tool,
-                    tool_axis=tuple(float(axis) for axis in operation.tool_axis),
-                    clearance_plane_height=float(operation.clearance_plane_height),
-                    # ponytail: chunk CL data keeps clipped tool positions only; add original feed/comment metadata if a caller needs exact record provenance.
-                    points=[position_to_record(position) for position in chunk_positions],
-                ),
-                stock_like_original_ids=stock_like_original_ids,
-            )
+        prepared_chunk = PreparedSimulationChunk(
+            chunk_index=chunk_index,
+            focus_mesh=focus_mesh,
+            rest_mesh=rest_mesh,
+            cl_data=ChunkClData(
+                tool=tool,
+                tool_axis=tuple(float(axis) for axis in operation.tool_axis),
+                clearance_plane_height=float(operation.clearance_plane_height),
+                # ponytail: chunk CL data keeps clipped tool positions only; add original feed/comment metadata if a caller needs exact record provenance.
+                points=[position_to_record(position) for position in chunk_positions],
+            ),
+            stock_like_original_ids=stock_like_original_ids,
         )
+        prepared_chunks.append(prepared_chunk)
 
         current_stock, _subtraction_seconds, _segment_count = simulate_manifold_by_moves(
             current_stock,
             tool_vertices,
             chunk_positions,
             context_prefix=f"chunk {chunk_index} stock",
+            rotate_tool_with_path=rotate_tool_with_path,
             should_cancel=should_cancel,
         )
         if SIMPLIFY_AFTER_EACH_CHUNK and chunk_index < len(position_chunks) - 1:
@@ -1061,13 +1139,81 @@ def prepare_simulation_chunks(
     return prepared_chunks
 
 
+def march_tool_positions(
+    positions: list[np.ndarray],
+    step_distance: float,
+    angle_tolerance_degrees: float = DEFAULT_PATH_ANGLE_TOLERANCE_DEGREES,
+) -> list[np.ndarray]:
+    """March along a toolpath at fixed spacing, forcing earlier samples at sharp turns."""
+    if not positions:
+        return []
+    if not math.isfinite(step_distance) or step_distance <= 0:
+        raise ValueError("step_distance must be positive.")
+    if not math.isfinite(angle_tolerance_degrees) or angle_tolerance_degrees < 0:
+        raise ValueError("angle_tolerance_degrees must be non-negative.")
+
+    marched = [np.asarray(positions[0], dtype=np.float64)]
+    distance_since_sample = 0.0
+    reference_direction: np.ndarray | None = None
+    min_alignment = math.cos(math.radians(angle_tolerance_degrees))
+    tolerance = 1e-9
+
+    for index in range(1, len(positions)):
+        start = np.asarray(positions[index - 1], dtype=np.float64)
+        end = np.asarray(positions[index], dtype=np.float64)
+        translation = end - start
+        segment_length = float(np.linalg.norm(translation))
+
+        if segment_length < tolerance:
+            continue
+
+        segment_direction = translation / segment_length
+        if reference_direction is None:
+            reference_direction = segment_direction
+        else:
+            alignment = float(np.clip(np.dot(reference_direction, segment_direction), -1.0, 1.0))
+            if alignment < min_alignment:
+                if not np.allclose(marched[-1], start, atol=tolerance, rtol=0.0):
+                    marched.append(start)
+                distance_since_sample = 0.0
+                reference_direction = segment_direction
+
+        segment_consumed = 0.0
+        segment_remaining = segment_length
+
+        while distance_since_sample + segment_remaining >= step_distance:
+            distance_to_sample = max(step_distance - distance_since_sample, 0.0)
+            segment_consumed += distance_to_sample
+            interpolation = min(segment_consumed / segment_length, 1.0)
+            sample = start + translation * interpolation
+            if not np.allclose(marched[-1], sample, atol=tolerance, rtol=0.0):
+                marched.append(sample)
+
+            distance_since_sample = 0.0
+            reference_direction = segment_direction
+            segment_remaining = segment_length - segment_consumed
+            if segment_remaining <= tolerance:
+                segment_consumed = segment_length
+                break
+
+        distance_since_sample += segment_length - segment_consumed
+
+    final_position = np.asarray(positions[-1], dtype=np.float64)
+    if not np.allclose(marched[-1], final_position, atol=tolerance, rtol=0.0):
+        marched.append(final_position)
+
+    return marched
+
+
 def resample_chunk_cl_data(
     chunk_cl_data: ChunkClData,
     step_distance: float,
+    angle_tolerance_degrees: float = DEFAULT_PATH_ANGLE_TOLERANCE_DEGREES,
 ) -> list[PositionRecord3D]:
-    sampled_positions = subdivide_tool_positions(
+    sampled_positions = march_tool_positions(
         [record_to_position(point) for point in chunk_cl_data.points],
         step_distance,
+        angle_tolerance_degrees,
     )
     return [position_to_record(position) for position in sampled_positions]
 
@@ -1116,7 +1262,9 @@ def simulate_chunk_focus_mesh(
     point_index: int,
     *,
     context: str = "chunk focus simulation",
-    straight_line_tolerance_degrees: float = 0.1,
+    straight_line_tolerance_degrees: float = DEFAULT_STRAIGHT_LINE_TOLERANCE_DEGREES,
+    rotate_tool_with_path: bool = DEFAULT_ROTATE_TOOL_WITH_PATH,
+    include_corner_rotation_sweeps: bool = DEFAULT_INCLUDE_CORNER_ROTATION_SWEEPS,
 ) -> Manifold:
     if not sampled_points:
         raise IndexError("sampled_points is empty")
@@ -1135,6 +1283,8 @@ def simulate_chunk_focus_mesh(
         straight_line_tolerance_degrees,
     )
     swept_manifolds: list[Manifold] = []
+    previous_translation: np.ndarray | None = None
+    previous_rotated_tool_vertices: np.ndarray | None = None
 
     for step in range(1, len(sampled_positions)):
         pos_a = sampled_positions[step - 1]
@@ -1143,8 +1293,30 @@ def simulate_chunk_focus_mesh(
         if np.linalg.norm(translation) < 1e-9:
             continue
 
-        sweep_rotation = rotation_matrix_about_z_to_face_xy_direction(translation)
+        sweep_rotation = tool_rotation_matrix(translation, rotate_tool_with_path=rotate_tool_with_path)
         rotated_tool_vertices = tool_vertices @ sweep_rotation.T
+
+        if (
+            rotate_tool_with_path
+            and include_corner_rotation_sweeps
+            and previous_translation is not None
+            and previous_rotated_tool_vertices is not None
+            and directions_form_non_collinear_turn(
+                previous_translation,
+                translation,
+                straight_line_tolerance_degrees,
+            )
+        ):
+            corner_vertices = previous_rotated_tool_vertices + pos_a[None, :]
+            rotated_corner_vertices = rotated_tool_vertices + pos_a[None, :]
+            swept_manifolds.append(
+                swept_volume_manifold(
+                    corner_vertices,
+                    end_verts=rotated_corner_vertices,
+                    context=f"{context} rotational sweep at corner {step - 1}",
+                )
+            )
+
         start_sweep_vertices = rotated_tool_vertices + pos_a[None, :]
         end_sweep_vertices = rotated_tool_vertices + pos_b[None, :]
         swept_manifolds.append(
@@ -1154,6 +1326,8 @@ def simulate_chunk_focus_mesh(
                 context=f"{context} swept volume for segment {step}",
             )
         )
+        previous_translation = translation
+        previous_rotated_tool_vertices = rotated_tool_vertices
 
     if not swept_manifolds:
         return focus_mesh
@@ -1171,6 +1345,7 @@ def simulate_manifold_by_moves(
     positions: list[np.ndarray],
     *,
     context_prefix: str,
+    rotate_tool_with_path: bool = DEFAULT_ROTATE_TOOL_WITH_PATH,
     should_cancel: Callable[[], bool] | None = None,
     on_segment_complete: Callable[[], None] | None = None,
 ) -> tuple[Manifold, float, int]:
@@ -1188,7 +1363,7 @@ def simulate_manifold_by_moves(
         if np.linalg.norm(translation) < 1e-9:
             continue
 
-        sweep_rotation = rotation_matrix_about_z_to_face_xy_direction(translation)
+        sweep_rotation = tool_rotation_matrix(translation, rotate_tool_with_path=rotate_tool_with_path)
         rotated_tool_vertices = tool_vertices @ sweep_rotation.T
         start_sweep_vertices = rotated_tool_vertices + pos_a[None, :]
         end_sweep_vertices = rotated_tool_vertices + pos_b[None, :]
@@ -1253,8 +1428,9 @@ def simulate_swept_milling_frames(
     mesh_input: bytes | str,
     operation: OperationRecord3D,
     *,
-    max_sim_distance: float = 40.0,
+    max_sim_distance: float = DEFAULT_MAX_SIM_DISTANCE,
     chunk_padding: tuple[float, float, float] = DEFAULT_CHUNK_PADDING,
+    rotate_tool_with_path: bool = DEFAULT_ROTATE_TOOL_WITH_PATH,
     progress_callback: Callable[[int, int, str], None] | None = None,
     should_cancel: Callable[[], bool] | None = None,
 ) -> tuple[bytes, list[SimulatedChunk], list[SimulatedMeshFrame]]:
@@ -1296,7 +1472,7 @@ def simulate_swept_milling_frames(
     position_chunks, chunk_seed_position_count = build_position_chunks(contact_position_sequences, max_sim_distance)
     filtered_position_count = sum(len(sequence) for sequence in contact_position_sequences)
     subdivided_position_chunks = [
-        subdivide_tool_positions(chunk_positions, SIM_STEPDISTANCE)
+        march_tool_positions(chunk_positions, SIM_STEPDISTANCE)
         for chunk_positions in position_chunks
     ]
     total_stock_segments = sum(max(len(chunk_positions) - 1, 0) for chunk_positions in position_chunks)
@@ -1418,6 +1594,7 @@ def simulate_swept_milling_frames(
             tool_vertices,
             chunk_positions,
             context_prefix=f"chunk {chunk_index} stock",
+            rotate_tool_with_path=rotate_tool_with_path,
             should_cancel=should_cancel,
             on_segment_complete=lambda: advance_progress(
                 f"Processing chunk {chunk_index + 1} of {len(position_chunks)}..."
@@ -1462,7 +1639,10 @@ def simulate_swept_milling_frames(
                 )
                 continue
 
-            sweep_rotation = rotation_matrix_about_z_to_face_xy_direction(translation)
+            sweep_rotation = tool_rotation_matrix(
+                translation,
+                rotate_tool_with_path=rotate_tool_with_path,
+            )
             rotated_tool_vertices = tool_vertices @ sweep_rotation.T
             start_sweep_vertices = rotated_tool_vertices + pos_a[None, :]
             end_sweep_vertices = rotated_tool_vertices + pos_b[None, :]

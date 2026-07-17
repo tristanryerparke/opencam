@@ -11,15 +11,23 @@ class SweptSimulationResponse(CamelBaseModel):
     frame_count: int
     chunk_count: int
     chunk_index: int
+    chunk_step_index: int | None
+    chunk_step_count: int
+    chunk_toolpath_points: list[PositionRecord3D]
     tool_mesh_url: str
     tool_position: PositionRecord3D
+    rotate_tool_with_path: bool
 
 
 class SweptSimulationFrameResponse(CamelBaseModel):
     active_mesh_url: str
     cached_mesh_url: str
     chunk_index: int
+    chunk_step_index: int | None
+    chunk_step_count: int
+    chunk_toolpath_points: list[PositionRecord3D]
     tool_position: PositionRecord3D
+    rotate_tool_with_path: bool
 
 
 class SweptSimulationFramesResponse(CamelBaseModel):
@@ -29,6 +37,10 @@ class SweptSimulationFramesResponse(CamelBaseModel):
 
 class SweptSimulationStartResponse(CamelBaseModel):
     task_id: str
+
+
+class SweptSimulationResampleRequest(CamelBaseModel):
+    frame_step_distance: float
 
 
 class SweptSimulationStatusResponse(CamelBaseModel):

@@ -41,6 +41,11 @@ import {
 const toolQueryKey = ["tool-library", "tools"] as const;
 const themeModes = ["system", "light", "dark"] as const;
 
+type SettingsDialogProps = {
+  simulationDebugUiEnabled: boolean;
+  onSimulationDebugUiEnabledChange: (enabled: boolean) => void;
+};
+
 const themeModeConfig = {
   system: { icon: Monitor, label: "System" },
   light: { icon: Sun, label: "Light" },
@@ -249,7 +254,7 @@ function ToolsSettingsTab() {
   );
 }
 
-function GeneralSettingsTab() {
+function GeneralSettingsTab({ simulationDebugUiEnabled, onSimulationDebugUiEnabledChange }: SettingsDialogProps) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-4 rounded-md border p-2">
@@ -259,11 +264,23 @@ function GeneralSettingsTab() {
         </div>
         <ThemeSelect />
       </div>
+
+      <label className="flex items-center justify-between gap-4 rounded-md border p-2">
+        <div>
+          <div className="text-sm font-medium">Simulation debug UI</div>
+          <p className="text-xs text-muted-foreground">Show chunk stats and debug colors in the viewport.</p>
+        </div>
+        <input
+          type="checkbox"
+          checked={simulationDebugUiEnabled}
+          onChange={(event) => onSimulationDebugUiEnabledChange(event.target.checked)}
+        />
+      </label>
     </div>
   );
 }
 
-export function SettingsDialog() {
+export function SettingsDialog(props: SettingsDialogProps) {
   return (
     <Dialog>
       <DialogTrigger asChild>
@@ -287,7 +304,7 @@ export function SettingsDialog() {
             <ToolsSettingsTab />
           </TabsContent>
           <TabsContent value="settings" className="min-h-0 overflow-y-auto pr-1">
-            <GeneralSettingsTab />
+            <GeneralSettingsTab {...props} />
           </TabsContent>
         </Tabs>
       </DialogContent>

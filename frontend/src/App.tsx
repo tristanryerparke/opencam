@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
 
 import { AppSidebar, type RequestState } from "@/components/app-sidebar";
 import { SettingsDialog } from "@/components/settings-dialog";
@@ -47,12 +46,20 @@ type SweptSimulationResponse = {
   frameCount: number;
   chunkCount: number;
   chunkIndex: number;
+  chunkStepIndex?: number | null;
+  chunkStepCount?: number;
+  chunkToolpathPoints?: ToolPositionResponse[];
   toolMeshUrl: string;
   toolPosition: ToolPositionResponse;
+  rotateToolWithPath: boolean;
 };
 
 type SweptSimulationStartResponse = {
   taskId: string;
+};
+
+type SweptSimulationResampleRequest = {
+  frameStepDistance: number;
 };
 
 type SweptSimulationStatusResponse = {
@@ -68,7 +75,11 @@ type SweptSimulationFrameResponse = {
   activeMeshUrl: string;
   cachedMeshUrl: string;
   chunkIndex: number;
+  chunkStepIndex?: number | null;
+  chunkStepCount?: number;
+  chunkToolpathPoints?: ToolPositionResponse[];
   toolPosition: ToolPositionResponse;
+  rotateToolWithPath: boolean;
 };
 
 const CUT_PATH_COLOR = "#1d4ed8";
@@ -108,11 +119,10 @@ type SweptSimulationFramesResponse = {
 
 type MeshCacheState = "idle" | "saving" | "ready" | "error";
 
-type CachedMeshPayload = {
+type CachedMeshResponse = {
   name: string;
-  type: string;
-  lastModified: number;
-  dataUrl: string;
+  meshUrl: string;
+  maxZ: number;
 };
 
 type SidebarSettingsPayload = {
@@ -121,13 +131,23 @@ type SidebarSettingsPayload = {
   operations: Operation[];
 };
 
-const CACHED_MESH_STORAGE_KEY = "opencam.cached-stl";
 const SIDEBAR_SETTINGS_STORAGE_KEY = "opencam.sidebar-settings.v3";
+const SIMULATION_DEBUG_UI_STORAGE_KEY = "opencam.simulation-debug-ui";
 const ORIGINAL_MESH_COLOR = 0x94a3b8;
 const ORIGINAL_MESH_EDGE_COLOR = 0x334155;
 const MILLED_STOCK_MESH_COLOR = 0xfb923c;
 const ACTIVE_DEBUG_MESH_COLOR = 0xf97316;
+const DEBUG_REST_MESH_COLOR = 0x9a3412;
+const CURRENT_CHUNK_PATH_COLOR = "#a855f7";
+const CHUNK_START_MARKER_COLOR = "#22c55e";
+const CHUNK_END_MARKER_COLOR = "#ef4444";
+const CHUNK_MARKER_SIZE = 2;
 const SIMULATION_PLAYBACK_INTERVAL_MS = 30;
+const SIMULATION_FRAME_STEP_DISTANCE_MIN = 0.5;
+const SIMULATION_FRAME_STEP_DISTANCE_MAX = 10;
+const SIMULATION_FRAME_STEP_DISTANCE_STEP = 0.5;
+const SIMULATION_FRAME_STEP_DISTANCE_DEFAULT = 5;
+const SIMULATION_ROTATE_TOOL_WITH_PATH = false;
 const SIMULATION_FRAME_BATCH_SIZE = 10;
 const SIMULATION_SAMPLE_SPACING = 2;
 const CHUNK_PADDING_X = 5;
@@ -137,21 +157,7 @@ const SIMULATION_PREFETCH_TRIGGER_FRAME_COUNT = Math.max(
   1,
   Math.ceil(SIMULATION_FRAME_BATCH_SIZE / 2),
 );
-
-function isCachedMeshPayload(value: unknown): value is CachedMeshPayload {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-
-  const payload = value as Record<string, unknown>;
-
-  return (
-    typeof payload.name === "string" &&
-    typeof payload.type === "string" &&
-    typeof payload.lastModified === "number" &&
-    typeof payload.dataUrl === "string"
-  );
-}
+const ENABLE_FRONTEND_FRAME_CACHE = false;
 
 function isSidebarSettingsPayload(value: unknown): value is SidebarSettingsPayload {
   if (!value || typeof value !== "object") {
@@ -166,55 +172,6 @@ function isSidebarSettingsPayload(value: unknown): value is SidebarSettingsPaylo
   );
 }
 
-function fileToDataUrl(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-
-    reader.onload = () => {
-      if (typeof reader.result === "string") {
-        resolve(reader.result);
-        return;
-      }
-
-      reject(new Error("Failed to read STL file."));
-    };
-
-    reader.onerror = () => {
-      reject(reader.error ?? new Error("Failed to read STL file."));
-    };
-
-    reader.readAsDataURL(file);
-  });
-}
-
-function dataUrlToFile(
-  dataUrl: string,
-  name: string,
-  type: string,
-  lastModified: number,
-) {
-  const commaIndex = dataUrl.indexOf(",");
-  if (commaIndex < 0) {
-    throw new Error("Invalid cached STL data.");
-  }
-
-  const header = dataUrl.slice(0, commaIndex);
-  const encoded = dataUrl.slice(commaIndex + 1);
-  const mimeMatch = header.match(/^data:(.*?);base64$/);
-  const mimeType = type || mimeMatch?.[1] || "model/stl";
-  const binary = atob(encoded);
-  const bytes = new Uint8Array(binary.length);
-
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-
-  return new File([bytes], name, {
-    type: mimeType,
-    lastModified,
-  });
-}
-
 function resolveBackendAssetUrl(url: string) {
   if (/^(?:[a-z]+:)?\/\//i.test(url) || url.startsWith("blob:") || url.startsWith("data:")) {
     return url;
@@ -227,8 +184,8 @@ function resolveBackendAssetUrl(url: string) {
   return `${getBackendUrl()}/${url}`;
 }
 
-async function prefetchMeshObjectUrl(url: string) {
-  const response = await fetch(resolveBackendAssetUrl(url));
+async function prefetchMeshObjectUrl(url: string, cache: RequestCache = "default") {
+  const response = await fetch(resolveBackendAssetUrl(url), { cache });
 
   if (!response.ok) {
     throw new Error(`Failed to load mesh (${response.status}).`);
@@ -238,21 +195,34 @@ async function prefetchMeshObjectUrl(url: string) {
   return URL.createObjectURL(meshBlob);
 }
 
-async function getMeshVertexMaxZ(file: File) {
-  const loader = new STLLoader();
-  const buffer = await file.arrayBuffer();
-  const geometry = loader.parse(buffer);
+async function prefetchMeshObjectUrlWithTiming(url: string, cache: RequestCache = "default") {
+  const startedAt = performance.now();
+  const objectUrl = await prefetchMeshObjectUrl(url, cache);
+  return {
+    objectUrl,
+    elapsedMs: performance.now() - startedAt,
+  };
+}
 
-  geometry.computeBoundingBox();
+async function fetchCachedMesh(): Promise<CachedMeshResponse | null> {
+  const response = await fetch(`${getBackendUrl()}/cam/mesh`);
 
-  const maxZ = geometry.boundingBox?.max.z ?? Number.NaN;
-  geometry.dispose();
-
-  if (!Number.isFinite(maxZ)) {
-    throw new Error("Unable to determine the mesh Z maximum.");
+  if (response.status === 404) {
+    return null;
   }
 
-  return maxZ;
+  if (!response.ok) {
+    const contentType = response.headers.get("content-type") ?? "";
+    if (contentType.includes("application/json")) {
+      const payload = (await response.json()) as { detail?: string };
+      throw new Error(payload.detail ?? "Failed to load cached mesh.");
+    }
+
+    const detail = await response.text();
+    throw new Error(detail || "Failed to load cached mesh.");
+  }
+
+  return (await response.json()) as CachedMeshResponse;
 }
 
 function getPolylineLength(points: ReadonlyArray<PolylinePoint>) {
@@ -269,6 +239,24 @@ function getPolylineLength(points: ReadonlyArray<PolylinePoint>) {
 
 function toolPositionToPoint(position: ToolPositionResponse): PolylinePoint {
   return [position.x, position.y, position.z] as const;
+}
+
+function createPointMarkerPolylines(id: string, name: string, point: PolylinePoint, color: string): PolylineDefinition[] {
+  const [x, y, z] = point;
+  return [
+    {
+      id: `${id}-x`,
+      name,
+      color,
+      points: [[x - CHUNK_MARKER_SIZE, y, z], [x + CHUNK_MARKER_SIZE, y, z]],
+    },
+    {
+      id: `${id}-y`,
+      name,
+      color,
+      points: [[x, y - CHUNK_MARKER_SIZE, z], [x, y + CHUNK_MARKER_SIZE, z]],
+    },
+  ];
 }
 
 function geometryToMeshFaceSelection(geometry: ClosedPolyline25D, index: number): MeshFaceSelection {
@@ -325,24 +313,27 @@ function draftToMeshFaceSelections(draft: DraftObject | null): MeshFaceSelection
   });
 }
 
-function parsePositiveNumber(value: string, label: string) {
-  const parsed = Number(value);
+function clampSimulationFrameStepDistance(value: number | undefined) {
+  return Math.max(
+    SIMULATION_FRAME_STEP_DISTANCE_MIN,
+    Math.min(
+      Math.round((value ?? SIMULATION_FRAME_STEP_DISTANCE_DEFAULT) / SIMULATION_FRAME_STEP_DISTANCE_STEP)
+        * SIMULATION_FRAME_STEP_DISTANCE_STEP,
+      SIMULATION_FRAME_STEP_DISTANCE_MAX,
+    ),
+  );
+}
 
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw new Error(`${label} must be greater than 0.`);
-  }
-
-  return parsed;
+function formatSimulationFrameStepDistance(value: number) {
+  return `${value.toFixed(value % 1 === 0 ? 0 : 1)} mm`;
 }
 
 function App() {
-  const [meshFile, setMeshFile] = useState<File | null>(null);
+  const [meshName, setMeshName] = useState<string | null>(null);
   const [meshUrl, setMeshUrl] = useState<string | null>(null);
   const [meshCacheState, setMeshCacheState] = useState<MeshCacheState>("idle");
   const [meshCacheMessage, setMeshCacheMessage] = useState<string>("");
-  const [hasInitializedMeshCache, setHasInitializedMeshCache] = useState(false);
-  const skipNextMeshCacheWrite = useRef(false);
-  const preserveMeshCacheMessageRef = useRef(false);
+  const meshUploadRequestRef = useRef(0);
   const hasInitializedSidebarSettingsRef = useRef(false);
   const [faceSelectionMode, setFaceSelectionMode] = useState(false);
   const [selectedMeshFace, setSelectedMeshFace] = useState<MeshFaceSelection | null>(null);
@@ -362,12 +353,23 @@ function App() {
   const [simulationCachedMeshUrl, setSimulationCachedMeshUrl] = useState<string | null>(null);
   const [simulationToolMeshUrl, setSimulationToolMeshUrl] = useState<string | null>(null);
   const [simulationToolPosition, setSimulationToolPosition] = useState<PolylinePoint | null>(null);
+  const [simulationRotateToolWithPath, setSimulationRotateToolWithPath] = useState(false);
   const [simulationId, setSimulationId] = useState<string | null>(null);
   const [simulationTaskId, setSimulationTaskId] = useState<string | null>(null);
   const [simulationProgressPercent, setSimulationProgressPercent] = useState(0);
   const [simulationFrameCount, setSimulationFrameCount] = useState(0);
   const [simulationChunkCount, setSimulationChunkCount] = useState(0);
+  const [simulationChunkIndex, setSimulationChunkIndex] = useState<number | null>(null);
+  const [simulationChunkStepIndex, setSimulationChunkStepIndex] = useState<number | null>(null);
+  const [simulationChunkStepCount, setSimulationChunkStepCount] = useState(0);
+  const [simulationFocusMeshRequestMs, setSimulationFocusMeshRequestMs] = useState<number | null>(null);
+  const [simulationChunkFetchMs, setSimulationChunkFetchMs] = useState<number | null>(null);
+  const [simulationChunkToolpathPoints, setSimulationChunkToolpathPoints] = useState<PolylinePoint[]>([]);
   const [simulationFrameIndex, setSimulationFrameIndex] = useState(0);
+  const [simulationFrameStepDistance, setSimulationFrameStepDistance] = useState(
+    SIMULATION_FRAME_STEP_DISTANCE_DEFAULT,
+  );
+  const [displayedSimulationFrameIndex, setDisplayedSimulationFrameIndex] = useState<number | null>(null);
   const [isSimulationPlaying, setIsSimulationPlaying] = useState(false);
   const loadedSimulationFrameRef = useRef<{
     simulationId: string | null;
@@ -378,9 +380,11 @@ function App() {
   });
   const simulationFrameRequestTokenRef = useRef(0);
   const simulationFrameDisplayRequestRef = useRef(0);
+  const queuedGenerationOperationsRef = useRef<Operation[]>([]);
+  const currentGenerationLabelRef = useRef("2D Pocket");
   const simulationFrameCacheRef = useRef<Map<number, SweptSimulationFrameResponse>>(new Map());
   const simulationChunkMeshCacheRef = useRef<Map<number, string>>(new Map());
-  const simulationChunkMeshRequestCacheRef = useRef<Map<number, Promise<string>>>(new Map());
+  const simulationChunkMeshRequestCacheRef = useRef<Map<number, Promise<{ objectUrl: string; elapsedMs: number }>>>(new Map());
   const simulationFrameRequestCacheRef = useRef<Map<string, Promise<void>>>(new Map());
   const simulationFramePrefetchTriggerRef = useRef<{
     simulationId: string | null;
@@ -392,14 +396,38 @@ function App() {
   const [requestState, setRequestState] = useState<RequestState>("idle");
   const [requestMessage, setRequestMessage] = useState<string>("");
   const [showOriginalMesh, setShowOriginalMesh] = useState(true);
-  const maxSimDistance = "40";
+  const [simulationDebugUiEnabled, setSimulationDebugUiEnabled] = useState(() => {
+    if (typeof window === "undefined") {
+      return false;
+    }
 
+    try {
+      return window.localStorage.getItem(SIMULATION_DEBUG_UI_STORAGE_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
   useEffect(() => {
     sendRhinoUiDebug("info", "App mounted", {
       bootstrap: getOpenCamBootstrap(),
       backendUrl: getBackendUrl(),
     });
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    try {
+      window.localStorage.setItem(
+        SIMULATION_DEBUG_UI_STORAGE_KEY,
+        simulationDebugUiEnabled ? "true" : "false",
+      );
+    } catch {
+      // Ignore unavailable localStorage; the checkbox still works for this session.
+    }
+  }, [simulationDebugUiEnabled]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -450,142 +478,38 @@ function App() {
   }, [operations, selectedOperationId, selectedTreeNodeId]);
 
   useEffect(() => {
-    if (typeof window === "undefined") {
-      setHasInitializedMeshCache(true);
-      return;
-    }
-
-    try {
-      const cachedMesh = window.localStorage.getItem(CACHED_MESH_STORAGE_KEY);
-      if (!cachedMesh) {
-        return;
-      }
-
-      const parsed = JSON.parse(cachedMesh) as unknown;
-      if (!isCachedMeshPayload(parsed)) {
-        throw new Error("Invalid cached STL payload.");
-      }
-
-      skipNextMeshCacheWrite.current = true;
-      setMeshFile(
-        dataUrlToFile(parsed.dataUrl, parsed.name, parsed.type, parsed.lastModified),
-      );
-      setMeshCacheState("ready");
-      setMeshCacheMessage("");
-    } catch {
-      preserveMeshCacheMessageRef.current = true;
-      window.localStorage.removeItem(CACHED_MESH_STORAGE_KEY);
-      setMeshCacheState("error");
-      setMeshCacheMessage("Unable to restore the cached STL.");
-    } finally {
-      setHasInitializedMeshCache(true);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!meshFile) {
-      setMeshUrl(null);
-      return undefined;
-    }
-
-    const objectUrl = URL.createObjectURL(meshFile);
-    setMeshUrl(objectUrl);
-
-    return () => {
-      URL.revokeObjectURL(objectUrl);
-    };
-  }, [meshFile]);
-
-  useEffect(() => {
-    if (!meshFile) {
-      return undefined;
-    }
-
     let cancelled = false;
+    const requestId = meshUploadRequestRef.current + 1;
+    meshUploadRequestRef.current = requestId;
 
-    void getMeshVertexMaxZ(meshFile)
-      .then((maxZ) => {
-        if (cancelled) {
+    void fetchCachedMesh()
+      .then((cachedMesh) => {
+        if (cancelled || meshUploadRequestRef.current !== requestId || !cachedMesh) {
           return;
         }
 
-        setMeshMaxZ(maxZ);
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) {
-          setMeshMaxZ(null);
-          console.error("Failed to determine mesh Z max", error);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [meshFile]);
-
-  useEffect(() => {
-    if (!hasInitializedMeshCache || typeof window === "undefined") {
-      return undefined;
-    }
-
-    if (skipNextMeshCacheWrite.current) {
-      skipNextMeshCacheWrite.current = false;
-      return undefined;
-    }
-
-    if (!meshFile) {
-      window.localStorage.removeItem(CACHED_MESH_STORAGE_KEY);
-      if (!preserveMeshCacheMessageRef.current) {
-        setMeshCacheState("idle");
-        setMeshCacheMessage("");
-      }
-      return undefined;
-    }
-
-    let cancelled = false;
-    preserveMeshCacheMessageRef.current = false;
-    window.localStorage.removeItem(CACHED_MESH_STORAGE_KEY);
-    setMeshCacheState("saving");
-    setMeshCacheMessage("");
-
-    void fileToDataUrl(meshFile)
-      .then((dataUrl) => {
-        if (cancelled) {
-          return;
-        }
-
-        const payload: CachedMeshPayload = {
-          name: meshFile.name,
-          type: meshFile.type || "model/stl",
-          lastModified: meshFile.lastModified,
-          dataUrl,
-        };
-
-        window.localStorage.setItem(
-          CACHED_MESH_STORAGE_KEY,
-          JSON.stringify(payload),
-        );
+        setMeshName(cachedMesh.name);
+        setMeshUrl(resolveBackendAssetUrl(cachedMesh.meshUrl));
+        setMeshMaxZ(cachedMesh.maxZ);
         setMeshCacheState("ready");
-        setMeshCacheMessage("Cached in local storage.");
+        setMeshCacheMessage("Cached in backend memory.");
       })
       .catch((error: unknown) => {
-        if (cancelled) {
+        if (cancelled || meshUploadRequestRef.current !== requestId) {
           return;
         }
 
-        window.localStorage.removeItem(CACHED_MESH_STORAGE_KEY);
+        console.error("Failed to restore cached mesh", error);
         setMeshCacheState("error");
         setMeshCacheMessage(
-          error instanceof DOMException && error.name === "QuotaExceededError"
-            ? "This STL is too large to cache in local storage."
-            : "Unable to cache this STL in local storage.",
+          error instanceof Error ? error.message : "Unable to restore the cached STL.",
         );
       });
 
     return () => {
       cancelled = true;
     };
-  }, [hasInitializedMeshCache, meshFile]);
+  }, []);
 
   function resetSimulationPlaybackState() {
     loadedSimulationFrameRef.current = {
@@ -606,6 +530,12 @@ function App() {
       }
     });
     simulationChunkMeshCacheRef.current.clear();
+    if (simulationActiveMeshUrl?.startsWith("blob:")) {
+      URL.revokeObjectURL(simulationActiveMeshUrl);
+    }
+    if (simulationCachedMeshUrl?.startsWith("blob:")) {
+      URL.revokeObjectURL(simulationCachedMeshUrl);
+    }
     simulationChunkMeshRequestCacheRef.current.clear();
     simulationFrameRequestCacheRef.current.clear();
     simulationFramePrefetchTriggerRef.current = {
@@ -616,12 +546,20 @@ function App() {
     setSimulationCachedMeshUrl(null);
     setSimulationToolMeshUrl(null);
     setSimulationToolPosition(null);
+    setSimulationRotateToolWithPath(false);
     setSimulationId(null);
     setSimulationTaskId(null);
     setSimulationProgressPercent(0);
     setSimulationFrameCount(0);
     setSimulationChunkCount(0);
+    setSimulationChunkIndex(null);
+    setSimulationChunkStepIndex(null);
+    setSimulationChunkStepCount(0);
+    setSimulationFocusMeshRequestMs(null);
+    setSimulationChunkFetchMs(null);
+    setSimulationChunkToolpathPoints([]);
     setSimulationFrameIndex(0);
+    setDisplayedSimulationFrameIndex(null);
     setIsSimulationPlaying(false);
   }
 
@@ -642,7 +580,7 @@ function App() {
     [generatedRecords],
   );
   const simulationToolRotation = useMemo(() => {
-    if (!simulationId || showOriginalMesh || simulationSamples.length === 0) {
+    if (!simulationRotateToolWithPath || !simulationId || showOriginalMesh || simulationSamples.length === 0) {
       return null;
     }
 
@@ -666,13 +604,42 @@ function App() {
     }
 
     return null;
-  }, [showOriginalMesh, simulationFrameIndex, simulationId, simulationSamples]);
+  }, [showOriginalMesh, simulationFrameIndex, simulationId, simulationRotateToolWithPath, simulationSamples]);
   const primaryMeshUrl = showOriginalMesh || !simulationCachedMeshUrl ? meshUrl : simulationCachedMeshUrl;
   const secondaryMeshUrl = showOriginalMesh ? null : simulationActiveMeshUrl;
+  const simulationDebugDisplayActive = simulationDebugUiEnabled && !showOriginalMesh && Boolean(simulationCachedMeshUrl);
+  const primaryMeshColor = showOriginalMesh || !simulationCachedMeshUrl
+    ? ORIGINAL_MESH_COLOR
+    : simulationDebugDisplayActive
+      ? DEBUG_REST_MESH_COLOR
+      : MILLED_STOCK_MESH_COLOR;
+  const primaryMeshOpacity = 1;
+  const activeMeshColor = simulationDebugDisplayActive ? MILLED_STOCK_MESH_COLOR : ACTIVE_DEBUG_MESH_COLOR;
 
   const operationPolylines = useMemo<PolylineDefinition[]>(() => {
     return createDisplayPolylines(generatedRecords);
   }, [generatedRecords]);
+
+  const viewportPolylines = useMemo<PolylineDefinition[]>(() => {
+    if (!simulationDebugUiEnabled || showOriginalMesh || simulationChunkToolpathPoints.length < 2) {
+      return operationPolylines;
+    }
+
+    const startPoint = simulationChunkToolpathPoints[0];
+    const endPoint = simulationChunkToolpathPoints[simulationChunkToolpathPoints.length - 1];
+    return [
+      ...operationPolylines,
+      {
+        id: "simulation-current-chunk-toolpath",
+        name: "Current chunk toolpath",
+        color: CURRENT_CHUNK_PATH_COLOR,
+        kind: "feed_rate",
+        points: simulationChunkToolpathPoints,
+      },
+      ...createPointMarkerPolylines("simulation-current-chunk-start", "Chunk start", startPoint, CHUNK_START_MARKER_COLOR),
+      ...createPointMarkerPolylines("simulation-current-chunk-end", "Chunk end", endPoint, CHUNK_END_MARKER_COLOR),
+    ];
+  }, [operationPolylines, showOriginalMesh, simulationChunkToolpathPoints, simulationDebugUiEnabled]);
 
   const generatedPathLength = useMemo(() => {
     return operationPolylines.reduce(
@@ -688,7 +655,6 @@ function App() {
     [operations, selectedOperationId],
   );
 
-  const operationLabel = selectedOperation?.displayName ?? "2D Pocket";
   const highlightedMeshFaces = useMemo(() => {
     if (isOperationDialogOpen || faceSelectionMode) {
       return draftToMeshFaceSelections(operationDraft);
@@ -697,14 +663,14 @@ function App() {
     return visibleOperations.flatMap(operationToMeshFaceSelections);
   }, [faceSelectionMode, isOperationDialogOpen, operationDraft, visibleOperations]);
 
-  const meshStatusLabel = meshFile ? meshFile.name : "No mesh loaded.";
+  const meshStatusLabel = meshName ?? "No mesh loaded.";
   const meshCacheStatusLabel =
-    meshCacheState === "saving" ? "Caching STL in local storage..." : meshCacheMessage;
+    meshCacheState === "saving" ? "Caching STL in backend..." : meshCacheMessage;
 
   const fetchChunkMesh = useCallback(async (nextSimulationId: string, chunkIndex: number) => {
     const cachedMesh = simulationChunkMeshCacheRef.current.get(chunkIndex);
     if (cachedMesh) {
-      return cachedMesh;
+      return { objectUrl: cachedMesh, elapsedMs: 0 };
     }
 
     const inFlightRequest = simulationChunkMeshRequestCacheRef.current.get(chunkIndex);
@@ -712,12 +678,13 @@ function App() {
       return inFlightRequest;
     }
 
-    const request = prefetchMeshObjectUrl(
-      `/simulate/swept/${nextSimulationId}/chunks/${chunkIndex}/cached-mesh.glb`,
+    const request = prefetchMeshObjectUrlWithTiming(
+      `/simulate/${nextSimulationId}/chunks/${chunkIndex}/cached-mesh.glb`,
+      ENABLE_FRONTEND_FRAME_CACHE ? "default" : "no-store",
     )
-      .then((objectUrl) => {
-        simulationChunkMeshCacheRef.current.set(chunkIndex, objectUrl);
-        return objectUrl;
+      .then((result) => {
+        simulationChunkMeshCacheRef.current.set(chunkIndex, result.objectUrl);
+        return result;
       })
       .finally(() => {
         simulationChunkMeshRequestCacheRef.current.delete(chunkIndex);
@@ -729,6 +696,10 @@ function App() {
 
   const prefetchAdjacentChunkMeshes = useCallback(
     (nextSimulationId: string, chunkIndex: number, chunkCount: number) => {
+      if (!ENABLE_FRONTEND_FRAME_CACHE) {
+        return;
+      }
+
       for (const neighborIndex of [chunkIndex - 1, chunkIndex + 1]) {
         if (neighborIndex < 0 || neighborIndex >= chunkCount) {
           continue;
@@ -748,19 +719,46 @@ function App() {
       frameIndex: number,
       frame: SweptSimulationFrameResponse,
       chunkCount: number,
+      shouldApply: () => boolean = () => true,
     ) => {
-      const cachedMeshUrl = await fetchChunkMesh(nextSimulationId, frame.chunkIndex);
+      const focusMeshRequest = ENABLE_FRONTEND_FRAME_CACHE
+        ? { objectUrl: frame.activeMeshUrl, elapsedMs: 0 }
+        : await prefetchMeshObjectUrlWithTiming(frame.activeMeshUrl, "no-store");
+      const activeMeshUrl = focusMeshRequest.objectUrl;
+      const chunkMeshRequest = await fetchChunkMesh(nextSimulationId, frame.chunkIndex);
+      const cachedMeshUrl = chunkMeshRequest.objectUrl;
+      if (!shouldApply()) {
+        if (!ENABLE_FRONTEND_FRAME_CACHE && activeMeshUrl.startsWith("blob:")) {
+          URL.revokeObjectURL(activeMeshUrl);
+        }
+        return false;
+      }
+
+      if (!ENABLE_FRONTEND_FRAME_CACHE) {
+        if (simulationActiveMeshUrl?.startsWith("blob:") && simulationActiveMeshUrl !== activeMeshUrl) {
+          URL.revokeObjectURL(simulationActiveMeshUrl);
+        }
+      }
 
       loadedSimulationFrameRef.current = {
         simulationId: nextSimulationId,
         frameIndex,
       };
-      setSimulationActiveMeshUrl(frame.activeMeshUrl);
+      setDisplayedSimulationFrameIndex(frameIndex);
+      setSimulationActiveMeshUrl(activeMeshUrl);
       setSimulationCachedMeshUrl(cachedMeshUrl);
+      setSimulationChunkIndex(frame.chunkIndex);
+      setSimulationChunkStepIndex(frame.chunkStepIndex ?? null);
+      setSimulationChunkStepCount(frame.chunkStepCount ?? 0);
+      setSimulationFocusMeshRequestMs(focusMeshRequest.elapsedMs);
+      setSimulationChunkFetchMs(chunkMeshRequest.elapsedMs);
+      setSimulationChunkToolpathPoints((frame.chunkToolpathPoints ?? []).map(toolPositionToPoint));
       setSimulationToolPosition(toolPositionToPoint(frame.toolPosition));
+      setSimulationRotateToolWithPath(frame.rotateToolWithPath);
       prefetchAdjacentChunkMeshes(nextSimulationId, frame.chunkIndex, chunkCount);
+      return true;
     },
-    [fetchChunkMesh, prefetchAdjacentChunkMeshes],
+    [fetchChunkMesh, prefetchAdjacentChunkMeshes, simulationActiveMeshUrl, simulationCachedMeshUrl],
   );
 
   const fetchSimulationFrameBatch = useCallback(
@@ -770,6 +768,10 @@ function App() {
       count: number,
       totalFrameCount: number,
     ) => {
+      if (!ENABLE_FRONTEND_FRAME_CACHE) {
+        return;
+      }
+
       if (count <= 0 || startFrameIndex < 0 || startFrameIndex >= totalFrameCount) {
         return;
       }
@@ -798,7 +800,7 @@ function App() {
       const requestToken = simulationFrameRequestTokenRef.current;
       const request = (async () => {
         const response = await fetch(
-          `${getBackendUrl()}/simulate/swept/${nextSimulationId}/frames?start_index=${startFrameIndex}&count=${endFrameIndex - startFrameIndex + 1}`,
+          `${getBackendUrl()}/simulate/${nextSimulationId}/frames?start_index=${startFrameIndex}&count=${endFrameIndex - startFrameIndex + 1}`,
         );
 
         if (!response.ok) {
@@ -885,6 +887,27 @@ function App() {
 
   const fetchSimulationFrame = useCallback(
     async (nextSimulationId: string, frameIndex: number, frameCount: number) => {
+      if (!ENABLE_FRONTEND_FRAME_CACHE) {
+        const response = await fetch(
+          `${getBackendUrl()}/simulate/${nextSimulationId}/frames?start_index=${frameIndex}&count=1`,
+          { cache: "no-store" },
+        );
+
+        if (!response.ok) {
+          const contentType = response.headers.get("content-type") ?? "";
+          if (contentType.includes("application/json")) {
+            const payload = (await response.json()) as { detail?: string };
+            throw new Error(payload.detail ?? "Failed to load simulation frame.");
+          }
+
+          const detail = await response.text();
+          throw new Error(detail || "Failed to load simulation frame.");
+        }
+
+        const payload = (await response.json()) as SweptSimulationFramesResponse;
+        return payload.frames[0] ?? null;
+      }
+
       const cachedFrame = simulationFrameCacheRef.current.get(frameIndex);
       if (cachedFrame) {
         return cachedFrame;
@@ -912,7 +935,7 @@ function App() {
 
   const prefetchSimulationFrames = useCallback(
     (nextSimulationId: string, frameIndex: number, frameCount: number) => {
-      if (frameIndex >= frameCount - 1) {
+      if (!ENABLE_FRONTEND_FRAME_CACHE || frameIndex >= frameCount - 1) {
         return;
       }
 
@@ -966,8 +989,16 @@ function App() {
         return;
       }
 
-      await applySimulationFrame(nextSimulationId, frameIndex, frame, simulationChunkCount);
-      prefetchSimulationFrames(nextSimulationId, frameIndex, frameCount);
+      const applied = await applySimulationFrame(
+        nextSimulationId,
+        frameIndex,
+        frame,
+        simulationChunkCount,
+        () => simulationFrameDisplayRequestRef.current === requestId,
+      );
+      if (applied) {
+        prefetchSimulationFrames(nextSimulationId, frameIndex, frameCount);
+      }
     },
     [applySimulationFrame, fetchSimulationFrame, prefetchSimulationFrames, simulationChunkCount],
   );
@@ -975,34 +1006,53 @@ function App() {
   const applyCompletedSimulation = useCallback(
     async (simulation: SweptSimulationResponse) => {
       const finalFrameIndex = Math.max(simulation.frameCount - 1, 0);
+      const focusMeshRequest = await prefetchMeshObjectUrlWithTiming(
+        simulation.activeMeshUrl,
+        ENABLE_FRONTEND_FRAME_CACHE ? "default" : "no-store",
+      );
       const finalFrame: SweptSimulationFrameResponse = {
-        activeMeshUrl: await prefetchMeshObjectUrl(simulation.activeMeshUrl),
+        activeMeshUrl: focusMeshRequest.objectUrl,
         cachedMeshUrl: simulation.cachedMeshUrl,
         chunkIndex: simulation.chunkIndex,
+        chunkStepIndex: simulation.chunkStepIndex,
+        chunkStepCount: simulation.chunkStepCount,
+        chunkToolpathPoints: simulation.chunkToolpathPoints,
         toolPosition: simulation.toolPosition,
+        rotateToolWithPath: simulation.rotateToolWithPath,
       };
-
-      simulationFrameCacheRef.current.set(finalFrameIndex, finalFrame);
-      simulationChunkMeshCacheRef.current.set(
-        simulation.chunkIndex,
-        await prefetchMeshObjectUrl(simulation.cachedMeshUrl),
+      const chunkMeshRequest = await prefetchMeshObjectUrlWithTiming(
+        simulation.cachedMeshUrl,
+        ENABLE_FRONTEND_FRAME_CACHE ? "default" : "no-store",
       );
+      const cachedChunkMeshUrl = chunkMeshRequest.objectUrl;
+
+      if (ENABLE_FRONTEND_FRAME_CACHE) {
+        simulationFrameCacheRef.current.set(finalFrameIndex, finalFrame);
+      }
+      simulationChunkMeshCacheRef.current.set(simulation.chunkIndex, cachedChunkMeshUrl);
+
       loadedSimulationFrameRef.current = {
         simulationId: simulation.simulationId,
         frameIndex: finalFrameIndex,
       };
+      setDisplayedSimulationFrameIndex(finalFrameIndex);
       setSimulationToolMeshUrl(resolveBackendAssetUrl(simulation.toolMeshUrl));
       setSimulationToolPosition(toolPositionToPoint(simulation.toolPosition));
       setSimulationId(simulation.simulationId);
+      setSimulationRotateToolWithPath(simulation.rotateToolWithPath);
       setSimulationFrameCount(simulation.frameCount);
       setSimulationChunkCount(simulation.chunkCount);
+      setSimulationChunkIndex(simulation.chunkIndex);
+      setSimulationChunkStepIndex(simulation.chunkStepIndex ?? null);
+      setSimulationChunkStepCount(simulation.chunkStepCount ?? 0);
+      setSimulationFocusMeshRequestMs(focusMeshRequest.elapsedMs);
+      setSimulationChunkFetchMs(chunkMeshRequest.elapsedMs);
+      setSimulationChunkToolpathPoints((simulation.chunkToolpathPoints ?? []).map(toolPositionToPoint));
       setSimulationFrameIndex(finalFrameIndex);
       setIsSimulationPlaying(false);
       setSimulationActiveMeshUrl(finalFrame.activeMeshUrl);
-      setSimulationCachedMeshUrl(
-        simulationChunkMeshCacheRef.current.get(simulation.chunkIndex) ?? null,
-      );
-      if (simulation.frameCount > 0) {
+      setSimulationCachedMeshUrl(cachedChunkMeshUrl);
+      if (ENABLE_FRONTEND_FRAME_CACHE && simulation.frameCount > 0) {
         const initialPrefetchCount = Math.min(SIMULATION_FRAME_BATCH_SIZE, simulation.frameCount);
         updateSimulationPrefetchTrigger(simulation.simulationId, initialPrefetchCount - 1);
         void fetchSimulationFrameBatch(
@@ -1065,7 +1115,7 @@ function App() {
   }, [loadSimulationFrame, prefetchSimulationFrames, simulationFrameCount, simulationFrameIndex, simulationId]);
 
   useEffect(() => {
-    if (!isSimulationPlaying || simulationFrameCount <= 1) {
+    if (!isSimulationPlaying || !simulationId || simulationFrameCount <= 1) {
       return undefined;
     }
 
@@ -1074,16 +1124,63 @@ function App() {
       return undefined;
     }
 
-    const intervalId = window.setInterval(() => {
-      setSimulationFrameIndex((current) =>
-        current >= simulationFrameCount - 1 ? current : current + 1,
-      );
+    if (displayedSimulationFrameIndex !== simulationFrameIndex) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    const timeoutId = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const nextFrameIndex = simulationFrameIndex + 1;
+          const frame = await fetchSimulationFrame(simulationId, nextFrameIndex, simulationFrameCount);
+          if (!frame || cancelled) {
+            return;
+          }
+
+          const applied = await applySimulationFrame(
+            simulationId,
+            nextFrameIndex,
+            frame,
+            simulationChunkCount,
+            () => !cancelled,
+          );
+          if (!applied || cancelled) {
+            return;
+          }
+
+          setSimulationFrameIndex(nextFrameIndex);
+          prefetchSimulationFrames(simulationId, nextFrameIndex, simulationFrameCount);
+        } catch (error) {
+          if (cancelled) {
+            return;
+          }
+
+          console.error("Failed to advance simulation playback", error);
+          setIsSimulationPlaying(false);
+          setRequestState("error");
+          setRequestMessage(
+            error instanceof Error ? error.message : "Failed to load simulation frame.",
+          );
+        }
+      })();
     }, SIMULATION_PLAYBACK_INTERVAL_MS);
 
     return () => {
-      window.clearInterval(intervalId);
+      cancelled = true;
+      window.clearTimeout(timeoutId);
     };
-  }, [isSimulationPlaying, simulationFrameCount, simulationFrameIndex]);
+  }, [
+    applySimulationFrame,
+    displayedSimulationFrameIndex,
+    fetchSimulationFrame,
+    isSimulationPlaying,
+    prefetchSimulationFrames,
+    simulationChunkCount,
+    simulationFrameCount,
+    simulationFrameIndex,
+    simulationId,
+  ]);
 
   function resetGeneratedPreview() {
     setGeneratedOperation(null);
@@ -1163,6 +1260,41 @@ function App() {
     setIsOperationDialogOpen(true);
   }
 
+  function handleEditOperation(operationId: string) {
+    const operationIndex = operations.findIndex((operation) => operation.id === operationId);
+    const operation = operationIndex >= 0 ? operations[operationIndex] : null;
+    if (!operation) {
+      return;
+    }
+
+    setSelectedOperationId(operationId);
+    setSelectedTreeNodeId(operationId);
+    setIsOperationTypeDialogOpen(false);
+    setOperationDialogMode("edit");
+    setResumeOperationDialogAfterSelection(false);
+    setOperationDraft(createPocketOperationDraft(operationIndex + 1, null, meshMaxZ, operation));
+    setIsOperationDialogOpen(true);
+  }
+
+  function handleDeleteOperation(operationId: string) {
+    setOperations((current) => current.filter((operation) => operation.id !== operationId));
+    setGeneratedOperationsById((current) => {
+      const next = { ...current };
+      delete next[operationId];
+      return next;
+    });
+    setGeneratedOperation(null);
+    resetSimulationPlaybackState();
+    setShowOriginalMesh(true);
+    setRequestState("idle");
+    setRequestMessage("Operation deleted.");
+
+    if (selectedOperationId === operationId || selectedTreeNodeId === operationId) {
+      setSelectedOperationId(null);
+      setSelectedTreeNodeId("setup-1");
+    }
+  }
+
   async function handleOperationDialogSave() {
     if (!operationDraft) {
       return;
@@ -1170,25 +1302,50 @@ function App() {
 
     try {
       const parsedOperation = parsePocketOperationDraft(operationDraft);
+      let nextOperations: Operation[];
+      let operationsToGenerate: Operation[];
 
       if (operationDialogMode === "create") {
-        setOperations((current) => [...current, parsedOperation]);
+        nextOperations = [...operations, parsedOperation];
+        operationsToGenerate = [parsedOperation];
       } else {
-        setOperations((current) =>
-          current.map((operation) =>
-            operation.id === parsedOperation.id ? parsedOperation : operation,
-          ),
+        const editedOperationIndex = operations.findIndex((operation) => operation.id === parsedOperation.id);
+        if (editedOperationIndex < 0) {
+          throw new Error("Operation not found.");
+        }
+
+        nextOperations = operations.map((operation) =>
+          operation.id === parsedOperation.id ? parsedOperation : operation,
         );
+        operationsToGenerate = nextOperations.slice(editedOperationIndex);
       }
 
-      setSelectedOperationId(parsedOperation.id ?? null);
-      setSelectedTreeNodeId(parsedOperation.id ?? "setup-1");
+      setOperations(nextOperations);
+      setGeneratedOperationsById((current) => {
+        const next = { ...current };
+        for (const operation of operationsToGenerate) {
+          if (operation.id) {
+            delete next[operation.id];
+          }
+        }
+        return next;
+      });
+
+      if (operationDialogMode === "edit" && operationsToGenerate.length > 1) {
+        setSelectedOperationId(null);
+        setSelectedTreeNodeId("setup-1");
+      } else {
+        setSelectedOperationId(parsedOperation.id ?? null);
+        setSelectedTreeNodeId(parsedOperation.id ?? "setup-1");
+      }
 
       setIsOperationDialogOpen(false);
       setResumeOperationDialogAfterSelection(false);
       setOperationDraft(null);
-      await handleGenerateOperation(parsedOperation);
+      queuedGenerationOperationsRef.current = operationsToGenerate.slice(1);
+      await handleGenerateOperation(operationsToGenerate[0]);
     } catch (error) {
+      queuedGenerationOperationsRef.current = [];
       setRequestState("error");
       setRequestMessage(
         error instanceof Error ? error.message : "Failed to save operation.",
@@ -1228,6 +1385,69 @@ function App() {
     setIsSimulationPlaying(true);
   }
 
+  function handleSimulationFrameStepDistanceChange(values: number[]) {
+    setSimulationFrameStepDistance(clampSimulationFrameStepDistance(values[0]));
+  }
+
+  async function handleSimulationFrameStepDistanceCommit(values: number[]) {
+    const nextStepDistance = clampSimulationFrameStepDistance(values[0]);
+
+    if (!simulationId || requestState === "submitting") {
+      return;
+    }
+
+    const currentSimulationId = simulationId;
+    const currentFrameProgress =
+      simulationFrameCount > 1 ? simulationFrameIndex / (simulationFrameCount - 1) : 0;
+
+    try {
+      setIsSimulationPlaying(false);
+      setRequestState("submitting");
+      setRequestMessage(`Updating simulation step to ${formatSimulationFrameStepDistance(nextStepDistance)}...`);
+
+      const response = await fetch(`${getBackendUrl()}/simulate/${currentSimulationId}/resample`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          frameStepDistance: nextStepDistance,
+        } satisfies SweptSimulationResampleRequest),
+      });
+
+      if (!response.ok) {
+        const contentType = response.headers.get("content-type") ?? "";
+        if (contentType.includes("application/json")) {
+          const payload = (await response.json()) as { detail?: string };
+          throw new Error(payload.detail ?? "Failed to update simulation step.");
+        }
+
+        const detail = await response.text();
+        throw new Error(detail || "Failed to update simulation step.");
+      }
+
+      const simulation = (await response.json()) as SweptSimulationResponse;
+      const nextFrameIndex = Math.max(
+        0,
+        Math.min(
+          Math.round(currentFrameProgress * Math.max(simulation.frameCount - 1, 0)),
+          Math.max(simulation.frameCount - 1, 0),
+        ),
+      );
+
+      resetSimulationPlaybackState();
+      await applyCompletedSimulation(simulation);
+      setSimulationFrameIndex(nextFrameIndex);
+      setRequestState("success");
+      setRequestMessage(`Simulation step updated to ${formatSimulationFrameStepDistance(nextStepDistance)}.`);
+    } catch (error) {
+      setRequestState("error");
+      setRequestMessage(
+        error instanceof Error ? error.message : "Failed to update simulation step.",
+      );
+    }
+  }
+
   function handleSimulationPause() {
     setIsSimulationPlaying(false);
   }
@@ -1256,7 +1476,7 @@ function App() {
 
     const pollStatus = async () => {
       try {
-        const response = await fetch(`${getBackendUrl()}/simulate/swept/${simulationTaskId}/status`);
+        const response = await fetch(`${getBackendUrl()}/simulate/${simulationTaskId}/status`);
         if (!response.ok) {
           const contentType = response.headers.get("content-type") ?? "";
           if (contentType.includes("application/json")) {
@@ -1286,12 +1506,22 @@ function App() {
           setSimulationTaskId(null);
           setSimulationProgressPercent(100);
           await applyCompletedSimulation(status.result);
+
+          const nextQueuedOperation = queuedGenerationOperationsRef.current.shift() ?? null;
+          if (nextQueuedOperation) {
+            void handleGenerateOperation(nextQueuedOperation);
+            return;
+          }
+
           setRequestState("success");
-          setRequestMessage(`${operationLabel} toolpaths generated and chunked swept simulation completed.`);
+          setRequestMessage(
+            `${currentGenerationLabelRef.current} toolpaths generated and chunked swept simulation completed.`,
+          );
           return;
         }
 
         if (status.status === "cancelled") {
+          queuedGenerationOperationsRef.current = [];
           setSimulationTaskId(null);
           setSimulationProgressPercent(0);
           setSimulationActiveMeshUrl(null);
@@ -1315,6 +1545,7 @@ function App() {
           return;
         }
 
+        queuedGenerationOperationsRef.current = [];
         setSimulationTaskId(null);
         setSimulationProgressPercent(0);
         setSimulationActiveMeshUrl(null);
@@ -1336,7 +1567,7 @@ function App() {
         window.clearTimeout(timeoutId);
       }
     };
-  }, [applyCompletedSimulation, operationLabel, requestState, simulationTaskId]);
+  }, [applyCompletedSimulation, requestState, simulationTaskId]);
 
   async function handleGenerateOperation(operationToGenerate = selectedOperation) {
     if (!operationToGenerate) {
@@ -1345,7 +1576,7 @@ function App() {
       return;
     }
 
-    if (!meshFile) {
+    if (!meshUrl) {
       setRequestState("error");
       setRequestMessage("Upload an STL before generating a toolpath.");
       return;
@@ -1353,9 +1584,9 @@ function App() {
 
     try {
       const requestBody = buildGenerateToolpathRequest(operationToGenerate, meshMaxZ);
-      const parsedMaxSimDistance = parsePositiveNumber(maxSimDistance, "Max sim distance");
       const nextOperationLabel = operationToGenerate.displayName ?? "2D Pocket";
 
+      currentGenerationLabelRef.current = nextOperationLabel;
       setGeneratedOperation(null);
       if (operationToGenerate.id) {
         setGeneratedOperationsById((current) => {
@@ -1392,12 +1623,13 @@ function App() {
 
       const operation = (await response.json()) as GeneratedOperationResponse;
       const simulationRequest = new FormData();
-      simulationRequest.append("mesh", meshFile, meshFile.name);
       simulationRequest.append("operation", JSON.stringify(operation));
-      simulationRequest.append("max_sim_distance", String(parsedMaxSimDistance));
       simulationRequest.append("chunk_padding_x", String(CHUNK_PADDING_X));
       simulationRequest.append("chunk_padding_y", String(CHUNK_PADDING_Y));
       simulationRequest.append("chunk_padding_z", String(CHUNK_PADDING_Z));
+      simulationRequest.append("chunk_step_distance", String(SIMULATION_FRAME_STEP_DISTANCE_MIN));
+      simulationRequest.append("frame_step_distance", String(simulationFrameStepDistance));
+      simulationRequest.append("rotate_tool_with_path", String(SIMULATION_ROTATE_TOOL_WITH_PATH));
 
       setGeneratedOperation(operation);
       if (operationToGenerate.id) {
@@ -1405,7 +1637,7 @@ function App() {
       }
       setRequestMessage("Starting chunked swept milling simulation...");
 
-      const simulationResponse = await fetch(`${getBackendUrl()}/simulate/swept`, {
+      const simulationResponse = await fetch(`${getBackendUrl()}/simulate`, {
         method: "POST",
         body: simulationRequest,
       });
@@ -1426,6 +1658,7 @@ function App() {
       setSimulationProgressPercent(0);
       setRequestMessage("Preparing simulation... (0%)");
     } catch (error) {
+      queuedGenerationOperationsRef.current = [];
       setGeneratedOperation(null);
       setSimulationActiveMeshUrl(null);
       setSimulationCachedMeshUrl(null);
@@ -1444,7 +1677,8 @@ function App() {
     }
 
     try {
-      await fetch(`${getBackendUrl()}/simulate/swept/${simulationTaskId}`, {
+      queuedGenerationOperationsRef.current = [];
+      await fetch(`${getBackendUrl()}/simulate/${simulationTaskId}`, {
         method: "DELETE",
       });
       setRequestMessage(`Cancelling simulation... (${Math.round(simulationProgressPercent)}%)`);
@@ -1456,12 +1690,15 @@ function App() {
     }
   }
 
-  function handleMeshUpload(file: File | null) {
-    skipNextMeshCacheWrite.current = false;
-    preserveMeshCacheMessageRef.current = false;
+  async function handleMeshUpload(file: File | null) {
+    const requestId = meshUploadRequestRef.current + 1;
+    meshUploadRequestRef.current = requestId;
+    queuedGenerationOperationsRef.current = [];
+
+    setMeshName(null);
+    setMeshUrl(null);
     setMeshCacheState(file ? "saving" : "idle");
     setMeshCacheMessage("");
-    setMeshFile(file);
     setMeshMaxZ(null);
     setSelectedMeshFace(null);
     setOperations([]);
@@ -1480,6 +1717,56 @@ function App() {
     setIsOperationDialogOpen(false);
     setResumeOperationDialogAfterSelection(false);
     setOperationDraft(null);
+
+    if (!file) {
+      void fetch(`${getBackendUrl()}/cam/mesh`, { method: "DELETE" }).catch(() => undefined);
+      return;
+    }
+
+    try {
+      const upload = new FormData();
+      upload.append("mesh", file, file.name);
+
+      const response = await fetch(`${getBackendUrl()}/cam/mesh`, {
+        method: "POST",
+        body: upload,
+      });
+
+      if (!response.ok) {
+        const contentType = response.headers.get("content-type") ?? "";
+        if (contentType.includes("application/json")) {
+          const payload = (await response.json()) as { detail?: string };
+          throw new Error(payload.detail ?? "Failed to cache STL in backend.");
+        }
+
+        const detail = await response.text();
+        throw new Error(detail || "Failed to cache STL in backend.");
+      }
+
+      const cachedMesh = (await response.json()) as CachedMeshResponse;
+      if (meshUploadRequestRef.current !== requestId) {
+        return;
+      }
+
+      setMeshName(cachedMesh.name);
+      setMeshUrl(resolveBackendAssetUrl(cachedMesh.meshUrl));
+      setMeshMaxZ(cachedMesh.maxZ);
+      setMeshCacheState("ready");
+      setMeshCacheMessage("Cached in backend memory.");
+    } catch (error) {
+      if (meshUploadRequestRef.current !== requestId) {
+        return;
+      }
+
+      setMeshCacheState("error");
+      setMeshCacheMessage(
+        error instanceof Error ? error.message : "Failed to cache STL in backend.",
+      );
+      setRequestState("error");
+      setRequestMessage(
+        error instanceof Error ? error.message : "Failed to cache STL in backend.",
+      );
+    }
   }
 
   return (
@@ -1491,7 +1778,10 @@ function App() {
             <h2 className="text-sm font-semibold md:text-base">OpenCAM Viewer</h2>
           </div>
 
-          <SettingsDialog />
+          <SettingsDialog
+            simulationDebugUiEnabled={simulationDebugUiEnabled}
+            onSimulationDebugUiEnabledChange={setSimulationDebugUiEnabled}
+          />
         </header>
 
         <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
@@ -1509,6 +1799,9 @@ function App() {
             onMeshUpload={handleMeshUpload}
             onAddOperation={handleAddOperation}
             onSelectNode={handleSelectTreeNode}
+            onEditOperation={handleEditOperation}
+            onDeleteOperation={handleDeleteOperation}
+            canManageOperations={requestState !== "submitting"}
             canCancelGeneration={requestState === "submitting" && simulationTaskId !== null}
             onCancelGeneration={handleCancelGeneration}
           />
@@ -1517,29 +1810,49 @@ function App() {
             <PolylineViewer
               meshUrl={primaryMeshUrl}
               secondaryMeshUrl={secondaryMeshUrl}
-              meshColor={showOriginalMesh || !simulationCachedMeshUrl ? ORIGINAL_MESH_COLOR : MILLED_STOCK_MESH_COLOR}
+              meshColor={primaryMeshColor}
+              meshOpacity={primaryMeshOpacity}
+              meshUseVertexColors={!simulationDebugDisplayActive}
               meshEdgeColor={showOriginalMesh || !simulationCachedMeshUrl ? ORIGINAL_MESH_EDGE_COLOR : null}
-              secondaryMeshColor={ACTIVE_DEBUG_MESH_COLOR}
+              secondaryMeshColor={activeMeshColor}
+              secondaryMeshUseVertexColors
               secondaryMeshEdgeColor={null}
-              polylines={operationPolylines}
+              polylines={viewportPolylines}
               faceSelectionMode={faceSelectionMode}
               selectedMeshFace={null}
               selectedMeshFaces={highlightedMeshFaces}
               simulationToolMeshUrl={simulationToolMeshUrl}
               simulationToolPosition={simulationToolPosition}
               simulationToolRotation={simulationToolRotation}
+              simulationToolRotationEnabled={simulationRotateToolWithPath}
               showOriginalMesh={showOriginalMesh}
               onMeshFaceSelect={handleMeshFaceSelect}
               className="h-full min-h-0 flex-1 rounded-none border-0 shadow-none"
             />
 
+            {simulationDebugUiEnabled && simulationId ? (
+              <div className="pointer-events-none absolute left-4 top-4 z-20 rounded-md border bg-background/90 p-2 text-xs shadow backdrop-blur">
+                <div className="mb-1 font-medium">Simulation debug</div>
+                <div className="grid grid-cols-[auto_auto] gap-x-3 gap-y-1 tabular-nums">
+                  <span className="text-muted-foreground">Chunk</span>
+                  <span>{simulationChunkIndex == null ? "—" : `${simulationChunkIndex + 1} / ${simulationChunkCount || "?"}`}</span>
+                  <span className="text-muted-foreground">Step</span>
+                  <span>{simulationChunkStepIndex == null ? "—" : `${simulationChunkStepIndex + 1} / ${simulationChunkStepCount || "?"}`}</span>
+                  <span className="text-muted-foreground">Focus request</span>
+                  <span>{simulationFocusMeshRequestMs == null ? "—" : `${simulationFocusMeshRequestMs.toFixed(0)} ms`}</span>
+                  <span className="text-muted-foreground">Chunk fetch</span>
+                  <span>{simulationChunkFetchMs == null ? "—" : `${simulationChunkFetchMs.toFixed(0)} ms`}</span>
+                </div>
+              </div>
+            ) : null}
+
             {simulationId && simulationFrameCount > 0 ? (
               <div className="pointer-events-none absolute inset-x-4 bottom-4 z-20">
-                <div className="pointer-events-auto mx-auto flex max-w-3xl items-center gap-3 rounded-md border bg-background/95 px-2 py-2 shadow">
+                <div className="pointer-events-auto mx-auto flex max-w-4xl items-center gap-3 rounded-md border bg-background/95 px-2 py-2 shadow">
                   <Button
                     type="button"
                     variant="outline"
-                    disabled={simulationFrameCount <= 1}
+                    disabled={requestState === "submitting" || simulationFrameCount <= 1}
                     onClick={isSimulationPlaying ? handleSimulationPause : handleSimulationPlay}
                   >
                     {isSimulationPlaying ? "Pause" : "Play"}
@@ -1551,10 +1864,28 @@ function App() {
                     step={1}
                     value={[simulationFrameIndex]}
                     onValueChange={handleSimulationFrameChange}
+                    disabled={requestState === "submitting"}
                     className="flex-1"
                   />
 
-                  <div className="w-24 text-right text-xs text-muted-foreground">
+                  <div className="flex w-48 items-center gap-2">
+                    <span className="text-xs text-muted-foreground">Step</span>
+                    <Slider
+                      min={SIMULATION_FRAME_STEP_DISTANCE_MIN}
+                      max={SIMULATION_FRAME_STEP_DISTANCE_MAX}
+                      step={SIMULATION_FRAME_STEP_DISTANCE_STEP}
+                      value={[simulationFrameStepDistance]}
+                      onValueChange={handleSimulationFrameStepDistanceChange}
+                      onValueCommit={handleSimulationFrameStepDistanceCommit}
+                      disabled={requestState === "submitting"}
+                      className="flex-1"
+                    />
+                    <span className="w-14 text-right text-xs tabular-nums text-muted-foreground">
+                      {formatSimulationFrameStepDistance(simulationFrameStepDistance)}
+                    </span>
+                  </div>
+
+                  <div className="shrink-0 whitespace-nowrap text-right text-xs tabular-nums text-muted-foreground">
                     Frame {simulationFrameIndex + 1} / {simulationFrameCount}
                   </div>
                 </div>

@@ -3,13 +3,14 @@ from datetime import datetime
 from pathlib import Path as FilePath
 from threading import Lock
 
-from fastapi import Depends, FastAPI, HTTPException, Response, status
+from fastapi import Depends, FastAPI, File, HTTPException, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from opencam.schemas.cam import GenerateToolpathRequest
 from opencam.schemas.cl_data import OperationRecord3D
 from opencam.schemas.operations.base import Material
 from opencam.schemas.tools import Tool
 from opencam.services.cam_engine import cam_engine
+from opencam.services.mesh_cache import CachedMeshMetadata, get_mesh_cache
 from opencam.services.operations.profiling import ClosedProfilingEngine
 from opencam.simulation.router import router as simulation_router
 from opencam.services.tool_library import ToolLibrary, get_tool_library
@@ -144,6 +145,41 @@ def get_material(material_id: str, tool_library: ToolLibrary = Depends(get_tool_
     if material is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Material not found.")
     return material
+
+
+@app.get("/cam/mesh", response_model=CachedMeshMetadata)
+def get_cached_mesh_metadata():
+    metadata = get_mesh_cache().get_metadata()
+    if metadata is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mesh not found.")
+    return metadata
+
+
+@app.post("/cam/mesh", response_model=CachedMeshMetadata, status_code=status.HTTP_201_CREATED)
+async def cache_mesh(mesh: UploadFile = File(...)):
+    mesh_bytes = await mesh.read()
+    try:
+        return get_mesh_cache().set_mesh(
+            mesh.filename or "mesh.stl",
+            mesh_bytes,
+            content_type=mesh.content_type,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
+
+@app.get("/cam/mesh/file")
+def get_cached_mesh_file():
+    cached_mesh = get_mesh_cache().get_mesh()
+    if cached_mesh is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mesh not found.")
+    return Response(content=cached_mesh.mesh_bytes, media_type=cached_mesh.content_type)
+
+
+@app.delete("/cam/mesh", status_code=status.HTTP_204_NO_CONTENT)
+def clear_cached_mesh():
+    get_mesh_cache().clear()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @app.post("/cam/toolpath", response_model=OperationRecord3D)

@@ -6,16 +6,14 @@ and the RhinoRendererPlugin is loaded:
 
     uv run demos/rhino_cutting_animation.py
 
-By default this uses ``assets/2.5D_Part.stl`` as stock and the latest
-frontend-generated cutter-location paths from ``frontend-paths.json``. Pass
-``--ignore-frontend-path-log`` only when you explicitly want a synthetic raster cut.
+By default this uses ``assets/2.5D_Part.stl`` and a synthetic raster cut.
+Pass ``--operation-json`` to simulate a saved operation payload instead.
 """
 
 from __future__ import annotations
 
 import argparse
 import io
-import json
 import math
 from collections.abc import Iterable
 from pathlib import Path
@@ -42,7 +40,6 @@ from rhino_renderer.file_client import reset_rhino_environment
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_MESH_PATH = REPO_ROOT / "assets" / "2.5D_Part.stl"
-DEFAULT_FRONTEND_PATH_LOG = REPO_ROOT / "frontend-paths.json"
 TOOLPATH_GROUP_ID = "opencam-rhino-toolpaths"
 CUT_PATH_COLOR = RGBColor(red=29, green=78, blue=216)
 CLEARANCE_PATH_COLOR = RGBColor(red=220, green=38, blue=38)
@@ -60,17 +57,6 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=None,
         help="JSON file containing a full OperationRecord3D payload.",
-    )
-    parser.add_argument(
-        "--frontend-path-log",
-        type=Path,
-        default=DEFAULT_FRONTEND_PATH_LOG,
-        help="frontend-paths.json file to reuse when --operation-json is not provided.",
-    )
-    parser.add_argument(
-        "--ignore-frontend-path-log",
-        action="store_true",
-        help="Ignore frontend-paths.json and generate a synthetic raster operation instead of using frontend CL data.",
     )
     parser.add_argument("--tool-number", type=int, default=1)
     parser.add_argument("--tool-diameter", type=float, default=12.0)
@@ -143,40 +129,6 @@ def load_operation_from_json(path: Path) -> OperationRecord3D:
     return OperationRecord3D.model_validate_json(path.read_text())
 
 
-def load_latest_frontend_operation(path_log: Path) -> OperationRecord3D | None:
-    if not path_log.exists():
-        return None
-
-    payload = json.loads(path_log.read_text())
-    if not isinstance(payload, list):
-        return None
-
-    for entry in reversed(payload):
-        if isinstance(entry, dict) and isinstance(entry.get("operation"), dict):
-            return OperationRecord3D.model_validate(entry["operation"])
-    return None
-
-
-def operation_overlaps_stock(operation: OperationRecord3D, mesh_bytes: bytes) -> bool:
-    if not operation.records:
-        return False
-
-    stock_min, stock_max = load_stl_bounds(mesh_bytes)
-    radius = float(operation.tool.diameter) / 2.0
-    x_values = [float(record.x) for record in operation.records]
-    y_values = [float(record.y) for record in operation.records]
-    z_values = [float(record.z) for record in operation.records]
-
-    return not (
-        max(x_values) < stock_min[0] - radius
-        or min(x_values) > stock_max[0] + radius
-        or max(y_values) < stock_min[1] - radius
-        or min(y_values) > stock_max[1] + radius
-        or max(z_values) < stock_min[2] - float(operation.tool.cutting_height)
-        or min(z_values) > stock_max[2] + float(operation.tool.cutting_height)
-    )
-
-
 def build_synthetic_raster_operation(mesh_bytes: bytes, tool: CylindricalTool) -> OperationRecord3D:
     stock_min, stock_max = load_stl_bounds(mesh_bytes)
     x_min, y_min, z_min = stock_min.tolist()
@@ -225,23 +177,6 @@ def load_operation(args: argparse.Namespace, mesh_bytes: bytes) -> OperationReco
     if args.operation_json is not None:
         print(f"Loading operation from {args.operation_json}")
         return load_operation_from_json(args.operation_json)
-
-    if not args.ignore_frontend_path_log:
-        operation = load_latest_frontend_operation(args.frontend_path_log)
-        if operation is None:
-            raise FileNotFoundError(
-                "No frontend operation records found in "
-                f"{args.frontend_path_log}. Run the frontend operation generation first, "
-                "or pass --ignore-frontend-path-log to use a synthetic raster cut."
-            )
-        if not operation_overlaps_stock(operation, mesh_bytes):
-            raise ValueError(
-                "Latest frontend operation records do not overlap the selected STL bounds. "
-                "Use --mesh assets/2.5D_Part.stl, regenerate frontend-paths.json for this mesh, "
-                "or pass --ignore-frontend-path-log to use a synthetic raster cut."
-            )
-        print(f"Using latest frontend operation records from {args.frontend_path_log}")
-        return operation
 
     cutting_height = positive_float(args.cutting_height, "cutting height")
     tool = CylindricalTool(

@@ -1,7 +1,4 @@
-import json
 from datetime import datetime
-from pathlib import Path as FilePath
-from threading import Lock
 
 from fastapi import Depends, FastAPI, File, HTTPException, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,44 +23,14 @@ app.add_middleware(
 )
 app.include_router(simulation_router)
 
-FRONTEND_PATH_LOG_FILE = FilePath(__file__).resolve().parents[2] / "frontend-paths.json"
-FRONTEND_PATH_LOG_LOCK = Lock()
 
 
-def _log_frontend_operation(endpoint: str, operation: OperationRecord3D) -> None:
-    try:
-        entry = {
-            "timestamp": datetime.now().isoformat(),
-            "endpoint": endpoint,
-            "operation": operation.model_dump(mode="json", by_alias=True),
-        }
-
-        with FRONTEND_PATH_LOG_LOCK:
-            FRONTEND_PATH_LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
-
-            entries: list[dict[str, object]] = []
-            if FRONTEND_PATH_LOG_FILE.exists():
-                try:
-                    loaded_entries = json.loads(FRONTEND_PATH_LOG_FILE.read_text())
-                except json.JSONDecodeError:
-                    loaded_entries = []
-
-                if isinstance(loaded_entries, list):
-                    entries = loaded_entries
-
-            entries.append(entry)
-            FRONTEND_PATH_LOG_FILE.write_text(json.dumps(entries, indent=2))
-    except OSError:
-        pass
-
-
-def _build_operation_record(engine, endpoint: str) -> OperationRecord3D:
+def _build_operation_record(engine) -> OperationRecord3D:
     operation = OperationRecord3D(
         tool=engine.tool,
         clearance_plane_height=engine.clearance_plane_height,
         records=engine.process(),
     )
-    _log_frontend_operation(endpoint, operation)
     return operation
 
 
@@ -80,7 +47,7 @@ async def ping():
 @app.post("/profile/closed", response_model=OperationRecord3D)
 async def profile_closed(engine: ClosedProfilingEngine):
     try:
-        return _build_operation_record(engine, "/profile/closed")
+        return _build_operation_record(engine)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except NotImplementedError as exc:
@@ -186,7 +153,6 @@ def clear_cached_mesh():
 async def generate_cam_toolpath(request: GenerateToolpathRequest):
     try:
         operation = cam_engine(request.setup, request.operation)
-        _log_frontend_operation("/cam/toolpath", operation)
         return operation
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

@@ -26,6 +26,7 @@ export type MeshFaceSelection = {
 export type PolylineViewerProps = {
   meshUrl?: string | null;
   secondaryMeshUrl?: string | null;
+  tertiaryMeshUrl?: string | null;
   meshColor?: number;
   meshOpacity?: number;
   meshUseVertexColors?: boolean;
@@ -34,6 +35,15 @@ export type PolylineViewerProps = {
   secondaryMeshOpacity?: number;
   secondaryMeshUseVertexColors?: boolean;
   secondaryMeshEdgeColor?: number | null;
+  tertiaryMeshColor?: number;
+  tertiaryMeshOpacity?: number;
+  tertiaryMeshUseVertexColors?: boolean;
+  tertiaryMeshEdgeColor?: number | null;
+  showMesh?: boolean;
+  showSecondaryMesh?: boolean;
+  showTertiaryMesh?: boolean;
+  showSimulationStock?: boolean;
+  showTool?: boolean;
   polylines: ReadonlyArray<PolylineDefinition>;
   className?: string;
   faceSelectionMode?: boolean;

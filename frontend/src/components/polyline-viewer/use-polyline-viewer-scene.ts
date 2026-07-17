@@ -61,6 +61,7 @@ export function usePolylineViewerScene(
   {
     meshUrl = null,
     secondaryMeshUrl = null,
+    tertiaryMeshUrl = null,
     meshColor = 0x94a3b8,
     meshOpacity = 1,
     meshUseVertexColors = true,
@@ -69,6 +70,15 @@ export function usePolylineViewerScene(
     secondaryMeshOpacity = 1,
     secondaryMeshUseVertexColors = true,
     secondaryMeshEdgeColor = null,
+    tertiaryMeshColor = 0xf97316,
+    tertiaryMeshOpacity = 1,
+    tertiaryMeshUseVertexColors = true,
+    tertiaryMeshEdgeColor = null,
+    showMesh = true,
+    showSecondaryMesh = true,
+    showTertiaryMesh = true,
+    showSimulationStock = true,
+    showTool = true,
     polylines,
     faceSelectionMode = false,
     selectedMeshFace = null,
@@ -91,6 +101,7 @@ export function usePolylineViewerScene(
   const polylineGroupRef = useRef<THREE.Group | null>(null);
   const meshGroupRef = useRef<THREE.Group | null>(null);
   const secondaryMeshGroupRef = useRef<THREE.Group | null>(null);
+  const tertiaryMeshGroupRef = useRef<THREE.Group | null>(null);
   const meshRef = useRef<THREE.Mesh | null>(null);
   const meshSelectionMeshRef = useRef<THREE.Mesh | null>(null);
   const meshSelectionDataRef = useRef<MeshSelectionData | null>(null);
@@ -120,6 +131,11 @@ export function usePolylineViewerScene(
   const simulationToolRotationPropRef = useRef<number | null>(simulationToolRotation);
   const simulationToolRotationEnabledRef = useRef(simulationToolRotationEnabled);
   const showOriginalMeshRef = useRef(showOriginalMesh);
+  const showMeshRef = useRef(showMesh);
+  const showSecondaryMeshRef = useRef(showSecondaryMesh);
+  const showTertiaryMeshRef = useRef(showTertiaryMesh);
+  const showSimulationStockRef = useRef(showSimulationStock);
+  const showToolRef = useRef(showTool);
   const hasUserInteractedRef = useRef(false);
 
   useEffect(() => {
@@ -158,6 +174,26 @@ export function usePolylineViewerScene(
   useEffect(() => {
     showOriginalMeshRef.current = showOriginalMesh;
   }, [showOriginalMesh]);
+
+  useEffect(() => {
+    showMeshRef.current = showMesh;
+    if (meshGroupRef.current) meshGroupRef.current.visible = showMesh;
+  }, [showMesh]);
+
+  useEffect(() => {
+    showSecondaryMeshRef.current = showSecondaryMesh;
+    if (secondaryMeshGroupRef.current) secondaryMeshGroupRef.current.visible = showSecondaryMesh;
+  }, [showSecondaryMesh]);
+
+  useEffect(() => {
+    showTertiaryMeshRef.current = showTertiaryMesh;
+    if (tertiaryMeshGroupRef.current) tertiaryMeshGroupRef.current.visible = showTertiaryMesh;
+  }, [showTertiaryMesh]);
+
+  useEffect(() => {
+    showSimulationStockRef.current = showSimulationStock;
+  }, [showSimulationStock]);
+
 
   const clearSimulationResources = useCallback(() => {
     if (simulationStockMeshRef.current) {
@@ -399,7 +435,7 @@ export function usePolylineViewerScene(
       }
     };
 
-    if (!previewMesh || showOriginalMeshRef.current) {
+    if (!previewMesh || !showToolRef.current) {
       if (previewMesh) {
         previewMesh.visible = false;
       }
@@ -469,6 +505,11 @@ export function usePolylineViewerScene(
     previewMesh.visible = true;
     previewMesh.updateMatrixWorld(true);
   }, []);
+
+  useEffect(() => {
+    showToolRef.current = showTool;
+    updateToolPreview();
+  }, [showTool, updateToolPreview]);
 
   const prepareSimulationCutters = useCallback((targetStep: number) => {
     const tool = simulationToolRef.current;
@@ -646,7 +687,7 @@ export function usePolylineViewerScene(
     clearGroup(selectionHighlightGroup);
     selectionOutlineMaterialRef.current = null;
 
-    if (!showOriginalMeshRef.current || !renderer) {
+    if (!showMeshRef.current || !renderer) {
       return;
     }
 
@@ -704,9 +745,9 @@ export function usePolylineViewerScene(
       return;
     }
 
-    meshGroup.visible = true;
+    meshGroup.visible = showMesh;
     renderSelectionHighlight(selectedMeshFacesRef.current);
-  }, [faceSelectionMode, renderSelectionHighlight, showOriginalMesh]);
+  }, [faceSelectionMode, renderSelectionHighlight, showMesh]);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -783,12 +824,19 @@ export function usePolylineViewerScene(
     polylineGroupRef.current = polylineGroup;
 
     const meshGroup = new THREE.Group();
+    meshGroup.visible = showMeshRef.current;
     scene.add(meshGroup);
     meshGroupRef.current = meshGroup;
 
     const secondaryMeshGroup = new THREE.Group();
+    secondaryMeshGroup.visible = showSecondaryMeshRef.current;
     scene.add(secondaryMeshGroup);
     secondaryMeshGroupRef.current = secondaryMeshGroup;
+
+    const tertiaryMeshGroup = new THREE.Group();
+    tertiaryMeshGroup.visible = showTertiaryMeshRef.current;
+    scene.add(tertiaryMeshGroup);
+    tertiaryMeshGroupRef.current = tertiaryMeshGroup;
 
     const simulationToolPreviewGeometry = createBaseSimulationCylinderGeometry();
     simulationToolPreviewBaseGeometryRef.current = simulationToolPreviewGeometry;
@@ -895,7 +943,7 @@ export function usePolylineViewerScene(
       const simulationStock = simulationStockMeshRef.current;
       const currentSimulationDummyMesh = simulationDummyMeshRef.current;
 
-      if (scsRenderer && simulationStock && currentSimulationDummyMesh) {
+      if (showSimulationStockRef.current && scsRenderer && simulationStock && currentSimulationDummyMesh) {
         const activeCutters = simulationCuttersRef.current.slice(
           0,
           Math.min(simulationStepRef.current, simulationCuttersRef.current.length),
@@ -945,6 +993,7 @@ export function usePolylineViewerScene(
       polylineGroupRef.current = null;
       meshGroupRef.current = null;
       secondaryMeshGroupRef.current = null;
+      tertiaryMeshGroupRef.current = null;
       meshRef.current = null;
       meshSelectionMeshRef.current = null;
       meshSelectionDataRef.current = null;
@@ -1012,7 +1061,7 @@ export function usePolylineViewerScene(
 
         clearSimulationResources();
         commitPrimaryMesh(meshGroup, result);
-        meshGroup.visible = true;
+        meshGroup.visible = showMeshRef.current;
 
         if (!hasUserInteractedRef.current && result.bounds) {
           const bounds = getSceneBounds(currentPolylinesRef.current, result.bounds);
@@ -1045,7 +1094,6 @@ export function usePolylineViewerScene(
     rebuildSimulationResources,
     renderSelectionHighlight,
     resetPrimaryMeshRefs,
-    showOriginalMesh,
   ]);
 
   useEffect(() => {
@@ -1104,6 +1152,60 @@ export function usePolylineViewerScene(
     secondaryMeshUseVertexColors,
     secondaryMeshUrl,
     swapGroupContents,
+  ]);
+
+  useEffect(() => {
+    const tertiaryMeshGroup = tertiaryMeshGroupRef.current;
+    const renderer = rendererRef.current;
+
+    if (!tertiaryMeshGroup || !renderer) {
+      return undefined;
+    }
+
+    if (!tertiaryMeshUrl) {
+      clearGroup(tertiaryMeshGroup);
+      return undefined;
+    }
+
+    let cancelled = false;
+
+    const loadTertiaryMesh = async () => {
+      try {
+        const result = await loadDisplayMeshIntoGroup(
+          tertiaryMeshUrl,
+          tertiaryMeshColor,
+          tertiaryMeshEdgeColor,
+          tertiaryMeshOpacity,
+          tertiaryMeshUseVertexColors,
+          renderer,
+          false,
+          () => cancelled,
+        );
+
+        if (!result || cancelled) {
+          if (result) disposeObject(result.group);
+          return;
+        }
+
+        swapGroupContents(tertiaryMeshGroup, result.group);
+      } catch (error) {
+        if (!cancelled) console.error("Failed to load tertiary mesh", error);
+      }
+    };
+
+    void loadTertiaryMesh();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    loadDisplayMeshIntoGroup,
+    swapGroupContents,
+    tertiaryMeshColor,
+    tertiaryMeshEdgeColor,
+    tertiaryMeshOpacity,
+    tertiaryMeshUrl,
+    tertiaryMeshUseVertexColors,
   ]);
 
   useEffect(() => {

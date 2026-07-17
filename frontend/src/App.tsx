@@ -11,6 +11,13 @@ import {
   type PolylinePoint,
 } from "@/components/polyline-viewer";
 import { Button } from "t-components/button";
+import { X } from "lucide-react";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { Slider } from "@/components/ui/slider";
 import { SidebarProvider, SidebarTrigger } from "t-components/sidebar";
 import { getOpenCamBootstrap, sendRhinoUiDebug } from "@/bootstrap";
@@ -396,6 +403,11 @@ function App() {
   const [requestState, setRequestState] = useState<RequestState>("idle");
   const [requestMessage, setRequestMessage] = useState<string>("");
   const [showOriginalMesh, setShowOriginalMesh] = useState(true);
+  const [isSimulationMode, setIsSimulationMode] = useState(false);
+  const [showStock, setShowStock] = useState(true);
+  const [showPartMesh, setShowPartMesh] = useState(true);
+  const [showToolpaths, setShowToolpaths] = useState(true);
+  const [showTool, setShowTool] = useState(true);
   const [simulationDebugUiEnabled, setSimulationDebugUiEnabled] = useState(() => {
     if (typeof window === "undefined") {
       return false;
@@ -407,6 +419,12 @@ function App() {
       return false;
     }
   });
+  useEffect(() => {
+    if (!simulationId) {
+      setIsSimulationMode(false);
+    }
+  }, [simulationId]);
+
   useEffect(() => {
     sendRhinoUiDebug("info", "App mounted", {
       bootstrap: getOpenCamBootstrap(),
@@ -605,15 +623,10 @@ function App() {
 
     return null;
   }, [showOriginalMesh, simulationFrameIndex, simulationId, simulationRotateToolWithPath, simulationSamples]);
-  const primaryMeshUrl = showOriginalMesh || !simulationCachedMeshUrl ? meshUrl : simulationCachedMeshUrl;
-  const secondaryMeshUrl = showOriginalMesh ? null : simulationActiveMeshUrl;
-  const simulationDebugDisplayActive = simulationDebugUiEnabled && !showOriginalMesh && Boolean(simulationCachedMeshUrl);
-  const primaryMeshColor = showOriginalMesh || !simulationCachedMeshUrl
-    ? ORIGINAL_MESH_COLOR
-    : simulationDebugDisplayActive
-      ? DEBUG_REST_MESH_COLOR
-      : MILLED_STOCK_MESH_COLOR;
-  const primaryMeshOpacity = 1;
+  const secondaryMeshUrl = isSimulationMode ? simulationCachedMeshUrl : null;
+  const tertiaryMeshUrl = isSimulationMode ? simulationActiveMeshUrl : null;
+  const simulationDebugDisplayActive = simulationDebugUiEnabled && isSimulationMode && Boolean(simulationCachedMeshUrl);
+  const stockMeshColor = simulationDebugDisplayActive ? DEBUG_REST_MESH_COLOR : MILLED_STOCK_MESH_COLOR;
   const activeMeshColor = simulationDebugDisplayActive ? MILLED_STOCK_MESH_COLOR : ACTIVE_DEBUG_MESH_COLOR;
 
   const operationPolylines = useMemo<PolylineDefinition[]>(() => {
@@ -621,7 +634,7 @@ function App() {
   }, [generatedRecords]);
 
   const viewportPolylines = useMemo<PolylineDefinition[]>(() => {
-    if (!simulationDebugUiEnabled || showOriginalMesh || simulationChunkToolpathPoints.length < 2) {
+    if (!simulationDebugUiEnabled || !isSimulationMode || simulationChunkToolpathPoints.length < 2) {
       return operationPolylines;
     }
 
@@ -639,7 +652,7 @@ function App() {
       ...createPointMarkerPolylines("simulation-current-chunk-start", "Chunk start", startPoint, CHUNK_START_MARKER_COLOR),
       ...createPointMarkerPolylines("simulation-current-chunk-end", "Chunk end", endPoint, CHUNK_END_MARKER_COLOR),
     ];
-  }, [operationPolylines, showOriginalMesh, simulationChunkToolpathPoints, simulationDebugUiEnabled]);
+  }, [isSimulationMode, operationPolylines, simulationChunkToolpathPoints, simulationDebugUiEnabled]);
 
   const generatedPathLength = useMemo(() => {
     return operationPolylines.reduce(
@@ -1065,7 +1078,8 @@ function App() {
           updateSimulationPrefetchTrigger(simulation.simulationId, null);
         });
       }
-      setShowOriginalMesh(false);
+      setShowOriginalMesh(true);
+      setIsSimulationMode(false);
       prefetchAdjacentChunkMeshes(
         simulation.simulationId,
         simulation.chunkIndex,
@@ -1358,6 +1372,21 @@ function App() {
     setSelectedOperationId(nodeId === "setup-1" ? null : nodeId);
   }
 
+  function handleEnterSimulation() {
+    if (!simulationId || simulationFrameCount === 0) {
+      return;
+    }
+
+    setShowOriginalMesh(false);
+    setIsSimulationMode(true);
+  }
+
+  function handleExitSimulation() {
+    setIsSimulationPlaying(false);
+    setShowOriginalMesh(true);
+    setIsSimulationMode(false);
+  }
+
   function handleSimulationFrameChange(values: number[]) {
     if (!simulationId || simulationFrameCount === 0) {
       return;
@@ -1379,6 +1408,7 @@ function App() {
     }
 
     setShowOriginalMesh(false);
+    setIsSimulationMode(true);
     setSimulationFrameIndex((current) =>
       current >= simulationFrameCount - 1 && simulationFrameCount > 1 ? 0 : current,
     );
@@ -1806,32 +1836,58 @@ function App() {
             onCancelGeneration={handleCancelGeneration}
           />
 
-          <main className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
-            <PolylineViewer
-              meshUrl={primaryMeshUrl}
-              secondaryMeshUrl={secondaryMeshUrl}
-              meshColor={primaryMeshColor}
-              meshOpacity={primaryMeshOpacity}
-              meshUseVertexColors={!simulationDebugDisplayActive}
-              meshEdgeColor={showOriginalMesh || !simulationCachedMeshUrl ? ORIGINAL_MESH_EDGE_COLOR : null}
-              secondaryMeshColor={activeMeshColor}
-              secondaryMeshUseVertexColors
-              secondaryMeshEdgeColor={null}
-              polylines={viewportPolylines}
+          <ContextMenu>
+            <ContextMenuTrigger asChild>
+              <main className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
+                <PolylineViewer
+                  meshUrl={meshUrl}
+                  secondaryMeshUrl={secondaryMeshUrl}
+                  tertiaryMeshUrl={tertiaryMeshUrl}
+                  meshColor={ORIGINAL_MESH_COLOR}
+                  meshUseVertexColors
+                  meshEdgeColor={ORIGINAL_MESH_EDGE_COLOR}
+                  secondaryMeshColor={stockMeshColor}
+                  secondaryMeshUseVertexColors={!simulationDebugDisplayActive}
+                  secondaryMeshEdgeColor={null}
+                  tertiaryMeshColor={activeMeshColor}
+                  tertiaryMeshUseVertexColors={!simulationDebugDisplayActive}
+                  tertiaryMeshEdgeColor={null}
+                  showMesh={showPartMesh}
+                  showSecondaryMesh={showStock && isSimulationMode}
+                  showTertiaryMesh={showStock && isSimulationMode}
+                  showSimulationStock={showStock && !isSimulationMode}
+                  showTool={showTool}
+                  polylines={showToolpaths ? viewportPolylines : []}
               faceSelectionMode={faceSelectionMode}
               selectedMeshFace={null}
               selectedMeshFaces={highlightedMeshFaces}
+              simulationTool={generatedOperation?.tool ?? null}
               simulationToolMeshUrl={simulationToolMeshUrl}
               simulationToolPosition={simulationToolPosition}
               simulationToolRotation={simulationToolRotation}
               simulationToolRotationEnabled={simulationRotateToolWithPath}
               showOriginalMesh={showOriginalMesh}
               onMeshFaceSelect={handleMeshFaceSelect}
-              className="h-full min-h-0 flex-1 rounded-none border-0 shadow-none"
-            />
+                  className="h-full min-h-0 flex-1 rounded-none border-0 shadow-none"
+                />
 
-            {simulationDebugUiEnabled && simulationId ? (
-              <div className="pointer-events-none absolute left-4 top-4 z-20 rounded-md border bg-background/90 p-2 text-xs shadow backdrop-blur">
+                <div className="pointer-events-auto absolute left-4 top-4 z-20 flex items-center gap-1 rounded-md border bg-background/90 p-1 shadow backdrop-blur">
+                  <Button type="button" variant={showStock ? "secondary" : "outline"} onClick={() => setShowStock((current) => !current)} aria-pressed={showStock}>
+                    Stock
+                  </Button>
+                  <Button type="button" variant={showPartMesh ? "secondary" : "outline"} onClick={() => setShowPartMesh((current) => !current)} aria-pressed={showPartMesh}>
+                    Part
+                  </Button>
+                  <Button type="button" variant={showToolpaths ? "secondary" : "outline"} onClick={() => setShowToolpaths((current) => !current)} aria-pressed={showToolpaths}>
+                    Toolpaths
+                  </Button>
+                  <Button type="button" variant={showTool ? "secondary" : "outline"} onClick={() => setShowTool((current) => !current)} aria-pressed={showTool}>
+                    Tool
+                  </Button>
+                </div>
+
+                {simulationDebugUiEnabled && simulationId ? (
+              <div className="pointer-events-none absolute left-4 top-16 z-20 rounded-md border bg-background/90 p-2 text-xs shadow backdrop-blur">
                 <div className="mb-1 font-medium">Simulation debug</div>
                 <div className="grid grid-cols-[auto_auto] gap-x-3 gap-y-1 tabular-nums">
                   <span className="text-muted-foreground">Chunk</span>
@@ -1846,7 +1902,7 @@ function App() {
               </div>
             ) : null}
 
-            {simulationId && simulationFrameCount > 0 ? (
+            {isSimulationMode && simulationId && simulationFrameCount > 0 ? (
               <div className="pointer-events-none absolute inset-x-4 bottom-4 z-20">
                 <div className="pointer-events-auto mx-auto flex max-w-4xl items-center gap-3 rounded-md border bg-background/95 px-2 py-2 shadow">
                   <Button
@@ -1888,23 +1944,24 @@ function App() {
                   <div className="shrink-0 whitespace-nowrap text-right text-xs tabular-nums text-muted-foreground">
                     Frame {simulationFrameIndex + 1} / {simulationFrameCount}
                   </div>
+
+                  <Button type="button" variant="ghost" size="icon-xs" onClick={handleExitSimulation} aria-label="Exit simulation" title="Exit simulation">
+                    <X />
+                  </Button>
                 </div>
               </div>
             ) : null}
-
-            {simulationCachedMeshUrl ? (
-              <div className="pointer-events-none absolute bottom-20 right-4 z-20">
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="pointer-events-auto"
-                  onClick={() => setShowOriginalMesh((current) => !current)}
-                >
-                  {showOriginalMesh ? "Show milled stock" : "Show uploaded mesh"}
-                </Button>
-              </div>
-            ) : null}
-          </main>
+              </main>
+            </ContextMenuTrigger>
+            <ContextMenuContent>
+              <ContextMenuItem
+                disabled={!simulationId || simulationFrameCount === 0 || requestState === "submitting"}
+                onSelect={handleEnterSimulation}
+              >
+                Simulate
+              </ContextMenuItem>
+            </ContextMenuContent>
+          </ContextMenu>
         </div>
 
         <OperationTypeDialog

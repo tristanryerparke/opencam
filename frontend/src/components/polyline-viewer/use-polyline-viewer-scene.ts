@@ -56,6 +56,54 @@ type LoadedDisplayMesh = {
   selectionHighlightGroup: THREE.Group | null;
 };
 
+function readColorComponent(colors: THREE.BufferAttribute | THREE.InterleavedBufferAttribute, index: number, channel: number) {
+  const value = colors.getComponent(index, channel);
+  return value > 1.5 ? value / 255 : value;
+}
+
+function hasNonWhiteVertexColors(geometry: THREE.BufferGeometry) {
+  const colors = geometry.getAttribute("color");
+  if (!colors) {
+    return false;
+  }
+
+  for (let index = 0; index < colors.count; index += 1) {
+    for (let channel = 0; channel < Math.min(colors.itemSize, 3); channel += 1) {
+      if (readColorComponent(colors, index, channel) < 0.98) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+function applyStockVertexColor(geometry: THREE.BufferGeometry, stockColor: number) {
+  const colors = geometry.getAttribute("color");
+  if (!colors) {
+    return;
+  }
+
+  const stock = new THREE.Color(stockColor);
+  const cut = new THREE.Color(0x9ca3af);
+  const stockSource = new THREE.Color(0xfb923c);
+  const nextColors = new Float32Array(colors.count * 3);
+
+  for (let index = 0; index < colors.count; index += 1) {
+    const r = readColorComponent(colors, index, 0);
+    const g = readColorComponent(colors, index, 1);
+    const b = readColorComponent(colors, index, 2);
+    const cutDistance = (r - cut.r) ** 2 + (g - cut.g) ** 2 + (b - cut.b) ** 2;
+    const stockDistance = (r - stockSource.r) ** 2 + (g - stockSource.g) ** 2 + (b - stockSource.b) ** 2;
+    const color = cutDistance < stockDistance ? cut : stock;
+    nextColors[index * 3] = color.r;
+    nextColors[index * 3 + 1] = color.g;
+    nextColors[index * 3 + 2] = color.b;
+  }
+
+  geometry.setAttribute("color", new THREE.BufferAttribute(nextColors, 3));
+}
+
 export function usePolylineViewerScene(
   containerRef: RefObject<HTMLDivElement | null>,
   {
@@ -296,7 +344,10 @@ export function usePolylineViewerScene(
         targetGroup.add(depthMesh);
       }
 
-      const hasVertexColors = useVertexColors && renderGeometry.hasAttribute("color");
+      const hasVertexColors = useVertexColors && hasNonWhiteVertexColors(renderGeometry);
+      if (hasVertexColors) {
+        applyStockVertexColor(renderGeometry, color);
+      }
       const meshMaterial = new THREE.MeshStandardMaterial({
         color: hasVertexColors ? 0xffffff : color,
         vertexColors: hasVertexColors,
@@ -571,7 +622,14 @@ export function usePolylineViewerScene(
     const samples = simulationSamplesRef.current;
     const bounds = meshBoundsRef.current;
 
-    if (!tool || samples.length === 0 || !bounds) {
+    if (!bounds) {
+      updateToolPreview();
+      return;
+    }
+
+    simulationStockMeshRef.current = createSimulationStockMesh(bounds);
+
+    if (!tool || samples.length === 0) {
       updateToolPreview();
       return;
     }
@@ -586,7 +644,6 @@ export function usePolylineViewerScene(
       });
     }
 
-    simulationStockMeshRef.current = createSimulationStockMesh(bounds);
     prepareSimulationCutters(simulationStepRef.current);
     updateToolPreview();
   }, [clearSimulationResources, prepareSimulationCutters, updateToolPreview]);
@@ -943,20 +1000,24 @@ export function usePolylineViewerScene(
       const simulationStock = simulationStockMeshRef.current;
       const currentSimulationDummyMesh = simulationDummyMeshRef.current;
 
-      if (showSimulationStockRef.current && scsRenderer && simulationStock && currentSimulationDummyMesh) {
+      if (showSimulationStockRef.current && simulationStock) {
         const activeCutters = simulationCuttersRef.current.slice(
           0,
           Math.min(simulationStepRef.current, simulationCuttersRef.current.length),
         );
 
         renderer.clearDepth();
-        scsRenderer.renderSubtract(
-          scene,
-          camera,
-          simulationStock,
-          activeCutters,
-          currentSimulationDummyMesh,
-        );
+        if (activeCutters.length === 0 || !scsRenderer || !currentSimulationDummyMesh) {
+          renderer.render(simulationStock, camera);
+        } else {
+          scsRenderer.renderSubtract(
+            scene,
+            camera,
+            simulationStock,
+            activeCutters,
+            currentSimulationDummyMesh,
+          );
+        }
       }
 
       animationFrame = window.requestAnimationFrame(render);

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { AppSidebar, type RequestState } from "@/components/app-sidebar";
+import { loadMeshGeometry } from "@/components/polyline-viewer/mesh-loader";
 import { SettingsDialog } from "@/components/settings-dialog";
 import { OperationDialog } from "@/components/operation-dialog";
 import { OperationTypeDialog } from "@/components/operation-type-dialog";
@@ -12,12 +13,6 @@ import {
 } from "@/components/polyline-viewer";
 import { Button } from "t-components/button";
 import { X } from "lucide-react";
-import {
-  ContextMenu,
-  ContextMenuContent,
-  ContextMenuItem,
-  ContextMenuTrigger,
-} from "@/components/ui/context-menu";
 import { Slider } from "@/components/ui/slider";
 import { SidebarProvider, SidebarTrigger } from "t-components/sidebar";
 import { getOpenCamBootstrap, sendRhinoUiDebug } from "@/bootstrap";
@@ -132,6 +127,12 @@ type CachedMeshResponse = {
   maxZ: number;
 };
 
+type LocalCachedMeshPayload = {
+  name: string;
+  dataUrl: string;
+  maxZ?: number | null;
+};
+
 type SidebarSettingsPayload = {
   selectedOperationId: string | null;
   selectedTreeNodeId?: string;
@@ -139,12 +140,13 @@ type SidebarSettingsPayload = {
 };
 
 const SIDEBAR_SETTINGS_STORAGE_KEY = "opencam.sidebar-settings.v3";
+const LOCAL_MESH_STORAGE_KEY = "opencam.mesh.v1";
 const SIMULATION_DEBUG_UI_STORAGE_KEY = "opencam.simulation-debug-ui";
 const ORIGINAL_MESH_COLOR = 0x94a3b8;
 const ORIGINAL_MESH_EDGE_COLOR = 0x334155;
 const MILLED_STOCK_MESH_COLOR = 0xfb923c;
 const ACTIVE_DEBUG_MESH_COLOR = 0xf97316;
-const DEBUG_REST_MESH_COLOR = 0x9a3412;
+const DEBUG_REST_MESH_COLOR = 0xf97316;
 const CURRENT_CHUNK_PATH_COLOR = "#a855f7";
 const CHUNK_START_MARKER_COLOR = "#22c55e";
 const CHUNK_END_MARKER_COLOR = "#ef4444";
@@ -211,6 +213,21 @@ async function prefetchMeshObjectUrlWithTiming(url: string, cache: RequestCache 
   };
 }
 
+async function readCachedMeshResponse(response: Response, fallbackMessage: string) {
+  if (!response.ok) {
+    const contentType = response.headers.get("content-type") ?? "";
+    if (contentType.includes("application/json")) {
+      const payload = (await response.json()) as { detail?: string };
+      throw new Error(payload.detail ?? fallbackMessage);
+    }
+
+    const detail = await response.text();
+    throw new Error(detail || fallbackMessage);
+  }
+
+  return (await response.json()) as CachedMeshResponse;
+}
+
 async function fetchCachedMesh(): Promise<CachedMeshResponse | null> {
   const response = await fetch(`${getBackendUrl()}/cam/mesh`);
 
@@ -218,18 +235,141 @@ async function fetchCachedMesh(): Promise<CachedMeshResponse | null> {
     return null;
   }
 
-  if (!response.ok) {
-    const contentType = response.headers.get("content-type") ?? "";
-    if (contentType.includes("application/json")) {
-      const payload = (await response.json()) as { detail?: string };
-      throw new Error(payload.detail ?? "Failed to load cached mesh.");
-    }
+  return readCachedMeshResponse(response, "Failed to load cached mesh.");
+}
 
-    const detail = await response.text();
-    throw new Error(detail || "Failed to load cached mesh.");
+function isLocalCachedMeshPayload(value: unknown): value is LocalCachedMeshPayload {
+  if (!value || typeof value !== "object") {
+    return false;
   }
 
-  return (await response.json()) as CachedMeshResponse;
+  const payload = value as Record<string, unknown>;
+  return (
+    typeof payload.name === "string" &&
+    typeof payload.dataUrl === "string" &&
+    payload.dataUrl.startsWith("data:") &&
+    (payload.maxZ == null || (typeof payload.maxZ === "number" && Number.isFinite(payload.maxZ)))
+  );
+}
+
+function removeCachedMeshFromLocalStorage() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.removeItem(LOCAL_MESH_STORAGE_KEY);
+  } catch {
+    // Ignore unavailable localStorage.
+  }
+}
+
+function readCachedMeshFromLocalStorage() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    const cachedMesh = window.localStorage.getItem(LOCAL_MESH_STORAGE_KEY);
+    if (!cachedMesh) {
+      return null;
+    }
+
+    const parsed = JSON.parse(cachedMesh) as unknown;
+    if (isLocalCachedMeshPayload(parsed)) {
+      return parsed;
+    }
+  } catch (error: unknown) {
+    console.error("Failed to read cached STL from localStorage", error);
+  }
+
+  removeCachedMeshFromLocalStorage();
+  return null;
+}
+
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        resolve(reader.result);
+        return;
+      }
+
+      reject(new Error("Failed to read STL for browser cache."));
+    };
+    reader.onerror = () => reject(reader.error ?? new Error("Failed to read STL for browser cache."));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function getMeshMaxZ(meshUrl: string) {
+  const geometry = await loadMeshGeometry(meshUrl);
+  try {
+    geometry.computeBoundingBox();
+    const maxZ = geometry.boundingBox?.max.z;
+    if (typeof maxZ !== "number" || !Number.isFinite(maxZ)) {
+      throw new Error("Unable to determine STL bounds.");
+    }
+
+    return maxZ;
+  } finally {
+    geometry.dispose();
+  }
+}
+
+async function saveMeshToLocalStorage(file: File, shouldSave: () => boolean = () => true) {
+  const dataUrl = await readFileAsDataUrl(file);
+  const payload = {
+    name: file.name,
+    dataUrl,
+    maxZ: await getMeshMaxZ(dataUrl),
+  } satisfies LocalCachedMeshPayload;
+
+  if (typeof window === "undefined" || !shouldSave()) {
+    return { payload, saved: false };
+  }
+
+  try {
+    // ponytail: localStorage only fits small STLs; use IndexedDB if large meshes need browser persistence.
+    window.localStorage.setItem(LOCAL_MESH_STORAGE_KEY, JSON.stringify(payload));
+    return { payload, saved: true };
+  } catch (error: unknown) {
+    console.error("Failed to cache STL in localStorage", error);
+    removeCachedMeshFromLocalStorage();
+    return { payload, saved: false };
+  }
+}
+
+async function uploadMeshToBackend(mesh: Blob, name: string, signal?: AbortSignal) {
+  const upload = new FormData();
+  upload.append("mesh", mesh, name);
+
+  const response = await fetch(`${getBackendUrl()}/cam/mesh`, {
+    method: "POST",
+    body: upload,
+    signal,
+  });
+
+  return readCachedMeshResponse(response, "Failed to cache STL in backend.");
+}
+
+async function uploadLocalStorageMeshToBackend(cachedMesh: LocalCachedMeshPayload, signal?: AbortSignal) {
+  const meshResponse = await fetch(cachedMesh.dataUrl, { signal });
+  const meshBlob = await meshResponse.blob();
+  return uploadMeshToBackend(meshBlob, cachedMesh.name, signal);
+}
+
+async function appendFrontendCachedMesh(formData: FormData, currentMeshUrl: string | null, currentMeshName: string | null) {
+  const cachedMesh = readCachedMeshFromLocalStorage();
+  const meshDataUrl = cachedMesh?.dataUrl ?? (currentMeshUrl?.startsWith("data:") ? currentMeshUrl : null);
+  if (!meshDataUrl) {
+    return;
+  }
+
+  const meshResponse = await fetch(meshDataUrl);
+  const meshBlob = await meshResponse.blob();
+  formData.append("mesh", meshBlob, cachedMesh?.name ?? currentMeshName ?? "mesh.stl");
 }
 
 function getPolylineLength(points: ReadonlyArray<PolylinePoint>) {
@@ -341,6 +481,7 @@ function App() {
   const [meshCacheState, setMeshCacheState] = useState<MeshCacheState>("idle");
   const [meshCacheMessage, setMeshCacheMessage] = useState<string>("");
   const meshUploadRequestRef = useRef(0);
+  const meshRestoreAbortRef = useRef<AbortController | null>(null);
   const hasInitializedSidebarSettingsRef = useRef(false);
   const [faceSelectionMode, setFaceSelectionMode] = useState(false);
   const [selectedMeshFace, setSelectedMeshFace] = useState<MeshFaceSelection | null>(null);
@@ -402,9 +543,8 @@ function App() {
   });
   const [requestState, setRequestState] = useState<RequestState>("idle");
   const [requestMessage, setRequestMessage] = useState<string>("");
-  const [showOriginalMesh, setShowOriginalMesh] = useState(true);
   const [isSimulationMode, setIsSimulationMode] = useState(false);
-  const [showStock, setShowStock] = useState(true);
+  const [showStock, setShowStock] = useState(false);
   const [showPartMesh, setShowPartMesh] = useState(true);
   const [showToolpaths, setShowToolpaths] = useState(true);
   const [showTool, setShowTool] = useState(true);
@@ -497,35 +637,72 @@ function App() {
 
   useEffect(() => {
     let cancelled = false;
+    let restoreController: AbortController | null = null;
     const requestId = meshUploadRequestRef.current + 1;
     meshUploadRequestRef.current = requestId;
 
-    void fetchCachedMesh()
-      .then((cachedMesh) => {
-        if (cancelled || meshUploadRequestRef.current !== requestId || !cachedMesh) {
-          return;
-        }
-
-        setMeshName(cachedMesh.name);
-        setMeshUrl(resolveBackendAssetUrl(cachedMesh.meshUrl));
-        setMeshMaxZ(cachedMesh.maxZ);
-        setMeshCacheState("ready");
-        setMeshCacheMessage("Cached in backend memory.");
-      })
-      .catch((error: unknown) => {
+    void (async () => {
+      const localMesh = readCachedMeshFromLocalStorage();
+      if (localMesh) {
+        const maxZ = localMesh.maxZ ?? (await getMeshMaxZ(localMesh.dataUrl));
         if (cancelled || meshUploadRequestRef.current !== requestId) {
           return;
         }
 
-        console.error("Failed to restore cached mesh", error);
-        setMeshCacheState("error");
-        setMeshCacheMessage(
-          error instanceof Error ? error.message : "Unable to restore the cached STL.",
-        );
-      });
+        setMeshName(localMesh.name);
+        setMeshUrl(localMesh.dataUrl);
+        setMeshMaxZ(maxZ);
+        setMeshCacheState("ready");
+        setMeshCacheMessage("Cached in browser localStorage. Restoring backend memory...");
+
+        restoreController = new AbortController();
+        meshRestoreAbortRef.current = restoreController;
+        try {
+          await uploadLocalStorageMeshToBackend(localMesh, restoreController.signal);
+          if (!cancelled && meshUploadRequestRef.current === requestId) {
+            setMeshCacheMessage("Cached in browser localStorage and backend memory.");
+          }
+        } catch (error: unknown) {
+          if (!cancelled && meshUploadRequestRef.current === requestId) {
+            console.error("Failed to restore STL to backend cache", error);
+            setMeshCacheMessage("Cached in browser localStorage. Backend cache unavailable.");
+          }
+        } finally {
+          if (meshRestoreAbortRef.current === restoreController) {
+            meshRestoreAbortRef.current = null;
+          }
+        }
+        return;
+      }
+
+      const cachedMesh = await fetchCachedMesh();
+      if (cancelled || meshUploadRequestRef.current !== requestId || !cachedMesh) {
+        return;
+      }
+
+      setMeshName(cachedMesh.name);
+      setMeshUrl(resolveBackendAssetUrl(cachedMesh.meshUrl));
+      setMeshMaxZ(cachedMesh.maxZ);
+      setMeshCacheState("ready");
+      setMeshCacheMessage("Cached in backend memory.");
+    })().catch((error: unknown) => {
+      if (cancelled || meshUploadRequestRef.current !== requestId) {
+        return;
+      }
+
+      console.error("Failed to restore cached mesh", error);
+      setMeshCacheState("error");
+      setMeshCacheMessage(
+        error instanceof Error ? error.message : "Unable to restore the cached STL.",
+      );
+    });
 
     return () => {
       cancelled = true;
+      restoreController?.abort();
+      if (meshRestoreAbortRef.current === restoreController) {
+        meshRestoreAbortRef.current = null;
+      }
     };
   }, []);
 
@@ -598,7 +775,7 @@ function App() {
     [generatedRecords],
   );
   const simulationToolRotation = useMemo(() => {
-    if (!simulationRotateToolWithPath || !simulationId || showOriginalMesh || simulationSamples.length === 0) {
+    if (!simulationRotateToolWithPath || !simulationId || !isSimulationMode || simulationSamples.length === 0) {
       return null;
     }
 
@@ -622,7 +799,7 @@ function App() {
     }
 
     return null;
-  }, [showOriginalMesh, simulationFrameIndex, simulationId, simulationRotateToolWithPath, simulationSamples]);
+  }, [isSimulationMode, simulationFrameIndex, simulationId, simulationRotateToolWithPath, simulationSamples]);
   const secondaryMeshUrl = isSimulationMode ? simulationCachedMeshUrl : null;
   const tertiaryMeshUrl = isSimulationMode ? simulationActiveMeshUrl : null;
   const simulationDebugDisplayActive = simulationDebugUiEnabled && isSimulationMode && Boolean(simulationCachedMeshUrl);
@@ -666,6 +843,10 @@ function App() {
   const selectedOperation = useMemo(
     () => operations.find((operation) => operation.id === selectedOperationId) ?? null,
     [operations, selectedOperationId],
+  );
+  const simulatableOperationIds = useMemo(
+    () => simulationId && selectedOperationId ? new Set([selectedOperationId]) : new Set<string>(),
+    [selectedOperationId, simulationId],
   );
 
   const highlightedMeshFaces = useMemo(() => {
@@ -1017,7 +1198,7 @@ function App() {
   );
 
   const applyCompletedSimulation = useCallback(
-    async (simulation: SweptSimulationResponse) => {
+    async (simulation: SweptSimulationResponse, nextIsSimulationMode = false) => {
       const finalFrameIndex = Math.max(simulation.frameCount - 1, 0);
       const focusMeshRequest = await prefetchMeshObjectUrlWithTiming(
         simulation.activeMeshUrl,
@@ -1078,8 +1259,7 @@ function App() {
           updateSimulationPrefetchTrigger(simulation.simulationId, null);
         });
       }
-      setShowOriginalMesh(true);
-      setIsSimulationMode(false);
+      setIsSimulationMode(nextIsSimulationMode);
       prefetchAdjacentChunkMeshes(
         simulation.simulationId,
         simulation.chunkIndex,
@@ -1203,7 +1383,7 @@ function App() {
     resetSimulationPlaybackState();
     setRequestState("idle");
     setRequestMessage("");
-    setShowOriginalMesh(true);
+    setIsSimulationMode(false);
   }
 
   function handleMeshFaceSelect(selection: MeshFaceSelection) {
@@ -1299,7 +1479,7 @@ function App() {
     });
     setGeneratedOperation(null);
     resetSimulationPlaybackState();
-    setShowOriginalMesh(true);
+    setIsSimulationMode(false);
     setRequestState("idle");
     setRequestMessage("Operation deleted.");
 
@@ -1372,18 +1552,29 @@ function App() {
     setSelectedOperationId(nodeId === "setup-1" ? null : nodeId);
   }
 
+  function handleSimulateOperation(operationId: string) {
+    setSelectedTreeNodeId(operationId);
+    setSelectedOperationId(operationId);
+
+    if (!simulationId || simulationFrameCount === 0 || operationId !== selectedOperationId) {
+      setRequestState("error");
+      setRequestMessage("Generate the selected operation before simulating it.");
+      return;
+    }
+
+    handleEnterSimulation();
+  }
+
   function handleEnterSimulation() {
     if (!simulationId || simulationFrameCount === 0) {
       return;
     }
 
-    setShowOriginalMesh(false);
     setIsSimulationMode(true);
   }
 
   function handleExitSimulation() {
     setIsSimulationPlaying(false);
-    setShowOriginalMesh(true);
     setIsSimulationMode(false);
   }
 
@@ -1398,7 +1589,7 @@ function App() {
     );
 
     setIsSimulationPlaying(false);
-    setShowOriginalMesh(false);
+    setIsSimulationMode(true);
     setSimulationFrameIndex(nextFrameIndex);
   }
 
@@ -1407,7 +1598,6 @@ function App() {
       return;
     }
 
-    setShowOriginalMesh(false);
     setIsSimulationMode(true);
     setSimulationFrameIndex((current) =>
       current >= simulationFrameCount - 1 && simulationFrameCount > 1 ? 0 : current,
@@ -1466,7 +1656,7 @@ function App() {
       );
 
       resetSimulationPlaybackState();
-      await applyCompletedSimulation(simulation);
+      await applyCompletedSimulation(simulation, true);
       setSimulationFrameIndex(nextFrameIndex);
       setRequestState("success");
       setRequestMessage(`Simulation step updated to ${formatSimulationFrameStepDistance(nextStepDistance)}.`);
@@ -1492,9 +1682,9 @@ function App() {
       hasGeneratedOperation: Boolean(generatedOperation),
       simulationTaskId,
       simulationId,
-      showOriginalMesh,
+      isSimulationMode,
     });
-  }, [generatedOperation, meshUrl, requestMessage, requestState, selectedMeshFace, selectedOperation, showOriginalMesh, simulationId, simulationTaskId]);
+  }, [generatedOperation, isSimulationMode, meshUrl, requestMessage, requestState, selectedMeshFace, selectedOperation, simulationId, simulationTaskId]);
 
   useEffect(() => {
     if (!simulationTaskId || requestState !== "submitting") {
@@ -1557,7 +1747,7 @@ function App() {
           setSimulationActiveMeshUrl(null);
           setSimulationCachedMeshUrl(null);
           resetSimulationPlaybackState();
-          setShowOriginalMesh(true);
+          setIsSimulationMode(false);
           setRequestState("idle");
           setRequestMessage("Simulation generation cancelled.");
           return;
@@ -1581,7 +1771,7 @@ function App() {
         setSimulationActiveMeshUrl(null);
         setSimulationCachedMeshUrl(null);
         resetSimulationPlaybackState();
-        setShowOriginalMesh(true);
+        setIsSimulationMode(false);
         setRequestState("error");
         setRequestMessage(
           error instanceof Error ? error.message : "Failed to generate toolpath.",
@@ -1628,7 +1818,7 @@ function App() {
       setSimulationActiveMeshUrl(null);
       setSimulationCachedMeshUrl(null);
       resetSimulationPlaybackState();
-      setShowOriginalMesh(true);
+      setIsSimulationMode(false);
       setRequestState("submitting");
       setRequestMessage(`Generating ${nextOperationLabel.toLowerCase()} toolpath...`);
 
@@ -1660,6 +1850,7 @@ function App() {
       simulationRequest.append("chunk_step_distance", String(SIMULATION_FRAME_STEP_DISTANCE_MIN));
       simulationRequest.append("frame_step_distance", String(simulationFrameStepDistance));
       simulationRequest.append("rotate_tool_with_path", String(SIMULATION_ROTATE_TOOL_WITH_PATH));
+      await appendFrontendCachedMesh(simulationRequest, meshUrl, meshName);
 
       setGeneratedOperation(operation);
       if (operationToGenerate.id) {
@@ -1693,7 +1884,7 @@ function App() {
       setSimulationActiveMeshUrl(null);
       setSimulationCachedMeshUrl(null);
       resetSimulationPlaybackState();
-      setShowOriginalMesh(true);
+      setIsSimulationMode(false);
       setRequestState("error");
       setRequestMessage(
         error instanceof Error ? error.message : "Failed to generate toolpath.",
@@ -1723,6 +1914,9 @@ function App() {
   async function handleMeshUpload(file: File | null) {
     const requestId = meshUploadRequestRef.current + 1;
     meshUploadRequestRef.current = requestId;
+    meshRestoreAbortRef.current?.abort();
+    meshRestoreAbortRef.current = null;
+    removeCachedMeshFromLocalStorage();
     queuedGenerationOperationsRef.current = [];
 
     setMeshName(null);
@@ -1741,7 +1935,7 @@ function App() {
     resetSimulationPlaybackState();
     setRequestState("idle");
     setRequestMessage("");
-    setShowOriginalMesh(true);
+    setIsSimulationMode(false);
     setFaceSelectionMode(false);
     setIsOperationTypeDialogOpen(false);
     setIsOperationDialogOpen(false);
@@ -1754,35 +1948,48 @@ function App() {
     }
 
     try {
-      const upload = new FormData();
-      upload.append("mesh", file, file.name);
-
-      const response = await fetch(`${getBackendUrl()}/cam/mesh`, {
-        method: "POST",
-        body: upload,
-      });
-
-      if (!response.ok) {
-        const contentType = response.headers.get("content-type") ?? "";
-        if (contentType.includes("application/json")) {
-          const payload = (await response.json()) as { detail?: string };
-          throw new Error(payload.detail ?? "Failed to cache STL in backend.");
-        }
-
-        const detail = await response.text();
-        throw new Error(detail || "Failed to cache STL in backend.");
-      }
-
-      const cachedMesh = (await response.json()) as CachedMeshResponse;
+      const localMesh = await saveMeshToLocalStorage(
+        file,
+        () => meshUploadRequestRef.current === requestId,
+      );
       if (meshUploadRequestRef.current !== requestId) {
         return;
       }
 
-      setMeshName(cachedMesh.name);
-      setMeshUrl(resolveBackendAssetUrl(cachedMesh.meshUrl));
-      setMeshMaxZ(cachedMesh.maxZ);
+      setMeshName(localMesh.payload.name);
+      setMeshUrl(localMesh.payload.dataUrl);
+      setMeshMaxZ(localMesh.payload.maxZ ?? null);
       setMeshCacheState("ready");
-      setMeshCacheMessage("Cached in backend memory.");
+      setMeshCacheMessage(
+        localMesh.saved
+          ? "Cached in browser localStorage. Caching backend memory..."
+          : "Loaded in browser. Browser localStorage cache unavailable.",
+      );
+
+      try {
+        const cachedMesh = await uploadMeshToBackend(file, file.name);
+        if (meshUploadRequestRef.current !== requestId) {
+          return;
+        }
+
+        setMeshMaxZ(cachedMesh.maxZ);
+        setMeshCacheMessage(
+          localMesh.saved
+            ? "Cached in browser localStorage and backend memory."
+            : "Loaded in browser and cached in backend memory.",
+        );
+      } catch (error: unknown) {
+        if (meshUploadRequestRef.current !== requestId) {
+          return;
+        }
+
+        console.error("Failed to cache STL in backend", error);
+        setMeshCacheMessage(
+          localMesh.saved
+            ? "Cached in browser localStorage. Backend cache unavailable."
+            : "Loaded in browser. Backend cache unavailable.",
+        );
+      }
     } catch (error) {
       if (meshUploadRequestRef.current !== requestId) {
         return;
@@ -1790,11 +1997,11 @@ function App() {
 
       setMeshCacheState("error");
       setMeshCacheMessage(
-        error instanceof Error ? error.message : "Failed to cache STL in backend.",
+        error instanceof Error ? error.message : "Failed to cache STL in browser.",
       );
       setRequestState("error");
       setRequestMessage(
-        error instanceof Error ? error.message : "Failed to cache STL in backend.",
+        error instanceof Error ? error.message : "Failed to cache STL in browser.",
       );
     }
   }
@@ -1826,19 +2033,19 @@ function App() {
             generatedPathCount={generatedRecords.length}
             generatedPathPointCount={generatedPathPointCount}
             generatedPathLength={generatedPathLength}
+            simulatableOperationIds={simulatableOperationIds}
             onMeshUpload={handleMeshUpload}
             onAddOperation={handleAddOperation}
             onSelectNode={handleSelectTreeNode}
             onEditOperation={handleEditOperation}
             onDeleteOperation={handleDeleteOperation}
+            onSimulateOperation={handleSimulateOperation}
             canManageOperations={requestState !== "submitting"}
             canCancelGeneration={requestState === "submitting" && simulationTaskId !== null}
             onCancelGeneration={handleCancelGeneration}
           />
 
-          <ContextMenu>
-            <ContextMenuTrigger asChild>
-              <main className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
+          <main className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
                 <PolylineViewer
                   meshUrl={meshUrl}
                   secondaryMeshUrl={secondaryMeshUrl}
@@ -1846,42 +2053,45 @@ function App() {
                   meshColor={ORIGINAL_MESH_COLOR}
                   meshUseVertexColors
                   meshEdgeColor={ORIGINAL_MESH_EDGE_COLOR}
-                  secondaryMeshColor={stockMeshColor}
-                  secondaryMeshUseVertexColors={!simulationDebugDisplayActive}
+                  secondaryMeshColor={activeMeshColor}
+                  secondaryMeshUseVertexColors
                   secondaryMeshEdgeColor={null}
-                  tertiaryMeshColor={activeMeshColor}
-                  tertiaryMeshUseVertexColors={!simulationDebugDisplayActive}
+                  tertiaryMeshColor={stockMeshColor}
+                  tertiaryMeshUseVertexColors
                   tertiaryMeshEdgeColor={null}
+                  meshOpacity={showPartMesh && showStock && isSimulationMode ? 0.3 : 1}
                   showMesh={showPartMesh}
                   showSecondaryMesh={showStock && isSimulationMode}
                   showTertiaryMesh={showStock && isSimulationMode}
                   showSimulationStock={showStock && !isSimulationMode}
-                  showTool={showTool}
+                  showTool={showTool && isSimulationMode}
                   polylines={showToolpaths ? viewportPolylines : []}
-              faceSelectionMode={faceSelectionMode}
-              selectedMeshFace={null}
-              selectedMeshFaces={highlightedMeshFaces}
-              simulationTool={generatedOperation?.tool ?? null}
-              simulationToolMeshUrl={simulationToolMeshUrl}
-              simulationToolPosition={simulationToolPosition}
-              simulationToolRotation={simulationToolRotation}
-              simulationToolRotationEnabled={simulationRotateToolWithPath}
-              showOriginalMesh={showOriginalMesh}
-              onMeshFaceSelect={handleMeshFaceSelect}
+                  faceSelectionMode={faceSelectionMode}
+                  selectedMeshFace={null}
+                  selectedMeshFaces={highlightedMeshFaces}
+                  simulationTool={generatedOperation?.tool ?? null}
+                  simulationSamples={simulationSamples}
+                  simulationStep={isSimulationMode ? simulationFrameIndex : 0}
+                  simulationToolMeshUrl={simulationToolMeshUrl}
+                  simulationToolPosition={simulationToolPosition}
+                  simulationToolRotation={simulationToolRotation}
+                  simulationToolRotationEnabled={simulationRotateToolWithPath}
+                  showOriginalMesh={!isSimulationMode}
+                  onMeshFaceSelect={handleMeshFaceSelect}
                   className="h-full min-h-0 flex-1 rounded-none border-0 shadow-none"
                 />
 
                 <div className="pointer-events-auto absolute left-4 top-4 z-20 flex items-center gap-1 rounded-md border bg-background/90 p-1 shadow backdrop-blur">
-                  <Button type="button" variant={showStock ? "secondary" : "outline"} onClick={() => setShowStock((current) => !current)} aria-pressed={showStock}>
+                  <Button type="button" className="w-12" variant={showStock ? "outline" : "secondary"} onClick={() => setShowStock((current) => !current)} aria-pressed={showStock}>
                     Stock
                   </Button>
-                  <Button type="button" variant={showPartMesh ? "secondary" : "outline"} onClick={() => setShowPartMesh((current) => !current)} aria-pressed={showPartMesh}>
+                  <Button type="button" className="w-12" variant={showPartMesh ? "outline" : "secondary"} onClick={() => setShowPartMesh((current) => !current)} aria-pressed={showPartMesh}>
                     Part
                   </Button>
-                  <Button type="button" variant={showToolpaths ? "secondary" : "outline"} onClick={() => setShowToolpaths((current) => !current)} aria-pressed={showToolpaths}>
+                  <Button type="button" className="w-18" variant={showToolpaths ? "outline" : "secondary"} onClick={() => setShowToolpaths((current) => !current)} aria-pressed={showToolpaths}>
                     Toolpaths
                   </Button>
-                  <Button type="button" variant={showTool ? "secondary" : "outline"} onClick={() => setShowTool((current) => !current)} aria-pressed={showTool}>
+                  <Button type="button" className="w-12" variant={showTool ? "outline" : "secondary"} onClick={() => setShowTool((current) => !current)} aria-pressed={showTool}>
                     Tool
                   </Button>
                 </div>
@@ -1951,17 +2161,7 @@ function App() {
                 </div>
               </div>
             ) : null}
-              </main>
-            </ContextMenuTrigger>
-            <ContextMenuContent>
-              <ContextMenuItem
-                disabled={!simulationId || simulationFrameCount === 0 || requestState === "submitting"}
-                onSelect={handleEnterSimulation}
-              >
-                Simulate
-              </ContextMenuItem>
-            </ContextMenuContent>
-          </ContextMenu>
+          </main>
         </div>
 
         <OperationTypeDialog

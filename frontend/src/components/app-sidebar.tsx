@@ -33,11 +33,13 @@ type AppSidebarProps = {
   generatedPathCount: number;
   generatedPathPointCount: number;
   generatedPathLength: number;
+  simulatableOperationIds: ReadonlySet<string>;
   onMeshUpload: (file: File | null) => void;
   onAddOperation: () => void;
   onSelectNode: (nodeId: string) => void;
   onEditOperation: (operationId: string) => void;
   onDeleteOperation: (operationId: string) => void;
+  onSimulateOperation: (operationId: string) => void;
   canManageOperations: boolean;
   canCancelGeneration: boolean;
   onCancelGeneration: () => void;
@@ -62,7 +64,9 @@ function renderTreeNode(
   }: TreeNodeRenderProps<OperationTreeItem>,
   onEditOperation: (operationId: string) => void,
   onDeleteOperation: (operationId: string) => void,
+  onSimulateOperation: (operationId: string) => void,
   canManageOperations: boolean,
+  simulatableOperationIds: ReadonlySet<string>,
 ) {
   const operationId = node.data.operationId;
   const content = (
@@ -102,6 +106,9 @@ function renderTreeNode(
     <ContextMenu>
       <ContextMenuTrigger asChild>{content}</ContextMenuTrigger>
       <ContextMenuContent>
+        <ContextMenuItem disabled={!simulatableOperationIds.has(operationId)} onSelect={() => onSimulateOperation(operationId)}>
+          Simulate
+        </ContextMenuItem>
         <ContextMenuItem disabled={!canManageOperations} onSelect={() => onEditOperation(operationId)}>
           Edit operation
         </ContextMenuItem>
@@ -128,11 +135,13 @@ export function AppSidebar({
   generatedPathCount,
   generatedPathPointCount,
   generatedPathLength,
+  simulatableOperationIds,
   onMeshUpload,
   onAddOperation,
   onSelectNode,
   onEditOperation,
   onDeleteOperation,
+  onSimulateOperation,
   canManageOperations,
   canCancelGeneration,
   onCancelGeneration,
@@ -184,7 +193,14 @@ export function AppSidebar({
             selectedIds={[selectedNodeId]}
             onSelectedIdsChange={(ids) => onSelectNode(ids.at(-1) ?? "setup-1")}
             renderNode={(props) =>
-              renderTreeNode(props, onEditOperation, onDeleteOperation, canManageOperations)}
+              renderTreeNode(
+                props,
+                onEditOperation,
+                onDeleteOperation,
+                onSimulateOperation,
+                canManageOperations,
+                simulatableOperationIds,
+              )}
             aria-label="CAM setup tree"
           />
         </div>

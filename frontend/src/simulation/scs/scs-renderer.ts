@@ -225,12 +225,18 @@ export class SCSRenderer {
       sequence.forEach((mesh) => {
         mesh.visible = false;
       });
-      this.renderer.render(scene, camera);
-      primitive.visible = true;
-      sequence.forEach((mesh) => {
-        mesh.visible = true;
-      });
-      other.visible = false;
+      const previousAfterRender = scene.onAfterRender;
+      scene.onAfterRender = NOOP_AFTER_RENDER;
+      try {
+        this.renderer.render(scene, camera);
+      } finally {
+        scene.onAfterRender = previousAfterRender;
+        primitive.visible = true;
+        sequence.forEach((mesh) => {
+          mesh.visible = true;
+        });
+        other.visible = false;
+      }
 
       gl.enable(gl.BLEND);
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);

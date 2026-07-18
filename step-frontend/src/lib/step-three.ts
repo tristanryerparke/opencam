@@ -35,6 +35,7 @@ const DEFAULT_MESH_COLOR = 0xd1d5db;
 const SELECTED_FACE_COLOR = 0xf97316;
 const EDGE_COLOR = 0x111827;
 const CONTOUR_COLOR = 0x2563eb;
+const SELECTED_FACE_EDGE_COLOR = 0x22c55e;
 const EDGE_LOOP_SELECTED_COLOR = 0x1e3a8a;
 const HOVER_FACE_COLOR = 0xf97316;
 const CONTOUR_COUNT = 10;
@@ -254,6 +255,17 @@ function removeSelectedFaceContours(mesh: THREE.Mesh) {
   mesh.userData.selectedFaceContours = null;
 }
 
+function removeSelectedFaceEdges(mesh: THREE.Mesh) {
+  const edges = mesh.userData.selectedFaceEdges as THREE.Object3D | undefined;
+  if (!edges) {
+    return;
+  }
+
+  mesh.remove(edges);
+  disposeObject(edges);
+  mesh.userData.selectedFaceEdges = null;
+}
+
 function pushPlaneIntersection(
   points: THREE.Vector3[],
   a: THREE.Vector3,
@@ -373,6 +385,7 @@ export function setSelectedBrepFace(root: THREE.Object3D, selected: SelectedBrep
 
   for (const mesh of meshes) {
     removeSelectedFaceContours(mesh);
+    removeSelectedFaceEdges(mesh);
 
     const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
     for (const material of materials) {
@@ -396,6 +409,17 @@ export function setSelectedBrepFace(root: THREE.Object3D, selected: SelectedBrep
     if (contours) {
       mesh.add(contours);
       mesh.userData.selectedFaceContours = contours;
+    }
+
+    const edgeGroup = new THREE.Group();
+    for (const loop of range ? buildBrepFaceEdgeLoops(mesh, range) : []) {
+      const line = createBrepEdgeLoopLine(loop, SELECTED_FACE_EDGE_COLOR);
+      line.renderOrder = 21;
+      edgeGroup.add(line);
+    }
+    if (edgeGroup.children.length > 0) {
+      mesh.add(edgeGroup);
+      mesh.userData.selectedFaceEdges = edgeGroup;
     }
   }
 }

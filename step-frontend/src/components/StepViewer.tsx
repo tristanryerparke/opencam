@@ -1,7 +1,9 @@
 import { useEffect, useRef, type RefObject } from "react";
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import type { OcctReadResult } from "occt-import-js";
+import { useStepViewerStore } from "@/store/use-step-viewer-store";
+import { pickNearestEdgeLoopFromPointer } from "./step-viewer/edge-loop-picking";
+import { pickBrepFaceFromPointer } from "./step-viewer/face-picking";
 import {
   buildStepScene,
   createBrepEdgeLoopLine,
@@ -10,24 +12,10 @@ import {
   disposeObject,
   getAllBrepEdgeLoops,
   getBrepFaceEdgeLoops,
-  getSelectedBrepFaceFromIntersection,
   setSelectedBrepFace,
   type BrepEdgeLoop,
-  type SelectedBrepEdgeLoop,
   type SelectedBrepFace,
-  type StepSceneStats,
 } from "@/lib/step-three";
-
-type StepViewerProps = {
-  result: OcctReadResult | null;
-  pickingMode: boolean;
-  edgeLoopPickingMode: boolean;
-  selectedFace: SelectedBrepFace | null;
-  selectedEdgeLoop: SelectedBrepEdgeLoop | null;
-  onFacePick: (selection: SelectedBrepFace) => void;
-  onEdgeLoopPick: (selection: SelectedBrepEdgeLoop) => void;
-  onStatsChange: (stats: StepSceneStats | null) => void;
-};
 
 type ViewerState = {
   scene: THREE.Scene;
@@ -80,16 +68,6 @@ function fitCameraToObject(
   controls.minDistance = Math.max(maxDimension * 0.0005, 0.01);
   controls.maxDistance = Math.max(maxDimension * 20, distance * 4);
   controls.update();
-}
-
-function distanceToSegmentSquared(px: number, py: number, ax: number, ay: number, bx: number, by: number) {
-  const dx = bx - ax;
-  const dy = by - ay;
-  const lengthSquared = dx * dx + dy * dy;
-  const t = lengthSquared === 0 ? 0 : Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lengthSquared));
-  const x = ax + dx * t;
-  const y = ay + dy * t;
-  return (px - x) ** 2 + (py - y) ** 2;
 }
 
 function setupViewer(container: HTMLDivElement) {
@@ -165,20 +143,18 @@ function setupViewer(container: HTMLDivElement) {
   };
 }
 
-export function StepViewer({
-  result,
-  pickingMode,
-  edgeLoopPickingMode,
-  selectedFace,
-  selectedEdgeLoop,
-  onFacePick,
-  onEdgeLoopPick,
-  onStatsChange,
-}: StepViewerProps) {
+export function StepViewer() {
+  const pickMode = useStepViewerStore((state) => state.pickMode);
+  const result = useStepViewerStore((state) => state.result);
+  const selectedEdgeLoop = useStepViewerStore((state) => state.selectedEdgeLoop);
+  const selectedFace = useStepViewerStore((state) => state.selectedFace);
+  const selectEdgeLoop = useStepViewerStore((state) => state.selectEdgeLoop);
+  const selectFace = useStepViewerStore((state) => state.selectFace);
+  const setStats = useStepViewerStore((state) => state.setStats);
+
   const containerRef: RefObject<HTMLDivElement | null> = useRef(null);
   const viewerRef = useRef<ViewerState | null>(null);
-  const pickingModeRef = useRef(pickingMode);
-  const edgeLoopPickingModeRef = useRef(edgeLoopPickingMode);
+  const pickModeRef = useRef(pickMode);
   const selectedFaceRef = useRef(selectedFace);
   const hoveredFaceRef = useRef<SelectedBrepFace | null>(null);
   const facePreviewRef = useRef<THREE.Object3D | null>(null);
@@ -186,8 +162,6 @@ export function StepViewer({
   const hoveredEdgeLoopRef = useRef<BrepEdgeLoop | null>(null);
   const edgeLoopPreviewRef = useRef<THREE.Object3D | null>(null);
   const selectedEdgeLoopLineRef = useRef<THREE.Object3D | null>(null);
-  const onFacePickRef = useRef(onFacePick);
-  const onEdgeLoopPickRef = useRef(onEdgeLoopPick);
 
   const clearFacePreview = () => {
     const preview = facePreviewRef.current;
@@ -252,65 +226,19 @@ export function StepViewer({
     hoveredEdgeLoopRef.current = loop;
   };
 
-  const pickFace = (
-    event: PointerEvent,
-    state: ViewerState,
-    raycaster: THREE.Raycaster,
-    pointer: THREE.Vector2,
-  ) => {
-    const rect = state.renderer.domElement.getBoundingClientRect();
-    pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-    pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-
-    const pickables: THREE.Object3D[] = [];
-    state.modelRoot.traverse((child) => {
-      if (child instanceof THREE.Mesh && typeof child.userData.stepMeshIndex === "number") {
-        pickables.push(child);
-      }
-    });
-
-    raycaster.setFromCamera(pointer, state.camera);
-    const [intersection] = raycaster.intersectObjects(pickables, false);
-    return intersection ? getSelectedBrepFaceFromIntersection(intersection) : null;
-  };
-
   const updateEdgeLoopPreview = (event: PointerEvent, state: ViewerState) => {
     if (edgeLoopsRef.current.length === 0) {
       edgeLoopsRef.current = getAllBrepEdgeLoops(state.modelRoot);
     }
 
-    const rect = state.renderer.domElement.getBoundingClientRect();
-    const px = event.clientX - rect.left;
-    const py = event.clientY - rect.top;
-    const start = new THREE.Vector3();
-    const end = new THREE.Vector3();
-    let best: BrepEdgeLoop | null = null;
-    let bestDistanceSquared = 10 ** 2;
-
-    for (const loop of edgeLoopsRef.current) {
-      for (let index = 0; index < loop.positions.length; index += 6) {
-        start.set(loop.positions[index], loop.positions[index + 1], loop.positions[index + 2]);
-        end.set(loop.positions[index + 3], loop.positions[index + 4], loop.positions[index + 5]);
-        start.applyMatrix4(loop.mesh.matrixWorld).project(state.camera);
-        end.applyMatrix4(loop.mesh.matrixWorld).project(state.camera);
-        if (start.z < -1 || start.z > 1 || end.z < -1 || end.z > 1) {
-          continue;
-        }
-
-        const ax = ((start.x + 1) / 2) * rect.width;
-        const ay = ((1 - start.y) / 2) * rect.height;
-        const bx = ((end.x + 1) / 2) * rect.width;
-        const by = ((1 - end.y) / 2) * rect.height;
-        const distanceSquared = distanceToSegmentSquared(px, py, ax, ay, bx, by);
-        if (distanceSquared < bestDistanceSquared) {
-          bestDistanceSquared = distanceSquared;
-          best = loop;
-        }
-      }
-    }
-
-    if (best) {
-      showEdgeLoopPreview(best);
+    const loop = pickNearestEdgeLoopFromPointer(
+      event,
+      edgeLoopsRef.current,
+      state.camera,
+      state.renderer.domElement,
+    );
+    if (loop) {
+      showEdgeLoopPreview(loop);
     } else {
       clearEdgeLoopPreview();
     }
@@ -329,15 +257,22 @@ export function StepViewer({
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
     const handlePointerMove = (event: PointerEvent) => {
-      if (edgeLoopPickingModeRef.current) {
+      if (pickModeRef.current === "edge-loop") {
         updateEdgeLoopPreview(event, state);
         return;
       }
-      if (!pickingModeRef.current) {
+      if (pickModeRef.current !== "face") {
         return;
       }
 
-      const selection = pickFace(event, state, raycaster, pointer);
+      const selection = pickBrepFaceFromPointer(
+        event,
+        state.modelRoot,
+        state.camera,
+        state.renderer.domElement,
+        raycaster,
+        pointer,
+      );
       if (selection) {
         showFacePreview(selection, state);
       } else {
@@ -345,20 +280,17 @@ export function StepViewer({
       }
     };
     const handlePointerDown = (event: PointerEvent) => {
-      if (!pickingModeRef.current && !edgeLoopPickingModeRef.current) {
-        return;
-      }
-      if (event.button !== 0) {
+      if (pickModeRef.current === "none" || event.button !== 0) {
         return;
       }
 
       event.preventDefault();
       event.stopPropagation();
 
-      if (edgeLoopPickingModeRef.current) {
+      if (pickModeRef.current === "edge-loop") {
         const loop = hoveredEdgeLoopRef.current;
         if (loop) {
-          onEdgeLoopPickRef.current({
+          selectEdgeLoop({
             meshIndex: loop.meshIndex,
             faceIndex: loop.faceIndex,
             loopIndex: loop.loopIndex,
@@ -367,9 +299,16 @@ export function StepViewer({
         return;
       }
 
-      const selection = hoveredFaceRef.current ?? pickFace(event, state, raycaster, pointer);
+      const selection = hoveredFaceRef.current ?? pickBrepFaceFromPointer(
+        event,
+        state.modelRoot,
+        state.camera,
+        state.renderer.domElement,
+        raycaster,
+        pointer,
+      );
       if (selection) {
-        onFacePickRef.current(selection);
+        selectFace(selection);
       }
     };
     state.renderer.domElement.addEventListener("pointermove", handlePointerMove, true);
@@ -384,30 +323,21 @@ export function StepViewer({
   }, []);
 
   useEffect(() => {
-    onFacePickRef.current = onFacePick;
-  }, [onFacePick]);
-
-  useEffect(() => {
-    onEdgeLoopPickRef.current = onEdgeLoopPick;
-  }, [onEdgeLoopPick]);
-
-  useEffect(() => {
-    pickingModeRef.current = pickingMode;
-    edgeLoopPickingModeRef.current = edgeLoopPickingMode;
+    pickModeRef.current = pickMode;
     const viewer = viewerRef.current;
     if (!viewer) {
       return;
     }
 
     viewer.controls.enabled = true;
-    viewer.renderer.domElement.style.cursor = pickingMode || edgeLoopPickingMode ? "crosshair" : "grab";
-    if (!pickingMode) {
+    viewer.renderer.domElement.style.cursor = pickMode === "none" ? "grab" : "crosshair";
+    if (pickMode !== "face") {
       clearFacePreview();
     }
-    if (!edgeLoopPickingMode) {
+    if (pickMode !== "edge-loop") {
       clearEdgeLoopPreview();
     }
-  }, [edgeLoopPickingMode, pickingMode]);
+  }, [pickMode]);
 
   useEffect(() => {
     selectedFaceRef.current = selectedFace;
@@ -450,7 +380,7 @@ export function StepViewer({
     clearSelectedEdgeLoopLine();
     clearGroup(viewer.modelRoot);
     if (!result) {
-      onStatsChange(null);
+      setStats(null);
       fitCameraToObject(viewer.modelRoot, viewer.camera, viewer.controls);
       return;
     }
@@ -458,9 +388,9 @@ export function StepViewer({
     const { group, stats } = buildStepScene(result);
     viewer.modelRoot.add(group);
     setSelectedBrepFace(viewer.modelRoot, selectedFaceRef.current);
-    onStatsChange(stats);
+    setStats(stats);
     fitCameraToObject(viewer.modelRoot, viewer.camera, viewer.controls);
-  }, [onStatsChange, result]);
+  }, [result, setStats]);
 
   return <div ref={containerRef} className="viewer" />;
 }

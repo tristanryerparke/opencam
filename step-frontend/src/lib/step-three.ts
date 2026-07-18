@@ -1,4 +1,7 @@
 import * as THREE from "three";
+import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
+import { LineSegments2 } from "three/examples/jsm/lines/LineSegments2.js";
+import { LineSegmentsGeometry } from "three/examples/jsm/lines/LineSegmentsGeometry.js";
 import type { OcctMesh, OcctReadResult } from "occt-import-js";
 
 export type StepSceneStats = {
@@ -22,6 +25,9 @@ type FaceRange = {
 const DEFAULT_MESH_COLOR = 0xd1d5db;
 const SELECTED_FACE_COLOR = 0xf97316;
 const EDGE_COLOR = 0x111827;
+const CONTOUR_COLOR = 0x2563eb;
+const CONTOUR_COUNT = 10;
+const CONTOUR_LINEWIDTH = 2;
 
 function makeMeshMaterial(color = DEFAULT_MESH_COLOR) {
   return new THREE.MeshStandardMaterial({
@@ -119,7 +125,11 @@ function buildEdgeLines(
 
   const lines = new THREE.LineSegments(
     edgeGeometry,
-    new THREE.LineBasicMaterial({ color: EDGE_COLOR }),
+    new THREE.LineBasicMaterial({
+      color: EDGE_COLOR,
+      depthTest: true,
+      depthWrite: false,
+    }),
   );
   lines.renderOrder = 1;
   return {
@@ -204,28 +214,161 @@ export function buildStepScene(result: OcctReadResult) {
   return { group, stats };
 }
 
-export function setSelectedBrepFace(root: THREE.Object3D, selected: SelectedBrepFace | null) {
-  root.traverse((child) => {
-    if (!(child instanceof THREE.Mesh) || typeof child.userData.stepMeshIndex !== "number") {
-      return;
-    }
+function removeSelectedFaceContours(mesh: THREE.Mesh) {
+  const contours = mesh.userData.selectedFaceContours as THREE.Object3D | undefined;
+  if (!contours) {
+    return;
+  }
 
-    const materials = Array.isArray(child.material) ? child.material : [child.material];
+  mesh.remove(contours);
+  disposeObject(contours);
+  mesh.userData.selectedFaceContours = null;
+}
+
+function pushPlaneIntersection(
+  points: THREE.Vector3[],
+  a: THREE.Vector3,
+  b: THREE.Vector3,
+  axis: "x" | "y" | "z",
+  value: number,
+) {
+  const da = a[axis] - value;
+  const db = b[axis] - value;
+  const eps = 1e-8;
+
+  if (Math.abs(da) < eps && Math.abs(db) < eps) {
+    return;
+  }
+  if (da * db > 0 && Math.abs(da) >= eps && Math.abs(db) >= eps) {
+    return;
+  }
+
+  const t = Math.abs(da) < eps ? 0 : Math.abs(db) < eps ? 1 : da / (da - db);
+  points.push(new THREE.Vector3().lerpVectors(a, b, t));
+}
+
+function pushUnique(points: THREE.Vector3[], point: THREE.Vector3) {
+  if (!points.some((existing) => existing.distanceToSquared(point) < 1e-12)) {
+    points.push(point);
+  }
+}
+
+function buildSelectedFaceContours(mesh: THREE.Mesh, range: FaceRange) {
+  const geometry = mesh.geometry;
+  const position = geometry.getAttribute("position");
+  const index = geometry.getIndex();
+  if (!position || !index) {
+    return null;
+  }
+
+  const vertices: THREE.Vector3[] = [];
+  for (let triangle = range.firstTriangle; triangle < range.lastTriangleExclusive; triangle += 1) {
+    for (let corner = 0; corner < 3; corner += 1) {
+      vertices.push(new THREE.Vector3().fromBufferAttribute(position, index.getX(triangle * 3 + corner)));
+    }
+  }
+
+  const bounds = new THREE.Box3().setFromPoints(vertices);
+  const size = bounds.getSize(new THREE.Vector3());
+  const axis = size.z > 1e-6 ? "z" : size.x >= size.y ? "x" : "y";
+  const min = bounds.min[axis];
+  const extent = size[axis];
+  if (extent <= 1e-6) {
+    return null;
+  }
+
+  const contourPositions: number[] = [];
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  const c = new THREE.Vector3();
+
+  for (let contour = 1; contour <= CONTOUR_COUNT; contour += 1) {
+    const value = min + (extent * contour) / (CONTOUR_COUNT + 1);
+
+    for (let triangle = range.firstTriangle; triangle < range.lastTriangleExclusive; triangle += 1) {
+      a.fromBufferAttribute(position, index.getX(triangle * 3));
+      b.fromBufferAttribute(position, index.getX(triangle * 3 + 1));
+      c.fromBufferAttribute(position, index.getX(triangle * 3 + 2));
+
+      const intersections: THREE.Vector3[] = [];
+      pushPlaneIntersection(intersections, a, b, axis, value);
+      pushPlaneIntersection(intersections, b, c, axis, value);
+      pushPlaneIntersection(intersections, c, a, axis, value);
+
+      const unique: THREE.Vector3[] = [];
+      for (const point of intersections) {
+        pushUnique(unique, point);
+      }
+      if (unique.length >= 2) {
+        contourPositions.push(
+          unique[0].x,
+          unique[0].y,
+          unique[0].z,
+          unique[1].x,
+          unique[1].y,
+          unique[1].z,
+        );
+      }
+    }
+  }
+
+  if (contourPositions.length === 0) {
+    return null;
+  }
+
+  const contourGeometry = new LineSegmentsGeometry();
+  contourGeometry.setPositions(contourPositions);
+  const contours = new LineSegments2(
+    contourGeometry,
+    new LineMaterial({
+      color: CONTOUR_COLOR,
+      linewidth: CONTOUR_LINEWIDTH,
+      depthTest: false,
+      depthWrite: false,
+      transparent: true,
+      opacity: 0.95,
+    }),
+  );
+  contours.frustumCulled = false;
+  contours.renderOrder = 20;
+  return contours;
+}
+
+export function setSelectedBrepFace(root: THREE.Object3D, selected: SelectedBrepFace | null) {
+  const meshes: THREE.Mesh[] = [];
+  root.traverse((child) => {
+    if (child instanceof THREE.Mesh && typeof child.userData.stepMeshIndex === "number") {
+      meshes.push(child);
+    }
+  });
+
+  for (const mesh of meshes) {
+    removeSelectedFaceContours(mesh);
+
+    const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
     for (const material of materials) {
       if (material instanceof THREE.MeshStandardMaterial) {
         material.color.set(DEFAULT_MESH_COLOR);
       }
     }
 
-    if (selected?.meshIndex !== child.userData.stepMeshIndex) {
-      return;
+    if (!selected || selected.meshIndex !== mesh.userData.stepMeshIndex) {
+      continue;
     }
 
     const material = materials[selected.faceIndex + 1];
     if (material instanceof THREE.MeshStandardMaterial) {
       material.color.set(SELECTED_FACE_COLOR);
     }
-  });
+
+    const faceRanges = mesh.userData.brepFaceRanges as FaceRange[] | undefined;
+    const range = faceRanges?.find((candidate) => candidate.faceIndex === selected.faceIndex);
+    const contours = range ? buildSelectedFaceContours(mesh, range) : null;
+    if (contours) {
+      mesh.add(contours);
+      mesh.userData.selectedFaceContours = contours;
+    }
+  }
 }
 
 export function getSelectedBrepFaceFromIntersection(

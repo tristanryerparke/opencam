@@ -4,6 +4,7 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { OcctReadResult } from "occt-import-js";
 import {
   buildStepScene,
+  createBrepFaceHoverPreview,
   disposeObject,
   getSelectedBrepFaceFromIntersection,
   setSelectedBrepFace,
@@ -103,6 +104,11 @@ function setupViewer(container: HTMLDivElement) {
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
   controls.screenSpacePanning = true;
+  controls.mouseButtons = {
+    LEFT: null,
+    MIDDLE: THREE.MOUSE.DOLLY,
+    RIGHT: THREE.MOUSE.ROTATE,
+  };
 
   const resize = () => {
     const width = container.clientWidth;
@@ -151,7 +157,60 @@ export function StepViewer({
   const viewerRef = useRef<ViewerState | null>(null);
   const pickingModeRef = useRef(pickingMode);
   const selectedFaceRef = useRef(selectedFace);
+  const hoveredFaceRef = useRef<SelectedBrepFace | null>(null);
+  const facePreviewRef = useRef<THREE.Object3D | null>(null);
   const onFacePickRef = useRef(onFacePick);
+
+  const clearFacePreview = () => {
+    const preview = facePreviewRef.current;
+    if (preview) {
+      preview.parent?.remove(preview);
+      disposeObject(preview);
+      facePreviewRef.current = null;
+    }
+    hoveredFaceRef.current = null;
+  };
+
+  const sameFace = (a: SelectedBrepFace | null, b: SelectedBrepFace | null) =>
+    a?.meshIndex === b?.meshIndex && a?.faceIndex === b?.faceIndex;
+
+  const showFacePreview = (selection: SelectedBrepFace, state: ViewerState) => {
+    if (sameFace(hoveredFaceRef.current, selection)) {
+      return;
+    }
+
+    clearFacePreview();
+    const built = createBrepFaceHoverPreview(state.modelRoot, selection);
+    if (!built) {
+      return;
+    }
+
+    built.mesh.add(built.preview);
+    facePreviewRef.current = built.preview;
+    hoveredFaceRef.current = selection;
+  };
+
+  const pickFace = (
+    event: PointerEvent,
+    state: ViewerState,
+    raycaster: THREE.Raycaster,
+    pointer: THREE.Vector2,
+  ) => {
+    const rect = state.renderer.domElement.getBoundingClientRect();
+    pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+    const pickables: THREE.Object3D[] = [];
+    state.modelRoot.traverse((child) => {
+      if (child instanceof THREE.Mesh && typeof child.userData.stepMeshIndex === "number") {
+        pickables.push(child);
+      }
+    });
+
+    raycaster.setFromCamera(pointer, state.camera);
+    const [intersection] = raycaster.intersectObjects(pickables, false);
+    return intersection ? getSelectedBrepFaceFromIntersection(intersection) : null;
+  };
 
   useEffect(() => {
     const container = containerRef.current;
@@ -165,38 +224,39 @@ export function StepViewer({
 
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
+    const handlePointerMove = (event: PointerEvent) => {
+      if (!pickingModeRef.current) {
+        return;
+      }
+
+      const selection = pickFace(event, state, raycaster, pointer);
+      if (selection) {
+        showFacePreview(selection, state);
+      } else {
+        clearFacePreview();
+      }
+    };
     const handlePointerDown = (event: PointerEvent) => {
       if (!pickingModeRef.current) {
+        return;
+      }
+      if (event.button !== 0) {
         return;
       }
 
       event.preventDefault();
       event.stopPropagation();
-      if (event.button !== 0) {
-        return;
-      }
 
-      const rect = state.renderer.domElement.getBoundingClientRect();
-      pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-      pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-
-      const pickables: THREE.Object3D[] = [];
-      state.modelRoot.traverse((child) => {
-        if (child instanceof THREE.Mesh && typeof child.userData.stepMeshIndex === "number") {
-          pickables.push(child);
-        }
-      });
-
-      raycaster.setFromCamera(pointer, state.camera);
-      const [intersection] = raycaster.intersectObjects(pickables, false);
-      const selection = intersection ? getSelectedBrepFaceFromIntersection(intersection) : null;
+      const selection = hoveredFaceRef.current ?? pickFace(event, state, raycaster, pointer);
       if (selection) {
         onFacePickRef.current(selection);
       }
     };
+    state.renderer.domElement.addEventListener("pointermove", handlePointerMove, true);
     state.renderer.domElement.addEventListener("pointerdown", handlePointerDown, true);
 
     return () => {
+      state.renderer.domElement.removeEventListener("pointermove", handlePointerMove, true);
       state.renderer.domElement.removeEventListener("pointerdown", handlePointerDown, true);
       viewerRef.current = null;
       dispose();
@@ -214,12 +274,16 @@ export function StepViewer({
       return;
     }
 
-    viewer.controls.enabled = !pickingMode;
+    viewer.controls.enabled = true;
     viewer.renderer.domElement.style.cursor = pickingMode ? "crosshair" : "grab";
+    if (!pickingMode) {
+      clearFacePreview();
+    }
   }, [pickingMode]);
 
   useEffect(() => {
     selectedFaceRef.current = selectedFace;
+    clearFacePreview();
     const viewer = viewerRef.current;
     if (viewer) {
       setSelectedBrepFace(viewer.modelRoot, selectedFace);
@@ -232,6 +296,7 @@ export function StepViewer({
       return;
     }
 
+    clearFacePreview();
     clearGroup(viewer.modelRoot);
     if (!result) {
       onStatsChange(null);

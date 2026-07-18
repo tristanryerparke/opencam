@@ -26,6 +26,7 @@ const DEFAULT_MESH_COLOR = 0xd1d5db;
 const SELECTED_FACE_COLOR = 0xf97316;
 const EDGE_COLOR = 0x111827;
 const CONTOUR_COLOR = 0x2563eb;
+const HOVER_FACE_COLOR = 0xf97316;
 const CONTOUR_COUNT = 10;
 const CONTOUR_LINEWIDTH = 2;
 
@@ -369,6 +370,60 @@ export function setSelectedBrepFace(root: THREE.Object3D, selected: SelectedBrep
       mesh.userData.selectedFaceContours = contours;
     }
   }
+}
+
+export function createBrepFaceHoverPreview(root: THREE.Object3D, selected: SelectedBrepFace) {
+  const meshes: THREE.Mesh[] = [];
+  root.traverse((child) => {
+    if (child instanceof THREE.Mesh && child.userData.stepMeshIndex === selected.meshIndex) {
+      meshes.push(child);
+    }
+  });
+
+  const mesh = meshes[0];
+  const faceRanges = mesh?.userData.brepFaceRanges as FaceRange[] | undefined;
+  const range = faceRanges?.find((candidate) => candidate.faceIndex === selected.faceIndex);
+  const position = mesh?.geometry.getAttribute("position");
+  const normal = mesh?.geometry.getAttribute("normal");
+  const index = mesh?.geometry.getIndex();
+  if (!mesh || !range || !position || !index) {
+    return null;
+  }
+
+  const positions: number[] = [];
+  const normals: number[] = [];
+  for (let triangle = range.firstTriangle; triangle < range.lastTriangleExclusive; triangle += 1) {
+    for (let corner = 0; corner < 3; corner += 1) {
+      const vertexIndex = index.getX(triangle * 3 + corner);
+      positions.push(position.getX(vertexIndex), position.getY(vertexIndex), position.getZ(vertexIndex));
+      if (normal) {
+        normals.push(normal.getX(vertexIndex), normal.getY(vertexIndex), normal.getZ(vertexIndex));
+      }
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  if (normals.length === positions.length) {
+    geometry.setAttribute("normal", new THREE.Float32BufferAttribute(normals, 3));
+  } else {
+    geometry.computeVertexNormals();
+  }
+
+  const preview = new THREE.Mesh(
+    geometry,
+    new THREE.MeshBasicMaterial({
+      color: HOVER_FACE_COLOR,
+      depthTest: false,
+      depthWrite: false,
+      opacity: 0.45,
+      side: THREE.DoubleSide,
+      transparent: true,
+    }),
+  );
+  preview.frustumCulled = false;
+  preview.renderOrder = 30;
+  return { mesh, preview };
 }
 
 export function getSelectedBrepFaceFromIntersection(

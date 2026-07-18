@@ -151,10 +151,7 @@ export const camSchemaBundle = {
           }
         },
         "title": "CAMSetup",
-        "type": "object",
-        "x-opencam": {
-          "hidden": true
-        }
+        "type": "object"
       },
       "ClosedPolyline25D": {
         "properties": {
@@ -314,25 +311,16 @@ export const camSchemaBundle = {
             "const": "pocketing_2d",
             "default": "pocketing_2d",
             "title": "Type",
-            "type": "string",
-            "x-opencam": {
-              "hidden": true
-            }
+            "type": "string"
           },
           "id": {
             "title": "Operation ID",
-            "type": "string",
-            "x-opencam": {
-              "hidden": true
-            }
+            "type": "string"
           },
           "displayName": {
             "default": "2D Pocket",
             "title": "Operation name",
-            "type": "string",
-            "x-opencam": {
-              "hidden": true
-            }
+            "type": "string"
           },
           "tool": {
             "discriminator": {
@@ -354,10 +342,7 @@ export const camSchemaBundle = {
                 "$ref": "#/$defs/VTool"
               }
             ],
-            "title": "Tool",
-            "x-opencam": {
-              "widget": "tool-select"
-            }
+            "title": "Tool"
           },
           "feedsAndSpeeds": {
             "$ref": "#/$defs/FeedsAndSpeeds",
@@ -483,10 +468,7 @@ export const camSchemaBundle = {
           }
         },
         "title": "SetupOrientation",
-        "type": "object",
-        "x-opencam": {
-          "hidden": true
-        }
+        "type": "object"
       },
       "SetupOrigin": {
         "properties": {
@@ -516,10 +498,7 @@ export const camSchemaBundle = {
           }
         },
         "title": "SetupOrigin",
-        "type": "object",
-        "x-opencam": {
-          "hidden": true
-        }
+        "type": "object"
       },
       "SetupStock": {
         "properties": {
@@ -534,10 +513,7 @@ export const camSchemaBundle = {
           }
         },
         "title": "SetupStock",
-        "type": "object",
-        "x-opencam": {
-          "hidden": true
-        }
+        "type": "object"
       },
       "StepoverMode": {
         "properties": {
@@ -1115,25 +1091,16 @@ export const camSchemaBundle = {
         "const": "pocketing_2d",
         "default": "pocketing_2d",
         "title": "Type",
-        "type": "string",
-        "x-opencam": {
-          "hidden": true
-        }
+        "type": "string"
       },
       "id": {
         "title": "Operation ID",
-        "type": "string",
-        "x-opencam": {
-          "hidden": true
-        }
+        "type": "string"
       },
       "displayName": {
         "default": "2D Pocket",
         "title": "Operation name",
-        "type": "string",
-        "x-opencam": {
-          "hidden": true
-        }
+        "type": "string"
       },
       "tool": {
         "discriminator": {
@@ -1155,10 +1122,7 @@ export const camSchemaBundle = {
             "$ref": "#/$defs/VTool"
           }
         ],
-        "title": "Tool",
-        "x-opencam": {
-          "widget": "tool-select"
-        }
+        "title": "Tool"
       },
       "feedsAndSpeeds": {
         "$ref": "#/$defs/FeedsAndSpeeds",

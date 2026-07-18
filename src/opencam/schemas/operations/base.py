@@ -11,20 +11,14 @@ from opencam.schemas.tools import Tool
 
 def ui_metadata(
     *,
-    hidden: bool = False,
     unit: str | None = None,
     read_only: bool = False,
-    widget: str | None = None,
 ) -> dict[str, object]:
     metadata: dict[str, object] = {}
-    if hidden:
-        metadata["hidden"] = True
     if unit is not None:
         metadata["unit"] = unit
     if read_only:
         metadata["readOnly"] = True
-    if widget is not None:
-        metadata["widget"] = widget
     return {"x-opencam": metadata}
 
 
@@ -78,9 +72,9 @@ class CAMAdvancedParameters(CamelBaseModel):
 
 class BaseCAMOperation(CamelBaseModel):
     type: str
-    id: str = Field(default_factory=lambda: str(uuid4()), title="Operation ID", json_schema_extra=ui_metadata(hidden=True))
-    display_name: str = Field(default="2D Pocket", title="Operation name", json_schema_extra=ui_metadata(hidden=True))
-    tool: Tool = Field(title="Tool", json_schema_extra=ui_metadata(widget="tool-select"))
+    id: str = Field(default_factory=lambda: str(uuid4()), title="Operation ID")
+    display_name: str = Field(default="2D Pocket", title="Operation name")
+    tool: Tool = Field(title="Tool")
     feeds_and_speeds: FeedsAndSpeeds = Field(default_factory=FeedsAndSpeeds, title="Feeds and speeds")
     clearance: ClearanceSettings = Field(default_factory=AbsoluteClearance, title="Clearance")
     levels: CAMLevels = Field(default_factory=CAMLevels, title="Levels")

@@ -15,16 +15,12 @@ from opencam.schemas.operations.base import (
 
 
 class SetupOrigin(CamelBaseModel):
-    model_config = ConfigDict(json_schema_extra=ui_metadata(hidden=True))
-
     x: float = Field(0.0, title="Origin X", json_schema_extra=ui_metadata(unit="mm"))
     y: float = Field(0.0, title="Origin Y", json_schema_extra=ui_metadata(unit="mm"))
     z: float = Field(0.0, title="Origin Z", json_schema_extra=ui_metadata(unit="mm"))
 
 
 class SetupOrientation(CamelBaseModel):
-    model_config = ConfigDict(json_schema_extra=ui_metadata(hidden=True))
-
     machine_z_axis: Literal["positiveZ"] = Field(
         default="positiveZ",
         title="Machine Z axis",
@@ -33,8 +29,6 @@ class SetupOrientation(CamelBaseModel):
 
 
 class SetupStock(CamelBaseModel):
-    model_config = ConfigDict(json_schema_extra=ui_metadata(hidden=True))
-
     max_z: float = Field(
         default=0.0,
         title="Stock max Z",
@@ -44,7 +38,7 @@ class SetupStock(CamelBaseModel):
 
 
 class CAMSetup(CamelBaseModel):
-    model_config = ConfigDict(title="CAMSetup", json_schema_extra=ui_metadata(hidden=True))
+    model_config = ConfigDict(title="CAMSetup")
 
     origin: SetupOrigin = Field(default_factory=SetupOrigin, title="Origin")
     orientation: SetupOrientation = Field(default_factory=SetupOrientation, title="Orientation")

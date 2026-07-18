@@ -10,10 +10,8 @@ export type DraftValue = JsonPrimitive | DraftObject | DraftValue[];
 export type DraftObject = { [key: string]: DraftValue | undefined };
 
 export type OpenCamUiMetadata = {
-  hidden?: boolean;
   readOnly?: boolean;
   unit?: string;
-  widget?: "tool-select";
 };
 
 export type JsonSchema = {
@@ -48,6 +46,26 @@ export type SchemaSection = {
 
 export const pocketOperationSchema = camSchemaBundle.pocket2dOperation as JsonSchema;
 
+const hiddenOperationFields = new Set(["type", "id", "displayName"]);
+const operationSectionOrder = new Map([
+  ["driveGeometry", 0],
+  ["cutParameters", 1],
+  ["tool", 2],
+  ["feedsAndSpeeds", 3],
+  ["levels", 4],
+  ["clearance", 5],
+  ["advanced", 6],
+]);
+const operationSectionTitles: Record<string, string> = {
+  driveGeometry: "Drive Geometry",
+  cutParameters: "Cut Parameters",
+  tool: "Tool",
+  feedsAndSpeeds: "Feeds and Speeds",
+  levels: "Levels",
+  clearance: "Clearance",
+  advanced: "Advanced",
+};
+
 export function resolveSchema(schema: JsonSchema, rootSchema: JsonSchema = pocketOperationSchema): JsonSchema {
   if (!schema.$ref) {
     return schema;
@@ -68,21 +86,26 @@ export function getSchemaTitle(schema: JsonSchema, fallback: string, rootSchema:
 
 export function getVisibleSections(rootSchema: JsonSchema = pocketOperationSchema): SchemaSection[] {
   const resolvedRoot = resolveSchema(rootSchema, rootSchema);
-  return Object.entries(resolvedRoot.properties ?? {}).flatMap(([key, childSchema]) => {
-    const resolvedChild = resolveSchema(childSchema, rootSchema);
-    const metadata = getUiMetadata(childSchema, rootSchema);
-    if (metadata.hidden) {
-      return [];
-    }
+  return Object.entries(resolvedRoot.properties ?? {})
+    .flatMap(([key, childSchema]) => {
+      if (hiddenOperationFields.has(key)) {
+        return [];
+      }
 
-    return [
-      {
-        key,
-        schema: resolvedChild,
-        title: getSchemaTitle(childSchema, key, rootSchema),
-      },
-    ];
-  });
+      const resolvedChild = resolveSchema(childSchema, rootSchema);
+      return [
+        {
+          key,
+          schema: resolvedChild,
+          title: operationSectionTitles[key] ?? getSchemaTitle(childSchema, key, rootSchema),
+        },
+      ];
+    })
+    .sort(
+      (left, right) =>
+        (operationSectionOrder.get(left.key) ?? Number.MAX_SAFE_INTEGER) -
+        (operationSectionOrder.get(right.key) ?? Number.MAX_SAFE_INTEGER),
+    );
 }
 
 function cloneValue<T>(value: T): T {

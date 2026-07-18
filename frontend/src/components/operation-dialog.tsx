@@ -47,6 +47,7 @@ import {
   getUiMetadata,
   getVisibleSections,
   materializeDefaults,
+  parseDraftValue,
   parsePocketOperationDraft,
   resolveSchema,
   setDraftValueAtPath,
@@ -106,6 +107,15 @@ function getNumericValue(value: DraftValue | undefined): number | undefined {
   }
 
   return undefined;
+}
+
+function needsValues(rootSchema: JsonSchema, schema: JsonSchema, value: DraftValue | undefined, title: string) {
+  try {
+    parseDraftValue(schema, value, rootSchema, title);
+    return false;
+  } catch {
+    return true;
+  }
 }
 
 type ControlGeometryPanelProps = {
@@ -219,14 +229,10 @@ function SchemaFields({ rootSchema, schema, value, path, onChange, onStartGeomet
   const resolved = resolveSchema(schema, rootSchema);
   const metadata = getUiMetadata(schema, rootSchema);
 
-  if (metadata.hidden) {
-    return null;
-  }
-
   const label = getSchemaTitle(schema, path[path.length - 1] ?? "Field", rootSchema);
   const unit = metadata.unit ? ` (${metadata.unit})` : "";
 
-  if (metadata.widget === "tool-select") {
+  if (path.length === 1 && path[0] === "tool") {
     return (
       <ToolSelectField
         label={label}
@@ -504,17 +510,27 @@ export function OperationDialog({
                 <SidebarGroup>
                   <SidebarGroupContent>
                     <SidebarMenu>
-                      {sections.map((section) => (
-                        <SidebarMenuItem key={section.key}>
-                          <SidebarMenuButton
-                            type="button"
-                            isActive={section.key === activeSection?.key}
-                            onClick={() => setRequestedSection({ sectionKey: section.key, sessionKey: draftSessionKey })}
-                          >
-                            <span>{section.title}</span>
-                          </SidebarMenuButton>
-                        </SidebarMenuItem>
-                      ))}
+                      {sections.map((section) => {
+                        const sectionNeedsValues = needsValues(rootSchema, section.schema, draft[section.key], section.title);
+                        return (
+                          <SidebarMenuItem key={section.key}>
+                            <SidebarMenuButton
+                              type="button"
+                              className="justify-between"
+                              isActive={section.key === activeSection?.key}
+                              onClick={() => setRequestedSection({ sectionKey: section.key, sessionKey: draftSessionKey })}
+                            >
+                              <span>{section.title}</span>
+                              {sectionNeedsValues ? (
+                                <>
+                                  <span className="ml-auto h-2 w-2 shrink-0 rounded-full bg-destructive" aria-hidden="true" />
+                                  <span className="sr-only">Needs values</span>
+                                </>
+                              ) : null}
+                            </SidebarMenuButton>
+                          </SidebarMenuItem>
+                        );
+                      })}
                     </SidebarMenu>
                   </SidebarGroupContent>
                 </SidebarGroup>

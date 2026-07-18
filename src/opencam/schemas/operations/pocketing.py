@@ -27,7 +27,7 @@ class PocketingCutSettings(CamelBaseModel):
 class Pocketing2dOp(BaseCAMOperation):
     model_config = ConfigDict(title="Pocketing2dOp")
 
-    type: Literal["pocketing_2d"] = Field(default="pocketing_2d", frozen=True, json_schema_extra=ui_metadata(hidden=True))
+    type: Literal["pocketing_2d"] = Field(default="pocketing_2d", frozen=True)
     drive_geometry: PocketingDriveGeometry = Field(title="Drive geometry")
     cut_parameters: PocketingCutSettings = Field(default_factory=PocketingCutSettings, title="Cut parameters")
 
@@ -36,3 +36,4 @@ class Pocketing2dOp(BaseCAMOperation):
         if self.levels.drive_geometry_position == "at_top":
             return max(geometry_zs)
         return max(z + self.levels.depth_of_cut for z in geometry_zs)
+ 

@@ -62,4 +62,5 @@ output/
 opencam-tinydb.json
 
 
-**/.DS_Store.DS_Store
+**/.DS_Store
+.DS_Store

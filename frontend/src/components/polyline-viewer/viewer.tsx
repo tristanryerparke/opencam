@@ -21,7 +21,7 @@ export function PolylineViewer(props: PolylineViewerProps) {
       <div ref={containerRef} className="h-full w-full" />
 
       {!meshUrl ? (
-        <div className="pointer-events-none absolute bottom-4 left-4 rounded-xl border bg-background/85 p-2 shadow-sm backdrop-blur">
+        <div className="pointer-events-none absolute bottom-2 left-2 rounded-xl border bg-background/85 p-2 shadow-sm backdrop-blur">
           <p className="text-xs text-muted-foreground">Upload a STEP file to begin.</p>
         </div>
       ) : null}

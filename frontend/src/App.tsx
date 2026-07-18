@@ -6,12 +6,13 @@ import { loadMeshGeometry } from "@/components/polyline-viewer/mesh-loader";
 import { SettingsDialog } from "@/components/settings-dialog";
 import { OperationDialog } from "@/components/operation-dialog";
 import { OperationTypeDialog } from "@/components/operation-type-dialog";
-import {
-  PolylineViewer,
-  type MeshFaceSelection,
-  type PolylineDefinition,
-  type PolylinePoint,
-} from "@/components/polyline-viewer";
+import { SimulationDebugOverlay } from "@/components/simulation-debug-overlay";
+import { PolylineViewer } from "@/components/polyline-viewer/viewer";
+import type {
+  MeshFaceSelection,
+  PolylineDefinition,
+  PolylinePoint,
+} from "@/components/polyline-viewer/types";
 import { Button } from "t-components/button";
 import { X } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
@@ -373,18 +374,6 @@ async function appendFrontendCachedMesh(formData: FormData, currentMeshUrl: stri
   formData.append("mesh", backendMesh.blob, backendMesh.name);
 }
 
-function getPolylineLength(points: ReadonlyArray<PolylinePoint>) {
-  let total = 0;
-
-  for (let index = 1; index < points.length; index += 1) {
-    const [ax, ay, az] = points[index - 1];
-    const [bx, by, bz] = points[index];
-    total += Math.hypot(bx - ax, by - ay, bz - az);
-  }
-
-  return total;
-}
-
 function toolPositionToPoint(position: ToolPositionResponse): PolylinePoint {
   return [position.x, position.y, position.z] as const;
 }
@@ -479,8 +468,8 @@ function formatSimulationFrameStepDistance(value: number) {
 function App() {
   const [meshName, setMeshName] = useState<string | null>(null);
   const [meshUrl, setMeshUrl] = useState<string | null>(null);
-  const [meshCacheState, setMeshCacheState] = useState<MeshCacheState>("idle");
-  const [meshCacheMessage, setMeshCacheMessage] = useState<string>("");
+  const [, setMeshCacheState] = useState<MeshCacheState>("idle");
+  const [, setMeshCacheMessage] = useState<string>("");
   const meshUploadRequestRef = useRef(0);
   const meshRestoreAbortRef = useRef<AbortController | null>(null);
   const hasInitializedSidebarSettingsRef = useRef(false);
@@ -832,15 +821,6 @@ function App() {
     ];
   }, [isSimulationMode, operationPolylines, simulationChunkToolpathPoints, simulationDebugUiEnabled]);
 
-  const generatedPathLength = useMemo(() => {
-    return operationPolylines.reduce(
-      (total, polyline) => total + getPolylineLength(polyline.points),
-      0,
-    );
-  }, [operationPolylines]);
-
-  const generatedPathPointCount = generatedRecords.length;
-
   const selectedOperation = useMemo(
     () => operations.find((operation) => operation.id === selectedOperationId) ?? null,
     [operations, selectedOperationId],
@@ -857,10 +837,6 @@ function App() {
 
     return visibleOperations.flatMap(operationToMeshFaceSelections);
   }, [faceSelectionMode, isOperationDialogOpen, operationDraft, visibleOperations]);
-
-  const meshStatusLabel = meshName ?? "No STEP loaded.";
-  const meshCacheStatusLabel =
-    meshCacheState === "saving" ? "Caching STEP in backend..." : meshCacheMessage;
 
   const fetchChunkMesh = useCallback(async (nextSimulationId: string, chunkIndex: number) => {
     const cachedMesh = simulationChunkMeshCacheRef.current.get(chunkIndex);
@@ -1550,7 +1526,7 @@ function App() {
 
   function handleSelectTreeNode(nodeId: string) {
     setSelectedTreeNodeId(nodeId);
-    setSelectedOperationId(nodeId === "setup-1" ? null : nodeId);
+    setSelectedOperationId(nodeId === "setup-1" || nodeId === "part" ? null : nodeId);
   }
 
   function handleSimulateOperation(operationId: string) {
@@ -1571,6 +1547,7 @@ function App() {
       return;
     }
 
+    setShowStock(true);
     setIsSimulationMode(true);
   }
 
@@ -1590,7 +1567,7 @@ function App() {
     );
 
     setIsSimulationPlaying(false);
-    setIsSimulationMode(true);
+    handleEnterSimulation();
     setSimulationFrameIndex(nextFrameIndex);
   }
 
@@ -1599,7 +1576,7 @@ function App() {
       return;
     }
 
-    setIsSimulationMode(true);
+    handleEnterSimulation();
     setSimulationFrameIndex((current) =>
       current >= simulationFrameCount - 1 && simulationFrameCount > 1 ? 0 : current,
     );
@@ -2025,15 +2002,9 @@ function App() {
         <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
           <AppSidebar
             meshLoaded={Boolean(meshUrl)}
-            meshStatusLabel={meshStatusLabel}
-            meshCacheStatusLabel={meshCacheStatusLabel}
+            meshName={meshName}
             operations={operations}
             selectedNodeId={selectedTreeNodeId}
-            requestState={requestState}
-            requestMessage={requestMessage}
-            generatedPathCount={generatedRecords.length}
-            generatedPathPointCount={generatedPathPointCount}
-            generatedPathLength={generatedPathLength}
             simulatableOperationIds={simulatableOperationIds}
             onMeshUpload={handleMeshUpload}
             onAddOperation={handleAddOperation}
@@ -2082,7 +2053,7 @@ function App() {
                   className="h-full min-h-0 flex-1 rounded-none border-0 shadow-none"
                 />
 
-                <div className="pointer-events-auto absolute left-4 top-4 z-20 flex items-center gap-1 rounded-md border bg-background/90 p-1 shadow backdrop-blur">
+                <div className="pointer-events-auto absolute left-2 top-2 z-20 flex items-center gap-1 rounded-md border bg-background/90 p-1 shadow backdrop-blur">
                   <Button type="button" className="w-12" variant={showStock ? "outline" : "secondary"} onClick={() => setShowStock((current) => !current)} aria-pressed={showStock}>
                     Stock
                   </Button>
@@ -2097,24 +2068,18 @@ function App() {
                   </Button>
                 </div>
 
-                {simulationDebugUiEnabled && simulationId ? (
-              <div className="pointer-events-none absolute left-4 top-16 z-20 rounded-md border bg-background/90 p-2 text-xs shadow backdrop-blur">
-                <div className="mb-1 font-medium">Simulation debug</div>
-                <div className="grid grid-cols-[auto_auto] gap-x-3 gap-y-1 tabular-nums">
-                  <span className="text-muted-foreground">Chunk</span>
-                  <span>{simulationChunkIndex == null ? "—" : `${simulationChunkIndex + 1} / ${simulationChunkCount || "?"}`}</span>
-                  <span className="text-muted-foreground">Step</span>
-                  <span>{simulationChunkStepIndex == null ? "—" : `${simulationChunkStepIndex + 1} / ${simulationChunkStepCount || "?"}`}</span>
-                  <span className="text-muted-foreground">Focus request</span>
-                  <span>{simulationFocusMeshRequestMs == null ? "—" : `${simulationFocusMeshRequestMs.toFixed(0)} ms`}</span>
-                  <span className="text-muted-foreground">Chunk fetch</span>
-                  <span>{simulationChunkFetchMs == null ? "—" : `${simulationChunkFetchMs.toFixed(0)} ms`}</span>
-                </div>
-              </div>
-            ) : null}
+                <SimulationDebugOverlay
+                  visible={simulationDebugUiEnabled && Boolean(simulationId)}
+                  chunkIndex={simulationChunkIndex}
+                  chunkCount={simulationChunkCount}
+                  stepIndex={simulationChunkStepIndex}
+                  stepCount={simulationChunkStepCount}
+                  focusMeshRequestMs={simulationFocusMeshRequestMs}
+                  chunkFetchMs={simulationChunkFetchMs}
+                />
 
             {isSimulationMode && simulationId && simulationFrameCount > 0 ? (
-              <div className="pointer-events-none absolute inset-x-4 bottom-4 z-20">
+              <div className="pointer-events-none absolute inset-x-2 bottom-2 z-20">
                 <div className="pointer-events-auto mx-auto flex max-w-4xl items-center gap-3 rounded-md border bg-background/95 px-2 py-2 shadow">
                   <Button
                     type="button"

@@ -1,13 +1,13 @@
-import { ChevronDown, ChevronRight, Folder, Milestone } from "lucide-react";
+import { useRef } from "react";
+import { ChevronDown, ChevronRight, Folders, SquareRoundCorner } from "lucide-react";
 
 import { Button } from "t-components/button";
-import { Input } from "t-components/input";
-import { Label } from "t-components/label";
 import { Sidebar, SidebarContent, SidebarMenuButton } from "t-components/sidebar";
 import {
   ContextMenu,
   ContextMenuContent,
   ContextMenuItem,
+  ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { TreeView, type TreeNodeNested, type TreeNodeRenderProps } from "@/components/tree-view/tree-view";
@@ -18,21 +18,16 @@ export type RequestState = "idle" | "submitting" | "success" | "error";
 
 type OperationTreeItem = {
   label: string;
-  summary?: string;
   operationId?: string;
+  fileName?: string;
+  needsAttention?: boolean;
 };
 
 type AppSidebarProps = {
   meshLoaded: boolean;
-  meshStatusLabel: string;
-  meshCacheStatusLabel: string;
+  meshName: string | null;
   operations: Operation[];
   selectedNodeId: string;
-  requestState: RequestState;
-  requestMessage: string;
-  generatedPathCount: number;
-  generatedPathPointCount: number;
-  generatedPathLength: number;
   simulatableOperationIds: ReadonlySet<string>;
   onMeshUpload: (file: File | null) => void;
   onAddOperation: () => void;
@@ -45,13 +40,6 @@ type AppSidebarProps = {
   onCancelGeneration: () => void;
 };
 
-function getOperationSummary(operation: Operation) {
-  const depthOfCut = operation.levels?.depthOfCut;
-  return typeof depthOfCut === "number"
-    ? `Cut depth ${depthOfCut.toFixed(2)} mm`
-    : "Cut depth not set";
-}
-
 function renderTreeNode(
   {
     node,
@@ -62,6 +50,9 @@ function renderTreeNode(
     toggle,
     select,
   }: TreeNodeRenderProps<OperationTreeItem>,
+  onUploadPart: () => void,
+  onDeletePart: () => void,
+  canDeletePart: boolean,
   onEditOperation: (operationId: string) => void,
   onDeleteOperation: (operationId: string) => void,
   onSimulateOperation: (operationId: string) => void,
@@ -70,33 +61,68 @@ function renderTreeNode(
 ) {
   const operationId = node.data.operationId;
   const content = (
-    <SidebarMenuButton
-      type="button"
-      isActive={isSelected}
-      className={cn("h-auto items-start gap-1.5 py-1")}
-      style={{ paddingLeft: depth * 16 + 8 }}
+    <div
+      className="w-full"
+      style={{ paddingLeft: depth * 16 }}
       onClick={(event) => {
         event.stopPropagation();
-        if (hasChildren) {
-          toggle();
-        }
         select(event);
       }}
     >
-      <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center">
+      <SidebarMenuButton
+        type="button"
+        isActive={isSelected}
+        className={cn("h-auto items-center gap-1.5 py-1")}
+        onClick={(event) => {
+          event.stopPropagation();
+          select(event);
+        }}
+      >
+        {node.id === "part" ? (
+          <SquareRoundCorner className="mt-0.5 h-4 w-4 shrink-0" />
+        ) : node.id === "setup-1" ? (
+          <Folders className="mt-0.5 h-4 w-4 shrink-0" />
+        ) : null}
+        <span className="min-w-0 flex-1">
+          <span className="flex min-w-0 items-center gap-1.5 truncate font-medium">
+            <span className="truncate">{node.data.label}</span>
+            {node.data.fileName ? (
+              <span className="truncate text-xs font-normal text-sidebar-foreground/65">{node.data.fileName}</span>
+            ) : null}
+            {node.data.needsAttention ? (
+              <span className="ml-auto h-2 w-2 shrink-0 rounded-full bg-destructive" aria-label="Needs STEP file" />
+            ) : null}
+          </span>
+        </span>
         {hasChildren ? (
-          isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />
+          <span
+            className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center"
+            onClick={(event) => {
+              event.stopPropagation();
+              toggle();
+            }}
+          >
+            {isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+          </span>
         ) : null}
-      </span>
-      {node.isGroup ? <Folder className="mt-0.5 h-4 w-4 shrink-0" /> : <Milestone className="mt-0.5 h-4 w-4 shrink-0" />}
-      <span className="min-w-0">
-        <span className="block truncate font-medium">{node.data.label}</span>
-        {node.data.summary ? (
-          <span className="block truncate text-xs text-sidebar-foreground/65">{node.data.summary}</span>
-        ) : null}
-      </span>
-    </SidebarMenuButton>
+      </SidebarMenuButton>
+    </div>
   );
+
+  if (node.id === "part") {
+    return (
+      <ContextMenu>
+        <ContextMenuTrigger asChild>{content}</ContextMenuTrigger>
+        <ContextMenuContent>
+          <ContextMenuItem onSelect={onUploadPart}>Upload STEP file…</ContextMenuItem>
+          <ContextMenuSeparator />
+          <ContextMenuItem variant="destructive" disabled={!canDeletePart} onSelect={onDeletePart}>
+            Delete current STEP file
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
+    );
+  }
 
   if (node.isGroup || !operationId) {
     return content;
@@ -126,15 +152,9 @@ function renderTreeNode(
 
 export function AppSidebar({
   meshLoaded,
-  meshStatusLabel,
-  meshCacheStatusLabel,
+  meshName,
   operations,
   selectedNodeId,
-  requestState,
-  requestMessage,
-  generatedPathCount,
-  generatedPathPointCount,
-  generatedPathLength,
   simulatableOperationIds,
   onMeshUpload,
   onAddOperation,
@@ -146,7 +166,16 @@ export function AppSidebar({
   canCancelGeneration,
   onCancelGeneration,
 }: AppSidebarProps) {
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const treeItems: TreeNodeNested<OperationTreeItem>[] = [
+    {
+      id: "part",
+      data: {
+        label: "Part",
+        fileName: meshName ?? undefined,
+        needsAttention: !meshLoaded,
+      },
+    },
     {
       id: "setup-1",
       data: { label: "Setup 1" },
@@ -155,7 +184,6 @@ export function AppSidebar({
         id: operation.id ?? `operation-${index}`,
         data: {
           label: operation.displayName ?? `2.5D Pocketing ${index + 1}`,
-          summary: getOperationSummary(operation),
           operationId: operation.id,
         },
       })),
@@ -165,67 +193,45 @@ export function AppSidebar({
   return (
     <Sidebar>
       <SidebarContent className="gap-3 p-2">
-        <div className="space-y-1">
-          <Label htmlFor="mesh-upload">Upload STEP</Label>
-          <Input
-            id="mesh-upload"
-            type="file"
-            accept=".step,.stp"
-            className="py-0 file:h-full file:py-0"
-            onChange={(event) => onMeshUpload(event.target.files?.[0] ?? null)}
-          />
-        </div>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".step,.stp"
+          className="hidden"
+          onChange={(event) => {
+            onMeshUpload(event.target.files?.[0] ?? null);
+            event.currentTarget.value = "";
+          }}
+        />
 
-        <p className="text-xs leading-5 text-sidebar-foreground/65">{meshStatusLabel}</p>
+        <Button type="button" className="w-full" onClick={onAddOperation} disabled={!meshLoaded}>
+          Add Operation
+        </Button>
 
-        {meshCacheStatusLabel ? (
-          <p className="text-xs leading-5 text-sidebar-foreground/65">{meshCacheStatusLabel}</p>
-        ) : null}
+        <TreeView<OperationTreeItem>
+          items={treeItems}
+          defaultExpandedIds={["setup-1"]}
+          selectedIds={[selectedNodeId]}
+          onSelectedIdsChange={(ids) => onSelectNode(ids.at(-1) ?? "setup-1")}
+          renderNode={(props) =>
+            renderTreeNode(
+              props,
+              () => fileInputRef.current?.click(),
+              () => void onMeshUpload(null),
+              meshLoaded,
+              onEditOperation,
+              onDeleteOperation,
+              onSimulateOperation,
+              canManageOperations,
+              simulatableOperationIds,
+            )}
+          aria-label="CAM setup tree"
+        />
 
-        <div className="space-y-2 rounded-md border p-2">
-          <Button type="button" className="w-full" onClick={onAddOperation} disabled={!meshLoaded}>
-            Add Operation
-          </Button>
-
-          <TreeView<OperationTreeItem>
-            items={treeItems}
-            defaultExpandedIds={["setup-1"]}
-            selectedIds={[selectedNodeId]}
-            onSelectedIdsChange={(ids) => onSelectNode(ids.at(-1) ?? "setup-1")}
-            renderNode={(props) =>
-              renderTreeNode(
-                props,
-                onEditOperation,
-                onDeleteOperation,
-                onSimulateOperation,
-                canManageOperations,
-                simulatableOperationIds,
-              )}
-            aria-label="CAM setup tree"
-          />
-        </div>
-
-        {requestState === "submitting" && canCancelGeneration ? (
+        {canCancelGeneration ? (
           <Button type="button" variant="outline" onClick={onCancelGeneration}>
             Cancel generation
           </Button>
-        ) : null}
-
-        {requestMessage ? (
-          <p className="text-xs leading-5 text-sidebar-foreground/65">{requestMessage}</p>
-        ) : (
-          <p className="text-xs leading-5 text-sidebar-foreground/65">
-            Upload a STEP file, add an operation, choose XY-planar control geometry, then generate.
-          </p>
-        )}
-
-        {generatedPathCount > 0 ? (
-          <div className="space-y-1 text-sm">
-            <div className="font-medium">Generated operation</div>
-            <p className="text-xs leading-5 text-sidebar-foreground/65">
-              {generatedPathCount} paths · {generatedPathPointCount} points · {generatedPathLength.toFixed(1)} mm
-            </p>
-          </div>
         ) : null}
       </SidebarContent>
     </Sidebar>

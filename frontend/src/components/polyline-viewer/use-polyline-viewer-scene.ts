@@ -198,6 +198,10 @@ export function usePolylineViewerScene(
   const hasUserInteractedRef = useRef(false);
 
   useEffect(() => {
+    hasUserInteractedRef.current = false;
+  }, [meshUrl]);
+
+  useEffect(() => {
     currentPolylinesRef.current = polylines;
   }, [polylines]);
 
@@ -1456,7 +1460,7 @@ export function usePolylineViewerScene(
       );
 
       const line = new Line2(lineGeometry, lineMaterial);
-      line.renderOrder = 40;
+      line.renderOrder = isClearanceMove ? 41 : 40;
       line.frustumCulled = false;
       polylineGroup.add(line);
       polylineMaterialsRef.current.push(lineMaterial);

@@ -3,7 +3,7 @@ import type {
   GenerateToolpathRequest,
   Pocketing2DOp as Operation,
 } from "@/generated_schemas/cam";
-import type { MeshFaceSelection } from "@/components/polyline-viewer";
+import type { MeshFaceSelection } from "@/components/polyline-viewer/types";
 
 type JsonPrimitive = string | number | boolean | null;
 export type DraftValue = JsonPrimitive | DraftObject | DraftValue[];

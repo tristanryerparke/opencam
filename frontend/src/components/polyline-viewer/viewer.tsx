@@ -22,7 +22,7 @@ export function PolylineViewer(props: PolylineViewerProps) {
 
       {!meshUrl ? (
         <div className="pointer-events-none absolute bottom-4 left-4 rounded-xl border bg-background/85 p-2 shadow-sm backdrop-blur">
-          <p className="text-xs text-muted-foreground">Upload an STL to begin.</p>
+          <p className="text-xs text-muted-foreground">Upload a STEP file to begin.</p>
         </div>
       ) : null}
     </div>

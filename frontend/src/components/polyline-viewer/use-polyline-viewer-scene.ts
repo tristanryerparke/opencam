@@ -24,12 +24,20 @@ import {
   TOOL_PREVIEW_COLOR,
 } from "./constants";
 import { loadMeshGeometry } from "./mesh-loader";
+import { pickNearestStepEdgeLoop } from "./edge-loop-picking";
 import {
   createBoundarySegments,
   createMeshFaceSelection,
   createMeshSelectionData,
   type MeshSelectionData,
 } from "./mesh-selection";
+import {
+  buildStepEdgeLines,
+  getStepEdgeLoops,
+  stepEdgeLoopToSelection,
+  type StepEdgeLoop,
+  type StepFaceRange,
+} from "./step-geometry";
 import {
   clearGroup,
   disposeObject,
@@ -52,6 +60,7 @@ type LoadedDisplayMesh = {
   selectionMesh: THREE.Mesh | null;
   selectionData: MeshSelectionData | null;
   selectionHighlightGroup: THREE.Group | null;
+  stepEdgeLoops: StepEdgeLoop[];
 };
 
 function readColorComponent(colors: THREE.BufferAttribute | THREE.InterleavedBufferAttribute, index: number, channel: number) {
@@ -154,6 +163,10 @@ export function usePolylineViewerScene(
   const meshBoundsRef = useRef<THREE.Box3 | null>(null);
   const selectionHighlightGroupRef = useRef<THREE.Group | null>(null);
   const selectionOutlineMaterialRef = useRef<LineMaterial | null>(null);
+  const edgeLoopPreviewRef = useRef<THREE.Object3D | null>(null);
+  const edgeLoopPreviewMaterialRef = useRef<LineMaterial | null>(null);
+  const hoveredEdgeLoopRef = useRef<StepEdgeLoop | null>(null);
+  const stepEdgeLoopsRef = useRef<StepEdgeLoop[]>([]);
   const meshEdgeMaterialRef = useRef<LineMaterial | null>(null);
   const polylineMaterialsRef = useRef<LineMaterial[]>([]);
   const scsRendererRef = useRef<SCSRenderer | null>(null);
@@ -259,15 +272,28 @@ export function usePolylineViewerScene(
     simulationPreparedStepRef.current = 0;
   }, []);
 
+  const clearEdgeLoopPreview = useCallback(() => {
+    const preview = edgeLoopPreviewRef.current;
+    if (preview) {
+      preview.parent?.remove(preview);
+      disposeObject(preview);
+      edgeLoopPreviewRef.current = null;
+    }
+    edgeLoopPreviewMaterialRef.current = null;
+    hoveredEdgeLoopRef.current = null;
+  }, []);
+
   const resetPrimaryMeshRefs = useCallback(() => {
+    clearEdgeLoopPreview();
     meshRef.current = null;
     meshSelectionMeshRef.current = null;
     meshSelectionDataRef.current = null;
     meshBoundsRef.current = null;
     selectionHighlightGroupRef.current = null;
     selectionOutlineMaterialRef.current = null;
+    stepEdgeLoopsRef.current = [];
     meshEdgeMaterialRef.current = null;
-  }, []);
+  }, [clearEdgeLoopPreview]);
 
   const commitPrimaryMesh = useCallback(
     (targetGroup: THREE.Group, loadedMesh: LoadedDisplayMesh) => {
@@ -279,6 +305,7 @@ export function usePolylineViewerScene(
       meshSelectionDataRef.current = loadedMesh.selectionData;
       meshBoundsRef.current = loadedMesh.bounds?.clone() ?? null;
       selectionHighlightGroupRef.current = loadedMesh.selectionHighlightGroup;
+      stepEdgeLoopsRef.current = loadedMesh.stepEdgeLoops;
       meshEdgeMaterialRef.current = loadedMesh.edgeMaterial;
     },
     [resetPrimaryMeshRefs],
@@ -310,6 +337,51 @@ export function usePolylineViewerScene(
       if (cancelled()) {
         sourceGeometry.dispose();
         return null;
+      }
+
+      const stepFaceRanges = sourceGeometry.userData.stepFaceRanges as StepFaceRange[] | undefined;
+      if (stepFaceRanges?.length) {
+        const clampedOpacity = Math.max(0, Math.min(opacity, 1));
+        const mesh = new THREE.Mesh(
+          sourceGeometry,
+          new THREE.MeshStandardMaterial({
+            side: THREE.DoubleSide,
+            color,
+            roughness: 0.72,
+            metalness: 0.02,
+            transparent: clampedOpacity < 1,
+            opacity: clampedOpacity,
+            depthWrite: clampedOpacity >= 1,
+            polygonOffset: true,
+            polygonOffsetFactor: 1,
+            polygonOffsetUnits: 1,
+          }),
+        );
+        mesh.userData.stepFaceRanges = stepFaceRanges;
+        mesh.renderOrder = clampedOpacity < 1 ? 3 : 1;
+        mesh.frustumCulled = false;
+        targetGroup.add(mesh);
+
+        const edgeLines = edgeColor == null ? null : buildStepEdgeLines(sourceGeometry, stepFaceRanges, edgeColor);
+        if (edgeLines) {
+          targetGroup.add(edgeLines);
+        }
+
+        const selectionHighlightGroup = enableSelection ? new THREE.Group() : null;
+        if (selectionHighlightGroup) {
+          mesh.add(selectionHighlightGroup);
+        }
+
+        return {
+          group: targetGroup,
+          mesh,
+          bounds: sourceGeometry.boundingBox?.clone() ?? null,
+          edgeMaterial: null,
+          selectionMesh: null,
+          selectionData: null,
+          selectionHighlightGroup,
+          stepEdgeLoops: enableSelection ? getStepEdgeLoops(mesh) : [],
+        } satisfies LoadedDisplayMesh;
       }
 
       sourceGeometry.deleteAttribute("normal");
@@ -390,6 +462,7 @@ export function usePolylineViewerScene(
           selectionMesh: null,
           selectionData: null,
           selectionHighlightGroup: null,
+          stepEdgeLoops: [],
         } satisfies LoadedDisplayMesh;
       }
 
@@ -418,6 +491,7 @@ export function usePolylineViewerScene(
         selectionMesh,
         selectionData,
         selectionHighlightGroup,
+        stepEdgeLoops: [],
       } satisfies LoadedDisplayMesh;
     },
     [],
@@ -714,6 +788,44 @@ export function usePolylineViewerScene(
     updateToolPreview();
   }, [simulationToolPosition, simulationToolRotation, simulationToolRotationEnabled, showOriginalMesh, updateToolPreview]);
 
+  const showEdgeLoopPreview = useCallback((loop: StepEdgeLoop) => {
+    if (hoveredEdgeLoopRef.current?.id === loop.id) {
+      return;
+    }
+
+    const renderer = rendererRef.current;
+    if (!renderer) {
+      return;
+    }
+
+    clearEdgeLoopPreview();
+    const geometry = new LineSegmentsGeometry();
+    geometry.setPositions(loop.positions);
+    const material = new LineMaterial({
+      color: 0x2563eb,
+      linewidth: POLYLINE_LINEWIDTH,
+      transparent: true,
+      opacity: 1,
+      depthTest: false,
+      depthWrite: false,
+    });
+    material.alphaToCoverage = true;
+    material.resolution.set(renderer.domElement.clientWidth, renderer.domElement.clientHeight);
+    const line = new LineSegments2(geometry, material);
+    line.renderOrder = 21;
+    line.frustumCulled = false;
+    loop.mesh.add(line);
+    edgeLoopPreviewRef.current = line;
+    edgeLoopPreviewMaterialRef.current = material;
+    hoveredEdgeLoopRef.current = loop;
+  }, [clearEdgeLoopPreview]);
+
+  useEffect(() => {
+    if (!faceSelectionMode) {
+      clearEdgeLoopPreview();
+    }
+  }, [clearEdgeLoopPreview, faceSelectionMode]);
+
   const renderSelectionHighlight = useCallback((selections: ReadonlyArray<MeshFaceSelection>) => {
     const mesh = meshRef.current;
     const selectionHighlightGroup = selectionHighlightGroupRef.current;
@@ -909,16 +1021,48 @@ export function usePolylineViewerScene(
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
 
+    const handlePointerMove = (event: PointerEvent) => {
+      const currentCamera = cameraRef.current;
+      const edgeLoops = stepEdgeLoopsRef.current;
+      if (!faceSelectionModeRef.current || !currentCamera || edgeLoops.length === 0) {
+        clearEdgeLoopPreview();
+        return;
+      }
+
+      const loop = pickNearestStepEdgeLoop(event, edgeLoops, currentCamera, renderer.domElement);
+      if (loop) {
+        showEdgeLoopPreview(loop);
+      } else {
+        clearEdgeLoopPreview();
+      }
+    };
+
     const handlePointerDown = (event: PointerEvent) => {
       if (!faceSelectionModeRef.current || event.button !== 0) {
         return;
       }
 
       const currentCamera = cameraRef.current;
+      if (!currentCamera) {
+        return;
+      }
+
+      const edgeLoops = stepEdgeLoopsRef.current;
+      if (edgeLoops.length > 0) {
+        const loop = hoveredEdgeLoopRef.current ?? pickNearestStepEdgeLoop(event, edgeLoops, currentCamera, renderer.domElement);
+        if (!loop) {
+          return;
+        }
+
+        onMeshFaceSelectRef.current?.(stepEdgeLoopToSelection(loop));
+        event.preventDefault();
+        return;
+      }
+
       const currentSelectionMesh = meshSelectionMeshRef.current;
       const selectionData = meshSelectionDataRef.current;
 
-      if (!currentCamera || !currentSelectionMesh || !selectionData) {
+      if (!currentSelectionMesh || !selectionData) {
         return;
       }
 
@@ -942,6 +1086,7 @@ export function usePolylineViewerScene(
       event.preventDefault();
     };
 
+    renderer.domElement.addEventListener("pointermove", handlePointerMove);
     renderer.domElement.addEventListener("pointerdown", handlePointerDown);
 
     const resize = () => {
@@ -956,6 +1101,7 @@ export function usePolylineViewerScene(
       camera.updateProjectionMatrix();
       renderer.setSize(width, height, false);
       selectionOutlineMaterialRef.current?.resolution.set(width, height);
+      edgeLoopPreviewMaterialRef.current?.resolution.set(width, height);
       meshEdgeMaterialRef.current?.resolution.set(width, height);
       for (const material of polylineMaterialsRef.current) {
         material.resolution.set(width, height);
@@ -1003,6 +1149,11 @@ export function usePolylineViewerScene(
         }
       }
 
+      if (polylineGroup.children.length > 0) {
+        renderer.clearDepth();
+        renderer.render(polylineGroup, camera);
+      }
+
       animationFrame = window.requestAnimationFrame(render);
     };
 
@@ -1011,6 +1162,7 @@ export function usePolylineViewerScene(
     return () => {
       window.cancelAnimationFrame(animationFrame);
       resizeObserver.disconnect();
+      renderer.domElement.removeEventListener("pointermove", handlePointerMove);
       renderer.domElement.removeEventListener("pointerdown", handlePointerDown);
       controls.dispose();
       clearSimulationResources();
@@ -1044,6 +1196,10 @@ export function usePolylineViewerScene(
       meshBoundsRef.current = null;
       selectionHighlightGroupRef.current = null;
       selectionOutlineMaterialRef.current = null;
+      edgeLoopPreviewRef.current = null;
+      edgeLoopPreviewMaterialRef.current = null;
+      hoveredEdgeLoopRef.current = null;
+      stepEdgeLoopsRef.current = [];
       meshEdgeMaterialRef.current = null;
       polylineMaterialsRef.current = [];
       scsRendererRef.current = null;
@@ -1057,7 +1213,7 @@ export function usePolylineViewerScene(
       simulationCuttersRef.current = [];
       simulationPreparedStepRef.current = 0;
     };
-  }, [clearSimulationResources, containerRef, renderSelectionHighlight]);
+  }, [clearEdgeLoopPreview, clearSimulationResources, containerRef, renderSelectionHighlight, showEdgeLoopPreview]);
 
   useEffect(() => {
     const meshGroup = meshGroupRef.current;
@@ -1290,7 +1446,7 @@ export function usePolylineViewerScene(
         linewidth: isClearanceMove ? CLEARANCE_POLYLINE_LINEWIDTH : POLYLINE_LINEWIDTH,
         transparent: true,
         opacity: 1,
-        depthTest: true,
+        depthTest: false,
         depthWrite: false,
       });
       lineMaterial.alphaToCoverage = true;
@@ -1300,7 +1456,7 @@ export function usePolylineViewerScene(
       );
 
       const line = new Line2(lineGeometry, lineMaterial);
-      line.renderOrder = 18;
+      line.renderOrder = 40;
       line.frustumCulled = false;
       polylineGroup.add(line);
       polylineMaterialsRef.current.push(lineMaterial);

@@ -134,7 +134,7 @@ function ControlGeometryPanel({
   return (
     <div className="space-y-3">
       <Button type="button" onClick={onStartGeometrySelection}>
-        Add XY-coplanar face
+        Add XY-planar edge loop
       </Button>
 
       <div className="rounded-md border">
@@ -150,7 +150,7 @@ function ControlGeometryPanel({
             {rows.length > 0 ? (
               rows.map((geometry, index) => (
                 <TableRow key={index}>
-                  <TableCell className="font-medium">Coplanar Face {index + 1}</TableCell>
+                  <TableCell className="font-medium">Edge loop {index + 1}</TableCell>
                   <TableCell>{formatGeometryZ(geometry.z)}</TableCell>
                   <TableCell className="text-right">
                     <Button type="button" variant="destructive" onClick={() => onDeleteGeometry(index)}>
@@ -162,7 +162,7 @@ function ControlGeometryPanel({
             ) : (
               <TableRow>
                 <TableCell colSpan={3} className="text-muted-foreground">
-                  No coplanar faces selected.
+                  No edge loops selected.
                 </TableCell>
               </TableRow>
             )}
@@ -478,7 +478,7 @@ export function OperationDialog({
 
   const validationMessage = useMemo(() => {
     if (!draft) {
-      return "Select a face to start a pocket operation.";
+      return "Select an edge loop to start a pocket operation.";
     }
 
     try {

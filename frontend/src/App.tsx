@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { AppSidebar, type RequestState } from "@/components/app-sidebar";
+import { meshBlobForBackend } from "@/components/polyline-viewer/mesh-export";
 import { loadMeshGeometry } from "@/components/polyline-viewer/mesh-loader";
 import { SettingsDialog } from "@/components/settings-dialog";
 import { OperationDialog } from "@/components/operation-dialog";
@@ -140,7 +141,7 @@ type SidebarSettingsPayload = {
 };
 
 const SIDEBAR_SETTINGS_STORAGE_KEY = "opencam.sidebar-settings.v3";
-const LOCAL_MESH_STORAGE_KEY = "opencam.mesh.v1";
+const LOCAL_MESH_STORAGE_KEY = "opencam.step.v1";
 const SIMULATION_DEBUG_UI_STORAGE_KEY = "opencam.simulation-debug-ui";
 const ORIGINAL_MESH_COLOR = 0x94a3b8;
 const ORIGINAL_MESH_EDGE_COLOR = 0x334155;
@@ -280,7 +281,7 @@ function readCachedMeshFromLocalStorage() {
       return parsed;
     }
   } catch (error: unknown) {
-    console.error("Failed to read cached STL from localStorage", error);
+    console.error("Failed to read cached STEP from localStorage", error);
   }
 
   removeCachedMeshFromLocalStorage();
@@ -296,9 +297,9 @@ function readFileAsDataUrl(file: File) {
         return;
       }
 
-      reject(new Error("Failed to read STL for browser cache."));
+      reject(new Error("Failed to read STEP for browser cache."));
     };
-    reader.onerror = () => reject(reader.error ?? new Error("Failed to read STL for browser cache."));
+    reader.onerror = () => reject(reader.error ?? new Error("Failed to read STEP for browser cache."));
     reader.readAsDataURL(file);
   });
 }
@@ -309,7 +310,7 @@ async function getMeshMaxZ(meshUrl: string) {
     geometry.computeBoundingBox();
     const maxZ = geometry.boundingBox?.max.z;
     if (typeof maxZ !== "number" || !Number.isFinite(maxZ)) {
-      throw new Error("Unable to determine STL bounds.");
+      throw new Error("Unable to determine STEP bounds.");
     }
 
     return maxZ;
@@ -331,19 +332,20 @@ async function saveMeshToLocalStorage(file: File, shouldSave: () => boolean = ()
   }
 
   try {
-    // ponytail: localStorage only fits small STLs; use IndexedDB if large meshes need browser persistence.
+    // ponytail: localStorage only fits small STEP files; use IndexedDB if large files need browser persistence.
     window.localStorage.setItem(LOCAL_MESH_STORAGE_KEY, JSON.stringify(payload));
     return { payload, saved: true };
   } catch (error: unknown) {
-    console.error("Failed to cache STL in localStorage", error);
+    console.error("Failed to cache STEP in localStorage", error);
     removeCachedMeshFromLocalStorage();
     return { payload, saved: false };
   }
 }
 
 async function uploadMeshToBackend(mesh: Blob, name: string, signal?: AbortSignal) {
+  const backendMesh = await meshBlobForBackend(mesh, name);
   const upload = new FormData();
-  upload.append("mesh", mesh, name);
+  upload.append("mesh", backendMesh.blob, backendMesh.name);
 
   const response = await fetch(`${getBackendUrl()}/cam/mesh`, {
     method: "POST",
@@ -351,7 +353,7 @@ async function uploadMeshToBackend(mesh: Blob, name: string, signal?: AbortSigna
     signal,
   });
 
-  return readCachedMeshResponse(response, "Failed to cache STL in backend.");
+  return readCachedMeshResponse(response, "Failed to cache mesh in backend.");
 }
 
 async function uploadLocalStorageMeshToBackend(cachedMesh: LocalCachedMeshPayload, signal?: AbortSignal) {
@@ -367,9 +369,8 @@ async function appendFrontendCachedMesh(formData: FormData, currentMeshUrl: stri
     return;
   }
 
-  const meshResponse = await fetch(meshDataUrl);
-  const meshBlob = await meshResponse.blob();
-  formData.append("mesh", meshBlob, cachedMesh?.name ?? currentMeshName ?? "mesh.stl");
+  const backendMesh = await meshBlobForBackend(meshDataUrl, cachedMesh?.name ?? currentMeshName ?? "mesh.stl");
+  formData.append("mesh", backendMesh.blob, backendMesh.name);
 }
 
 function getPolylineLength(points: ReadonlyArray<PolylinePoint>) {
@@ -409,7 +410,7 @@ function createPointMarkerPolylines(id: string, name: string, point: PolylinePoi
 function geometryToMeshFaceSelection(geometry: ClosedPolyline25D, index: number): MeshFaceSelection {
   return {
     id: `geometry-${index}`,
-    label: `Coplanar Face ${index + 1}`,
+    label: `Edge loop ${index + 1}`,
     normal: [0, 0, 1],
     triangleIndices: [],
     triangleCount: 0,
@@ -664,7 +665,7 @@ function App() {
           }
         } catch (error: unknown) {
           if (!cancelled && meshUploadRequestRef.current === requestId) {
-            console.error("Failed to restore STL to backend cache", error);
+            console.error("Failed to restore STEP to backend cache", error);
             setMeshCacheMessage("Cached in browser localStorage. Backend cache unavailable.");
           }
         } finally {
@@ -693,7 +694,7 @@ function App() {
       console.error("Failed to restore cached mesh", error);
       setMeshCacheState("error");
       setMeshCacheMessage(
-        error instanceof Error ? error.message : "Unable to restore the cached STL.",
+        error instanceof Error ? error.message : "Unable to restore the cached STEP.",
       );
     });
 
@@ -857,9 +858,9 @@ function App() {
     return visibleOperations.flatMap(operationToMeshFaceSelections);
   }, [faceSelectionMode, isOperationDialogOpen, operationDraft, visibleOperations]);
 
-  const meshStatusLabel = meshName ?? "No mesh loaded.";
+  const meshStatusLabel = meshName ?? "No STEP loaded.";
   const meshCacheStatusLabel =
-    meshCacheState === "saving" ? "Caching STL in backend..." : meshCacheMessage;
+    meshCacheState === "saving" ? "Caching STEP in backend..." : meshCacheMessage;
 
   const fetchChunkMesh = useCallback(async (nextSimulationId: string, chunkIndex: number) => {
     const cachedMesh = simulationChunkMeshCacheRef.current.get(chunkIndex);
@@ -1407,7 +1408,7 @@ function App() {
     setResumeOperationDialogAfterSelection(true);
     setFaceSelectionMode(true);
     setRequestState("idle");
-    setRequestMessage("Select a flat XY-coplanar area in the viewport. Press Escape to cancel.");
+    setRequestMessage("Select an XY-planar edge loop in the viewport. Press Escape to cancel.");
   }
 
   useEffect(() => {
@@ -1433,7 +1434,7 @@ function App() {
   function handleAddOperation() {
     if (!meshUrl) {
       setRequestState("error");
-      setRequestMessage("Upload an STL before adding an operation.");
+      setRequestMessage("Upload a STEP file before adding an operation.");
       return;
     }
 
@@ -1443,7 +1444,7 @@ function App() {
   function handleAddPocketOperation() {
     if (!meshUrl) {
       setRequestState("error");
-      setRequestMessage("Upload an STL before adding a pocket operation.");
+      setRequestMessage("Upload a STEP file before adding a pocket operation.");
       return;
     }
 
@@ -1798,7 +1799,7 @@ function App() {
 
     if (!meshUrl) {
       setRequestState("error");
-      setRequestMessage("Upload an STL before generating a toolpath.");
+      setRequestMessage("Upload a STEP file before generating a toolpath.");
       return;
     }
 
@@ -1983,7 +1984,7 @@ function App() {
           return;
         }
 
-        console.error("Failed to cache STL in backend", error);
+        console.error("Failed to cache STEP in backend", error);
         setMeshCacheMessage(
           localMesh.saved
             ? "Cached in browser localStorage. Backend cache unavailable."
@@ -1997,11 +1998,11 @@ function App() {
 
       setMeshCacheState("error");
       setMeshCacheMessage(
-        error instanceof Error ? error.message : "Failed to cache STL in browser.",
+        error instanceof Error ? error.message : "Failed to cache STEP in browser.",
       );
       setRequestState("error");
       setRequestMessage(
-        error instanceof Error ? error.message : "Failed to cache STL in browser.",
+        error instanceof Error ? error.message : "Failed to cache STEP in browser.",
       );
     }
   }

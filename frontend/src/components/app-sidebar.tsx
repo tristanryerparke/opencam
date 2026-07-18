@@ -166,11 +166,11 @@ export function AppSidebar({
     <Sidebar>
       <SidebarContent className="gap-3 p-2">
         <div className="space-y-1">
-          <Label htmlFor="mesh-upload">Upload STL</Label>
+          <Label htmlFor="mesh-upload">Upload STEP</Label>
           <Input
             id="mesh-upload"
             type="file"
-            accept=".stl,model/stl"
+            accept=".step,.stp"
             className="py-0 file:h-full file:py-0"
             onChange={(event) => onMeshUpload(event.target.files?.[0] ?? null)}
           />
@@ -215,7 +215,7 @@ export function AppSidebar({
           <p className="text-xs leading-5 text-sidebar-foreground/65">{requestMessage}</p>
         ) : (
           <p className="text-xs leading-5 text-sidebar-foreground/65">
-            Upload an STL, add an operation, choose XY-coplanar control geometry, then generate.
+            Upload a STEP file, add an operation, choose XY-planar control geometry, then generate.
           </p>
         )}
 

@@ -16,6 +16,15 @@ export type SelectedBrepFace = {
   faceIndex: number;
 };
 
+export type SelectedBrepEdgeLoop = SelectedBrepFace & {
+  loopIndex: number;
+};
+
+export type BrepEdgeLoop = SelectedBrepEdgeLoop & {
+  mesh: THREE.Mesh;
+  positions: number[];
+};
+
 type FaceRange = {
   faceIndex: number;
   firstTriangle: number;
@@ -26,6 +35,7 @@ const DEFAULT_MESH_COLOR = 0xd1d5db;
 const SELECTED_FACE_COLOR = 0xf97316;
 const EDGE_COLOR = 0x111827;
 const CONTOUR_COLOR = 0x2563eb;
+const EDGE_LOOP_SELECTED_COLOR = 0x1e3a8a;
 const HOVER_FACE_COLOR = 0xf97316;
 const CONTOUR_COUNT = 10;
 const CONTOUR_LINEWIDTH = 2;
@@ -215,6 +225,24 @@ export function buildStepScene(result: OcctReadResult) {
   return { group, stats };
 }
 
+function pointKey(point: THREE.Vector3) {
+  return `${point.x.toFixed(6)},${point.y.toFixed(6)},${point.z.toFixed(6)}`;
+}
+
+function getMeshAndFaceRange(root: THREE.Object3D, selected: SelectedBrepFace) {
+  const meshes: THREE.Mesh[] = [];
+  root.traverse((child) => {
+    if (child instanceof THREE.Mesh && child.userData.stepMeshIndex === selected.meshIndex) {
+      meshes.push(child);
+    }
+  });
+
+  const mesh = meshes[0];
+  const faceRanges = mesh?.userData.brepFaceRanges as FaceRange[] | undefined;
+  const range = faceRanges?.find((candidate) => candidate.faceIndex === selected.faceIndex);
+  return mesh && range ? { mesh, range } : null;
+}
+
 function removeSelectedFaceContours(mesh: THREE.Mesh) {
   const contours = mesh.userData.selectedFaceContours as THREE.Object3D | undefined;
   if (!contours) {
@@ -373,16 +401,9 @@ export function setSelectedBrepFace(root: THREE.Object3D, selected: SelectedBrep
 }
 
 export function createBrepFaceHoverPreview(root: THREE.Object3D, selected: SelectedBrepFace) {
-  const meshes: THREE.Mesh[] = [];
-  root.traverse((child) => {
-    if (child instanceof THREE.Mesh && child.userData.stepMeshIndex === selected.meshIndex) {
-      meshes.push(child);
-    }
-  });
-
-  const mesh = meshes[0];
-  const faceRanges = mesh?.userData.brepFaceRanges as FaceRange[] | undefined;
-  const range = faceRanges?.find((candidate) => candidate.faceIndex === selected.faceIndex);
+  const target = getMeshAndFaceRange(root, selected);
+  const mesh = target?.mesh;
+  const range = target?.range;
   const position = mesh?.geometry.getAttribute("position");
   const normal = mesh?.geometry.getAttribute("normal");
   const index = mesh?.geometry.getIndex();
@@ -424,6 +445,146 @@ export function createBrepFaceHoverPreview(root: THREE.Object3D, selected: Selec
   preview.frustumCulled = false;
   preview.renderOrder = 30;
   return { mesh, preview };
+}
+
+function isXyPlanarFace(mesh: THREE.Mesh, range: FaceRange) {
+  const position = mesh.geometry.getAttribute("position");
+  const index = mesh.geometry.getIndex();
+  if (!position || !index) {
+    return false;
+  }
+
+  let minZ = Infinity;
+  let maxZ = -Infinity;
+  for (let triangle = range.firstTriangle; triangle < range.lastTriangleExclusive; triangle += 1) {
+    for (let corner = 0; corner < 3; corner += 1) {
+      const z = position.getZ(index.getX(triangle * 3 + corner));
+      minZ = Math.min(minZ, z);
+      maxZ = Math.max(maxZ, z);
+    }
+  }
+  return maxZ - minZ <= 1e-5;
+}
+
+function buildBrepFaceEdgeLoops(mesh: THREE.Mesh, range: FaceRange): BrepEdgeLoop[] {
+  const position = mesh.geometry.getAttribute("position");
+  const index = mesh.geometry.getIndex();
+  const meshIndex = mesh.userData.stepMeshIndex;
+  if (!position || !index || typeof meshIndex !== "number") {
+    return [];
+  }
+
+  const faceGeometry = new THREE.BufferGeometry();
+  faceGeometry.setAttribute("position", position);
+  faceGeometry.setIndex(new THREE.BufferAttribute(
+    index.array.slice(range.firstTriangle * 3, range.lastTriangleExclusive * 3),
+    1,
+  ));
+
+  const edgesGeometry = new THREE.EdgesGeometry(faceGeometry, 180);
+  const edgesPosition = edgesGeometry.getAttribute("position");
+  const segments = Array.from({ length: edgesPosition.count / 2 }, (_, segmentIndex) => ({
+    segmentIndex,
+    start: new THREE.Vector3().fromBufferAttribute(edgesPosition, segmentIndex * 2),
+    end: new THREE.Vector3().fromBufferAttribute(edgesPosition, segmentIndex * 2 + 1),
+  }));
+  const pointToSegments = new Map<string, number[]>();
+  for (const segment of segments) {
+    for (const key of [pointKey(segment.start), pointKey(segment.end)]) {
+      const list = pointToSegments.get(key) ?? [];
+      list.push(segment.segmentIndex);
+      pointToSegments.set(key, list);
+    }
+  }
+
+  const visited = new Set<number>();
+  const loops: BrepEdgeLoop[] = [];
+  for (const segment of segments) {
+    if (visited.has(segment.segmentIndex)) {
+      continue;
+    }
+
+    const stack = [segment.segmentIndex];
+    const component: number[] = [];
+    visited.add(segment.segmentIndex);
+    while (stack.length > 0) {
+      const currentIndex = stack.pop();
+      if (currentIndex == null) {
+        continue;
+      }
+      component.push(currentIndex);
+      const current = segments[currentIndex];
+      for (const key of [pointKey(current.start), pointKey(current.end)]) {
+        for (const nextIndex of pointToSegments.get(key) ?? []) {
+          if (!visited.has(nextIndex)) {
+            visited.add(nextIndex);
+            stack.push(nextIndex);
+          }
+        }
+      }
+    }
+
+    const positions: number[] = [];
+    for (const segmentIndex of component) {
+      const current = segments[segmentIndex];
+      positions.push(current.start.x, current.start.y, current.start.z, current.end.x, current.end.y, current.end.z);
+    }
+    loops.push({
+      mesh,
+      meshIndex,
+      faceIndex: range.faceIndex,
+      loopIndex: loops.length,
+      positions,
+    });
+  }
+
+  edgesGeometry.dispose();
+  faceGeometry.dispose();
+  return loops;
+}
+
+export function getBrepFaceEdgeLoops(root: THREE.Object3D, selected: SelectedBrepFace | null): BrepEdgeLoop[] {
+  const target = selected ? getMeshAndFaceRange(root, selected) : null;
+  return target ? buildBrepFaceEdgeLoops(target.mesh, target.range) : [];
+}
+
+export function getAllBrepEdgeLoops(root: THREE.Object3D): BrepEdgeLoop[] {
+  const loops: BrepEdgeLoop[] = [];
+  root.traverse((child) => {
+    if (!(child instanceof THREE.Mesh) || typeof child.userData.stepMeshIndex !== "number") {
+      return;
+    }
+
+    for (const range of (child.userData.brepFaceRanges as FaceRange[] | undefined) ?? []) {
+      if (isXyPlanarFace(child, range)) {
+        loops.push(...buildBrepFaceEdgeLoops(child, range));
+      }
+    }
+  });
+  return loops;
+}
+
+export function createBrepEdgeLoopLine(loop: BrepEdgeLoop, color = CONTOUR_COLOR) {
+  const geometry = new LineSegmentsGeometry();
+  geometry.setPositions(loop.positions);
+  const line = new LineSegments2(
+    geometry,
+    new LineMaterial({
+      color,
+      linewidth: CONTOUR_LINEWIDTH,
+      depthTest: false,
+      depthWrite: false,
+      transparent: true,
+      opacity: 0.95,
+    }),
+  );
+  line.frustumCulled = false;
+  line.renderOrder = 30;
+  return line;
+}
+
+export function createSelectedBrepEdgeLoopLine(loop: BrepEdgeLoop) {
+  return createBrepEdgeLoopLine(loop, EDGE_LOOP_SELECTED_COLOR);
 }
 
 export function getSelectedBrepFaceFromIntersection(

@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 import type { OcctReadResult } from "occt-import-js";
 import { StepViewer } from "@/components/StepViewer";
 import { readStepFile } from "@/lib/occt";
-import type { SelectedBrepFace, StepSceneStats } from "@/lib/step-three";
+import type { SelectedBrepEdgeLoop, SelectedBrepFace, StepSceneStats } from "@/lib/step-three";
 import "./App.css";
 
 type LoadState = "idle" | "loading" | "ready" | "error";
@@ -25,14 +25,18 @@ export default function App() {
   const [message, setMessage] = useState("Upload a .step or .stp file to view it.");
   const [stats, setStats] = useState<StepSceneStats | null>(null);
   const [pickingMode, setPickingMode] = useState(false);
+  const [edgeLoopPickingMode, setEdgeLoopPickingMode] = useState(false);
   const [selectedFace, setSelectedFace] = useState<SelectedBrepFace | null>(null);
+  const [selectedEdgeLoop, setSelectedEdgeLoop] = useState<SelectedBrepEdgeLoop | null>(null);
 
   const loadFile = useCallback(async (file: File) => {
     setLoadState("loading");
     setMessage("Loading OpenCascade and reading STEP file…");
     setStats(null);
     setPickingMode(false);
+    setEdgeLoopPickingMode(false);
     setSelectedFace(null);
+    setSelectedEdgeLoop(null);
 
     try {
       const nextResult = await readStepFile(file, READ_PARAMS);
@@ -60,13 +64,26 @@ export default function App() {
   const handleFacePick = useCallback((selection: SelectedBrepFace) => {
     setSelectedFace(selection);
     setPickingMode(false);
+    setEdgeLoopPickingMode(false);
     setMessage(`Selected BREP face ${selection.faceIndex + 1} on mesh ${selection.meshIndex + 1}.`);
+  }, []);
+
+  const handleEdgeLoopPick = useCallback((selection: SelectedBrepEdgeLoop) => {
+    setSelectedEdgeLoop(selection);
+    setEdgeLoopPickingMode(false);
+    setMessage(`Selected edge loop ${selection.loopIndex + 1}.`);
   }, []);
 
   const clearSelectedFace = useCallback(() => {
     setSelectedFace(null);
     setPickingMode(false);
-    setMessage("Selection cleared. Click Select face to pick another BREP face.");
+    setMessage("Face selection cleared.");
+  }, []);
+
+  const clearSelectedEdgeLoop = useCallback(() => {
+    setSelectedEdgeLoop(null);
+    setEdgeLoopPickingMode(false);
+    setMessage("Edge loop selection cleared.");
   }, []);
 
   return (
@@ -91,7 +108,10 @@ export default function App() {
             type="button"
             className={pickingMode ? "primary-button active" : "primary-button"}
             disabled={!result || selectedFace !== null}
-            onClick={() => setPickingMode(true)}
+            onClick={() => {
+              setPickingMode(true);
+              setEdgeLoopPickingMode(false);
+            }}
           >
             Select face
           </button>
@@ -101,6 +121,30 @@ export default function App() {
             disabled={selectedFace === null}
             aria-label="Clear selected face"
             onClick={clearSelectedFace}
+          >
+            ×
+          </button>
+        </div>
+
+        <div className="selection-row">
+          <button
+            type="button"
+            className={edgeLoopPickingMode ? "primary-button active" : "primary-button"}
+            disabled={!result}
+            onClick={() => {
+              setPickingMode(false);
+              setEdgeLoopPickingMode(true);
+              setMessage("Move over an XY-planar edge loop, then click to pick it.");
+            }}
+          >
+            Select edge loop
+          </button>
+          <button
+            type="button"
+            className="clear-button"
+            disabled={selectedEdgeLoop === null}
+            aria-label="Clear selected edge loop"
+            onClick={clearSelectedEdgeLoop}
           >
             ×
           </button>
@@ -137,8 +181,11 @@ export default function App() {
         <StepViewer
           result={result}
           pickingMode={pickingMode}
+          edgeLoopPickingMode={edgeLoopPickingMode}
           selectedFace={selectedFace}
+          selectedEdgeLoop={selectedEdgeLoop}
           onFacePick={handleFacePick}
+          onEdgeLoopPick={handleEdgeLoopPick}
           onStatsChange={setStats}
         />
       </section>

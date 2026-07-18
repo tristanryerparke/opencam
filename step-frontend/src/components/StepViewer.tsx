@@ -4,10 +4,16 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import type { OcctReadResult } from "occt-import-js";
 import {
   buildStepScene,
+  createBrepEdgeLoopLine,
   createBrepFaceHoverPreview,
+  createSelectedBrepEdgeLoopLine,
   disposeObject,
+  getAllBrepEdgeLoops,
+  getBrepFaceEdgeLoops,
   getSelectedBrepFaceFromIntersection,
   setSelectedBrepFace,
+  type BrepEdgeLoop,
+  type SelectedBrepEdgeLoop,
   type SelectedBrepFace,
   type StepSceneStats,
 } from "@/lib/step-three";
@@ -15,8 +21,11 @@ import {
 type StepViewerProps = {
   result: OcctReadResult | null;
   pickingMode: boolean;
+  edgeLoopPickingMode: boolean;
   selectedFace: SelectedBrepFace | null;
+  selectedEdgeLoop: SelectedBrepEdgeLoop | null;
   onFacePick: (selection: SelectedBrepFace) => void;
+  onEdgeLoopPick: (selection: SelectedBrepEdgeLoop) => void;
   onStatsChange: (stats: StepSceneStats | null) => void;
 };
 
@@ -71,6 +80,16 @@ function fitCameraToObject(
   controls.minDistance = Math.max(maxDimension * 0.0005, 0.01);
   controls.maxDistance = Math.max(maxDimension * 20, distance * 4);
   controls.update();
+}
+
+function distanceToSegmentSquared(px: number, py: number, ax: number, ay: number, bx: number, by: number) {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const lengthSquared = dx * dx + dy * dy;
+  const t = lengthSquared === 0 ? 0 : Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lengthSquared));
+  const x = ax + dx * t;
+  const y = ay + dy * t;
+  return (px - x) ** 2 + (py - y) ** 2;
 }
 
 function setupViewer(container: HTMLDivElement) {
@@ -149,17 +168,26 @@ function setupViewer(container: HTMLDivElement) {
 export function StepViewer({
   result,
   pickingMode,
+  edgeLoopPickingMode,
   selectedFace,
+  selectedEdgeLoop,
   onFacePick,
+  onEdgeLoopPick,
   onStatsChange,
 }: StepViewerProps) {
   const containerRef: RefObject<HTMLDivElement | null> = useRef(null);
   const viewerRef = useRef<ViewerState | null>(null);
   const pickingModeRef = useRef(pickingMode);
+  const edgeLoopPickingModeRef = useRef(edgeLoopPickingMode);
   const selectedFaceRef = useRef(selectedFace);
   const hoveredFaceRef = useRef<SelectedBrepFace | null>(null);
   const facePreviewRef = useRef<THREE.Object3D | null>(null);
+  const edgeLoopsRef = useRef<BrepEdgeLoop[]>([]);
+  const hoveredEdgeLoopRef = useRef<BrepEdgeLoop | null>(null);
+  const edgeLoopPreviewRef = useRef<THREE.Object3D | null>(null);
+  const selectedEdgeLoopLineRef = useRef<THREE.Object3D | null>(null);
   const onFacePickRef = useRef(onFacePick);
+  const onEdgeLoopPickRef = useRef(onEdgeLoopPick);
 
   const clearFacePreview = () => {
     const preview = facePreviewRef.current;
@@ -190,6 +218,40 @@ export function StepViewer({
     hoveredFaceRef.current = selection;
   };
 
+  const clearEdgeLoopPreview = () => {
+    const preview = edgeLoopPreviewRef.current;
+    if (preview) {
+      preview.parent?.remove(preview);
+      disposeObject(preview);
+      edgeLoopPreviewRef.current = null;
+    }
+    hoveredEdgeLoopRef.current = null;
+  };
+
+  const clearSelectedEdgeLoopLine = () => {
+    const line = selectedEdgeLoopLineRef.current;
+    if (line) {
+      line.parent?.remove(line);
+      disposeObject(line);
+      selectedEdgeLoopLineRef.current = null;
+    }
+  };
+
+  const sameLoop = (a: BrepEdgeLoop | null, b: BrepEdgeLoop | null) =>
+    a?.meshIndex === b?.meshIndex && a?.faceIndex === b?.faceIndex && a?.loopIndex === b?.loopIndex;
+
+  const showEdgeLoopPreview = (loop: BrepEdgeLoop) => {
+    if (sameLoop(hoveredEdgeLoopRef.current, loop)) {
+      return;
+    }
+
+    clearEdgeLoopPreview();
+    const preview = createBrepEdgeLoopLine(loop);
+    loop.mesh.add(preview);
+    edgeLoopPreviewRef.current = preview;
+    hoveredEdgeLoopRef.current = loop;
+  };
+
   const pickFace = (
     event: PointerEvent,
     state: ViewerState,
@@ -212,6 +274,48 @@ export function StepViewer({
     return intersection ? getSelectedBrepFaceFromIntersection(intersection) : null;
   };
 
+  const updateEdgeLoopPreview = (event: PointerEvent, state: ViewerState) => {
+    if (edgeLoopsRef.current.length === 0) {
+      edgeLoopsRef.current = getAllBrepEdgeLoops(state.modelRoot);
+    }
+
+    const rect = state.renderer.domElement.getBoundingClientRect();
+    const px = event.clientX - rect.left;
+    const py = event.clientY - rect.top;
+    const start = new THREE.Vector3();
+    const end = new THREE.Vector3();
+    let best: BrepEdgeLoop | null = null;
+    let bestDistanceSquared = 10 ** 2;
+
+    for (const loop of edgeLoopsRef.current) {
+      for (let index = 0; index < loop.positions.length; index += 6) {
+        start.set(loop.positions[index], loop.positions[index + 1], loop.positions[index + 2]);
+        end.set(loop.positions[index + 3], loop.positions[index + 4], loop.positions[index + 5]);
+        start.applyMatrix4(loop.mesh.matrixWorld).project(state.camera);
+        end.applyMatrix4(loop.mesh.matrixWorld).project(state.camera);
+        if (start.z < -1 || start.z > 1 || end.z < -1 || end.z > 1) {
+          continue;
+        }
+
+        const ax = ((start.x + 1) / 2) * rect.width;
+        const ay = ((1 - start.y) / 2) * rect.height;
+        const bx = ((end.x + 1) / 2) * rect.width;
+        const by = ((1 - end.y) / 2) * rect.height;
+        const distanceSquared = distanceToSegmentSquared(px, py, ax, ay, bx, by);
+        if (distanceSquared < bestDistanceSquared) {
+          bestDistanceSquared = distanceSquared;
+          best = loop;
+        }
+      }
+    }
+
+    if (best) {
+      showEdgeLoopPreview(best);
+    } else {
+      clearEdgeLoopPreview();
+    }
+  };
+
   useEffect(() => {
     const container = containerRef.current;
     if (!container) {
@@ -225,6 +329,10 @@ export function StepViewer({
     const raycaster = new THREE.Raycaster();
     const pointer = new THREE.Vector2();
     const handlePointerMove = (event: PointerEvent) => {
+      if (edgeLoopPickingModeRef.current) {
+        updateEdgeLoopPreview(event, state);
+        return;
+      }
       if (!pickingModeRef.current) {
         return;
       }
@@ -237,7 +345,7 @@ export function StepViewer({
       }
     };
     const handlePointerDown = (event: PointerEvent) => {
-      if (!pickingModeRef.current) {
+      if (!pickingModeRef.current && !edgeLoopPickingModeRef.current) {
         return;
       }
       if (event.button !== 0) {
@@ -246,6 +354,18 @@ export function StepViewer({
 
       event.preventDefault();
       event.stopPropagation();
+
+      if (edgeLoopPickingModeRef.current) {
+        const loop = hoveredEdgeLoopRef.current;
+        if (loop) {
+          onEdgeLoopPickRef.current({
+            meshIndex: loop.meshIndex,
+            faceIndex: loop.faceIndex,
+            loopIndex: loop.loopIndex,
+          });
+        }
+        return;
+      }
 
       const selection = hoveredFaceRef.current ?? pickFace(event, state, raycaster, pointer);
       if (selection) {
@@ -268,18 +388,26 @@ export function StepViewer({
   }, [onFacePick]);
 
   useEffect(() => {
+    onEdgeLoopPickRef.current = onEdgeLoopPick;
+  }, [onEdgeLoopPick]);
+
+  useEffect(() => {
     pickingModeRef.current = pickingMode;
+    edgeLoopPickingModeRef.current = edgeLoopPickingMode;
     const viewer = viewerRef.current;
     if (!viewer) {
       return;
     }
 
     viewer.controls.enabled = true;
-    viewer.renderer.domElement.style.cursor = pickingMode ? "crosshair" : "grab";
+    viewer.renderer.domElement.style.cursor = pickingMode || edgeLoopPickingMode ? "crosshair" : "grab";
     if (!pickingMode) {
       clearFacePreview();
     }
-  }, [pickingMode]);
+    if (!edgeLoopPickingMode) {
+      clearEdgeLoopPreview();
+    }
+  }, [edgeLoopPickingMode, pickingMode]);
 
   useEffect(() => {
     selectedFaceRef.current = selectedFace;
@@ -291,12 +419,35 @@ export function StepViewer({
   }, [selectedFace]);
 
   useEffect(() => {
+    clearEdgeLoopPreview();
+    clearSelectedEdgeLoopLine();
+    const viewer = viewerRef.current;
+    if (!viewer || !selectedEdgeLoop) {
+      return;
+    }
+
+    const loop = getBrepFaceEdgeLoops(viewer.modelRoot, selectedEdgeLoop).find(
+      (candidate) => candidate.loopIndex === selectedEdgeLoop.loopIndex,
+    );
+    if (!loop) {
+      return;
+    }
+
+    const line = createSelectedBrepEdgeLoopLine(loop);
+    loop.mesh.add(line);
+    selectedEdgeLoopLineRef.current = line;
+  }, [selectedEdgeLoop]);
+
+  useEffect(() => {
     const viewer = viewerRef.current;
     if (!viewer) {
       return;
     }
 
+    edgeLoopsRef.current = [];
     clearFacePreview();
+    clearEdgeLoopPreview();
+    clearSelectedEdgeLoopLine();
     clearGroup(viewer.modelRoot);
     if (!result) {
       onStatsChange(null);

@@ -18,8 +18,6 @@ import {
   CUT_SURFACE_COLOR,
   DISPLAY_EDGE_THRESHOLD_ANGLE_DEGREES,
   DISPLAY_SHADING_CREASE_ANGLE_DEGREES,
-  MESH_DEPTH_OFFSET_FACTOR,
-  MESH_DEPTH_OFFSET_UNITS,
   MESH_EDGE_LINEWIDTH,
   POLYLINE_COLORS,
   POLYLINE_LINEWIDTH,
@@ -328,34 +326,19 @@ export function usePolylineViewerScene(
       renderGeometry.computeBoundingSphere();
 
       const clampedOpacity = Math.max(0, Math.min(opacity, 1));
-      if (clampedOpacity >= 1) {
-        const depthMaterial = new THREE.MeshDepthMaterial({
-          depthWrite: true,
-          depthTest: true,
-          polygonOffset: true,
-          polygonOffsetFactor: MESH_DEPTH_OFFSET_FACTOR,
-          polygonOffsetUnits: MESH_DEPTH_OFFSET_UNITS,
-        });
-        depthMaterial.colorWrite = false;
-
-        const depthMesh = new THREE.Mesh(renderGeometry, depthMaterial);
-        depthMesh.renderOrder = 0;
-        depthMesh.frustumCulled = false;
-        targetGroup.add(depthMesh);
-      }
-
       const hasVertexColors = useVertexColors && hasNonWhiteVertexColors(renderGeometry);
       if (hasVertexColors) {
         applyStockVertexColor(renderGeometry, color);
       }
       const meshMaterial = new THREE.MeshStandardMaterial({
+        side: THREE.DoubleSide,
         color: hasVertexColors ? 0xffffff : color,
         vertexColors: hasVertexColors,
         roughness: 0.72,
         metalness: 0.02,
         transparent: clampedOpacity < 1,
         opacity: clampedOpacity,
-        depthWrite: false,
+        depthWrite: clampedOpacity >= 1,
         depthFunc: THREE.LessEqualDepth,
       });
       const mesh = new THREE.Mesh(renderGeometry, meshMaterial);

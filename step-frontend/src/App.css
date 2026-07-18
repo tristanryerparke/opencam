@@ -1,0 +1,173 @@
+.app-shell {
+  display: grid;
+  grid-template-columns: 340px minmax(0, 1fr);
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  min-height: 0;
+  padding: 1.25rem;
+  border-right: 1px solid #cbd5e1;
+  background: #f8fafc;
+  box-shadow: 0 0 30px rgb(15 23 42 / 0.08);
+  z-index: 1;
+}
+
+.eyebrow {
+  margin: 0 0 0.25rem;
+  color: #2563eb;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+h1 {
+  margin: 0;
+  font-size: 2rem;
+  line-height: 1.05;
+}
+
+.description {
+  margin: 0.75rem 0 0;
+  color: #475569;
+  line-height: 1.5;
+}
+
+.upload-card {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem;
+  border: 1px dashed #94a3b8;
+  border-radius: 0.85rem;
+  background: white;
+  cursor: pointer;
+}
+
+.upload-card span {
+  font-weight: 700;
+}
+
+.upload-card input {
+  max-width: 100%;
+}
+
+.selection-row {
+  display: grid;
+  grid-template-columns: 1fr 2.75rem;
+  gap: 0.5rem;
+}
+
+.primary-button,
+.clear-button {
+  height: 2.5rem;
+  border: 1px solid #94a3b8;
+  border-radius: 0.7rem;
+  background: white;
+  color: #0f172a;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.primary-button.active {
+  border-color: #2563eb;
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.primary-button:disabled,
+.clear-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.clear-button:not(:disabled) {
+  border-color: #fb923c;
+  color: #c2410c;
+}
+
+.status {
+  padding: 1rem;
+  border-radius: 0.85rem;
+  background: #e2e8f0;
+}
+
+.status strong {
+  display: block;
+  margin-bottom: 0.35rem;
+  word-break: break-word;
+}
+
+.status p {
+  margin: 0;
+  color: #475569;
+  line-height: 1.45;
+}
+
+.status-loading {
+  background: #dbeafe;
+}
+
+.status-ready {
+  background: #dcfce7;
+}
+
+.status-error {
+  background: #fee2e2;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  margin: 0;
+}
+
+.stats-grid div {
+  padding: 0.85rem;
+  border-radius: 0.75rem;
+  background: white;
+}
+
+.stats-grid dt {
+  color: #64748b;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.stats-grid dd {
+  margin: 0.25rem 0 0;
+  font-size: 1.35rem;
+  font-weight: 750;
+}
+
+.viewer-panel {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+}
+
+.viewer,
+.viewer-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+@media (max-width: 800px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(360px, 1fr);
+  }
+
+  .sidebar {
+    border-right: 0;
+    border-bottom: 1px solid #cbd5e1;
+  }
+}

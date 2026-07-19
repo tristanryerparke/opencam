@@ -10,6 +10,7 @@ from pydantic import ValidationError
 import numpy as np
 import rhino3dm
 import trimesh
+from trimesh.proximity import ProximityQuery
 
 from opencam.schemas.cl_data import OperationRecord3D, PositionRecord3D
 from opencam.schemas.tools import CylindricalTool
@@ -45,6 +46,16 @@ from opencam.simulation.swept_volume import (
 
 router = APIRouter()
 
+DEFAULT_PART_PROXIMITY_TOLERANCE = 0.1
+PROXIMITY_COLOR_FULL_RED_DISTANCE = 5.0
+DISPLAY_REMESH_TARGET_EDGE_LENGTH = 5.0
+DISPLAY_REMESH_FRAMES = True
+DISPLAY_REMESH_CHUNKS = True
+DISPLAY_REMESH_ITERATIONS = 10
+EXTRA_STOCK_COLOR_RGBA = np.array([239, 68, 68, 255], dtype=np.uint8)
+GOUGE_COLOR_RGBA = np.array([59, 130, 246, 255], dtype=np.uint8)
+PURE_RED_COLOR_RGBA = np.array([255, 0, 0, 255], dtype=np.uint8)
+
 
 @dataclass(frozen=True)
 class PreparedSimulationFrame:
@@ -64,8 +75,11 @@ class BufferedSimulationResult:
     frame_step_distance: float
     rotate_tool_with_path: bool = DEFAULT_ROTATE_TOOL_WITH_PATH
     include_corner_rotation_sweeps: bool = DEFAULT_INCLUDE_CORNER_ROTATION_SWEEPS
+    part_mesh: trimesh.Trimesh | None = None
+    part_proximity_query: ProximityQuery | None = None
     # ponytail: cache grows with viewed frames; add LRU eviction if live simulation memory proves material.
     active_mesh_cache: dict[int, bytes] = field(default_factory=dict)
+    proximity_active_mesh_cache: dict[int, bytes] = field(default_factory=dict)
     active_mesh_cache_lock: Lock = field(default_factory=Lock)
 
 
@@ -107,6 +121,171 @@ def _load_trimesh_from_bytes(mesh_bytes: bytes, file_type: str) -> trimesh.Trime
     if len(loaded.vertices) == 0 or len(loaded.faces) == 0:
         raise ValueError("Mesh asset contains no faces.")
     return loaded
+
+
+def _build_part_proximity(mesh_bytes: bytes) -> tuple[trimesh.Trimesh | None, ProximityQuery | None]:
+    try:
+        part_mesh = _load_trimesh_from_bytes(mesh_bytes, file_type="stl")
+        return part_mesh, ProximityQuery(part_mesh)
+    except Exception as exc:  # proximity colors should not make simulation fail
+        print(f"[simulate/proximity] disabled: {exc}")
+        return None, None
+
+
+def _base_vertex_colors(mesh: trimesh.Trimesh) -> np.ndarray:
+    visual = getattr(mesh, "visual", None)
+    if visual is not None and hasattr(visual, "vertex_colors"):
+        colors = np.asarray(visual.vertex_colors, dtype=np.uint8)
+        if colors.ndim == 2 and colors.shape[0] == len(mesh.vertices) and colors.shape[1] >= 4:
+            return colors[:, :4].copy()
+        if colors.ndim == 2 and colors.shape[0] == len(mesh.vertices) and colors.shape[1] >= 3:
+            alpha = np.full((len(mesh.vertices), 1), 255, dtype=np.uint8)
+            return np.hstack((colors[:, :3], alpha))
+
+    return np.tile(np.array([251, 146, 60, 255], dtype=np.uint8), (len(mesh.vertices), 1))
+
+
+def _blend_colors(base_colors: np.ndarray, target_color: np.ndarray, amount: np.ndarray) -> np.ndarray:
+    if len(base_colors) == 0:
+        return base_colors
+
+    alpha = np.clip(np.asarray(amount, dtype=np.float64).reshape(-1, 1), 0.0, 1.0)
+    blended = ((1.0 - alpha) * np.asarray(base_colors, dtype=np.float64)) + (
+        alpha * np.broadcast_to(np.asarray(target_color, dtype=np.float64), base_colors.shape)
+    )
+    return np.clip(np.rint(blended), 0, 255).astype(np.uint8)
+
+
+def _proximity_redness(distance_error: np.ndarray) -> np.ndarray:
+    scale = max(float(PROXIMITY_COLOR_FULL_RED_DISTANCE), 1e-6)
+    return np.clip(np.asarray(distance_error, dtype=np.float64) / scale, 0.0, 1.0)
+
+
+def _transfer_remeshed_vertex_colors(source_mesh: trimesh.Trimesh, target_vertices: np.ndarray) -> np.ndarray | None:
+    if len(target_vertices) == 0 or len(source_mesh.vertices) == 0 or len(source_mesh.faces) == 0:
+        return None
+
+    source_colors = _base_vertex_colors(source_mesh)
+    source_faces = np.asarray(source_mesh.faces, dtype=np.int64)
+    if len(source_colors) != len(source_mesh.vertices) or len(source_faces) == 0:
+        return None
+
+    try:
+        _closest, _distance, triangle_ids = ProximityQuery(source_mesh).on_surface(
+            np.asarray(target_vertices, dtype=np.float64)
+        )
+        triangle_ids = np.asarray(triangle_ids, dtype=np.int64).reshape(-1)
+        if len(triangle_ids) != len(target_vertices):
+            return None
+        triangle_ids = np.clip(triangle_ids, 0, len(source_faces) - 1)
+        return source_colors[source_faces[triangle_ids, 0], :4].copy()
+    except Exception:
+        return None
+
+
+def _remesh_visualization_mesh(
+    mesh_bytes: bytes,
+    target_edge_length: float = DISPLAY_REMESH_TARGET_EDGE_LENGTH,
+) -> bytes:
+    if target_edge_length <= 0:
+        return mesh_bytes
+
+    try:
+        import pymeshlab
+
+        source_mesh = _load_trimesh_from_bytes(mesh_bytes, file_type="glb")
+        source_vertices = np.asarray(source_mesh.vertices, dtype=np.float64)
+        source_faces = np.asarray(source_mesh.faces, dtype=np.int32)
+        if len(source_vertices) == 0 or len(source_faces) == 0:
+            return mesh_bytes
+
+        meshset = pymeshlab.MeshSet()
+        meshset.add_mesh(
+            pymeshlab.Mesh(
+                vertex_matrix=np.ascontiguousarray(source_vertices[:, :3], dtype=np.float64),
+                face_matrix=np.ascontiguousarray(source_faces[:, :3], dtype=np.int32),
+            ),
+            "display-mesh",
+        )
+        meshset.meshing_isotropic_explicit_remeshing(
+            iterations=DISPLAY_REMESH_ITERATIONS,
+            adaptive=False,
+            targetlen=pymeshlab.PureValue(float(target_edge_length)),
+            checksurfdist=True,
+            maxsurfdist=pymeshlab.PureValue(float(target_edge_length) * 0.5),
+        )
+
+        remeshed = meshset.current_mesh()
+        remeshed_vertices = np.asarray(remeshed.vertex_matrix(), dtype=np.float64)
+        remeshed_faces = np.asarray(remeshed.face_matrix(), dtype=np.int64)
+        if len(remeshed_vertices) == 0 or len(remeshed_faces) == 0:
+            return mesh_bytes
+
+        remeshed_mesh = trimesh.Trimesh(
+            vertices=remeshed_vertices,
+            faces=remeshed_faces,
+            process=False,
+        )
+        remeshed_colors = _transfer_remeshed_vertex_colors(source_mesh, remeshed_vertices)
+        if remeshed_colors is not None:
+            remeshed_mesh.visual.vertex_colors = remeshed_colors
+        return remeshed_mesh.export(file_type="glb")
+    except Exception as exc:  # remeshing should not make simulation fail
+        print(f"[simulate/remesh] fallback: {exc}")
+        return mesh_bytes
+
+
+def _apply_part_proximity_colors(
+    mesh_bytes: bytes,
+    part_mesh: trimesh.Trimesh | None,
+    part_query: ProximityQuery | None,
+    tolerance: float = DEFAULT_PART_PROXIMITY_TOLERANCE,
+) -> bytes:
+    if part_mesh is None or part_query is None:
+        return mesh_bytes
+
+    try:
+        mesh = _load_trimesh_from_bytes(mesh_bytes, file_type="glb")
+        vertices = np.asarray(mesh.vertices, dtype=np.float64)
+        colors = _base_vertex_colors(mesh)
+        tolerance = max(float(tolerance), 0.0)
+
+        if getattr(part_mesh, "is_watertight", False):
+            signed_distance = np.asarray(part_query.signed_distance(vertices), dtype=np.float64)
+            extra_stock_error = np.maximum(-signed_distance - tolerance, 0.0)
+            gouge_error = np.maximum(signed_distance - tolerance, 0.0)
+
+            extra_stock_mask = extra_stock_error > 0.0
+            if np.any(extra_stock_mask):
+                colors[extra_stock_mask] = _blend_colors(
+                    np.tile(EXTRA_STOCK_COLOR_RGBA, (int(np.count_nonzero(extra_stock_mask)), 1)),
+                    PURE_RED_COLOR_RGBA,
+                    _proximity_redness(extra_stock_error[extra_stock_mask]),
+                )
+
+            gouge_mask = gouge_error > 0.0
+            if np.any(gouge_mask):
+                colors[gouge_mask] = _blend_colors(
+                    np.tile(GOUGE_COLOR_RGBA, (int(np.count_nonzero(gouge_mask)), 1)),
+                    PURE_RED_COLOR_RGBA,
+                    _proximity_redness(gouge_error[gouge_mask]),
+                )
+        else:
+            _closest, distance, _triangle_id = part_query.on_surface(vertices)
+            extra_stock_error = np.maximum(np.asarray(distance, dtype=np.float64) - tolerance, 0.0)
+            extra_stock_mask = extra_stock_error > 0.0
+            if np.any(extra_stock_mask):
+                colors[extra_stock_mask] = _blend_colors(
+                    np.tile(EXTRA_STOCK_COLOR_RGBA, (int(np.count_nonzero(extra_stock_mask)), 1)),
+                    PURE_RED_COLOR_RGBA,
+                    _proximity_redness(extra_stock_error[extra_stock_mask]),
+                )
+
+        mesh.visual.vertex_colors = colors
+        return mesh.export(file_type="glb")
+    except Exception as exc:  # proximity colors should not make simulation fail
+        print(f"[simulate/proximity] color fallback: {exc}")
+        return mesh_bytes
 
 
 def _rhino_mesh_payload_from_bytes(mesh_bytes: bytes, file_type: str = "glb") -> dict:
@@ -300,6 +479,8 @@ def _build_buffered_simulation(
         if progress_callback:
             progress_callback(round((current / max(total, 1)) * 85), message)
 
+    part_mesh, part_query = _build_part_proximity(mesh_bytes)
+
     prepared_chunks = prepare_simulation_chunks(
         mesh_bytes,
         operation,
@@ -334,9 +515,16 @@ def _build_buffered_simulation(
             context=f"extracting cached mesh for chunk {prepared_chunk.chunk_index}",
             stock_like_original_ids=prepared_chunk.stock_like_original_ids,
         )
+        if DISPLAY_REMESH_CHUNKS:
+            cached_mesh_bytes = _remesh_visualization_mesh(cached_mesh_bytes)
         chunks.append(
             SimulatedChunk(
                 cached_mesh_bytes=cached_mesh_bytes,
+                proximity_cached_mesh_bytes=_apply_part_proximity_colors(
+                    cached_mesh_bytes,
+                    part_mesh,
+                    part_query,
+                ),
                 frame_start_index=0,
                 frame_end_index=0,
             )
@@ -356,6 +544,8 @@ def _build_buffered_simulation(
         frame_step_distance=frame_step_distance,
         rotate_tool_with_path=rotate_tool_with_path,
         include_corner_rotation_sweeps=include_corner_rotation_sweeps,
+        part_mesh=part_mesh,
+        part_proximity_query=part_query,
     )
 
 
@@ -365,6 +555,7 @@ def _resample_buffered_simulation(
 ) -> None:
     with simulation.active_mesh_cache_lock:
         simulation.active_mesh_cache.clear()
+        simulation.proximity_active_mesh_cache.clear()
 
     simulation.frames = _build_animation_frames(
         _build_contact_frames(simulation.prepared_chunks, frame_step_distance),
@@ -374,34 +565,51 @@ def _resample_buffered_simulation(
     simulation.frame_step_distance = frame_step_distance
 
 
-def _active_mesh_bytes(simulation: BufferedSimulationResult, frame_index: int) -> bytes:
+def _active_mesh_bytes(
+    simulation: BufferedSimulationResult,
+    frame_index: int,
+    proximity_colors: bool = False,
+) -> bytes:
     with simulation.active_mesh_cache_lock:
-        cached_mesh_bytes = simulation.active_mesh_cache.get(frame_index)
-        if cached_mesh_bytes is not None:
-            return cached_mesh_bytes
-
-        frame = _get_buffered_frame(simulation, frame_index)
-        prepared_chunk = simulation.prepared_chunks[frame.chunk_index]
-        active_mesh = (
-            prepared_chunk.focus_mesh
-            if frame.point_index < 0
-            else simulate_chunk_focus_mesh(
-                prepared_chunk.focus_mesh,
-                prepared_chunk.cl_data,
-                resample_chunk_cl_data(prepared_chunk.cl_data, simulation.frame_step_distance),
-                frame.point_index,
-                context=f"chunk {frame.chunk_index} frame {frame.point_index}",
-                rotate_tool_with_path=simulation.rotate_tool_with_path,
-                include_corner_rotation_sweeps=simulation.include_corner_rotation_sweeps,
+        mesh_bytes = simulation.active_mesh_cache.get(frame_index)
+        if mesh_bytes is None:
+            frame = _get_buffered_frame(simulation, frame_index)
+            prepared_chunk = simulation.prepared_chunks[frame.chunk_index]
+            active_mesh = (
+                prepared_chunk.focus_mesh
+                if frame.point_index < 0
+                else simulate_chunk_focus_mesh(
+                    prepared_chunk.focus_mesh,
+                    prepared_chunk.cl_data,
+                    resample_chunk_cl_data(prepared_chunk.cl_data, simulation.frame_step_distance),
+                    frame.point_index,
+                    context=f"chunk {frame.chunk_index} frame {frame.point_index}",
+                    rotate_tool_with_path=simulation.rotate_tool_with_path,
+                    include_corner_rotation_sweeps=simulation.include_corner_rotation_sweeps,
+                )
             )
-        )
-        mesh_bytes = manifold_to_simplified_glb(
-            active_mesh,
-            context=f"extracting active mesh for chunk {frame.chunk_index} frame {frame.point_index}",
-            stock_like_original_ids=prepared_chunk.stock_like_original_ids,
-        )
-        simulation.active_mesh_cache[frame_index] = mesh_bytes
-        return mesh_bytes
+            mesh_bytes = manifold_to_simplified_glb(
+                active_mesh,
+                context=f"extracting active mesh for chunk {frame.chunk_index} frame {frame.point_index}",
+                stock_like_original_ids=prepared_chunk.stock_like_original_ids,
+            )
+            if DISPLAY_REMESH_FRAMES:
+                mesh_bytes = _remesh_visualization_mesh(mesh_bytes)
+            simulation.active_mesh_cache[frame_index] = mesh_bytes
+
+        if not proximity_colors:
+            return mesh_bytes
+
+        proximity_mesh_bytes = simulation.proximity_active_mesh_cache.get(frame_index)
+        if proximity_mesh_bytes is None:
+            proximity_mesh_bytes = _apply_part_proximity_colors(
+                mesh_bytes,
+                simulation.part_mesh,
+                simulation.part_proximity_query,
+            )
+            simulation.proximity_active_mesh_cache[frame_index] = proximity_mesh_bytes
+
+        return proximity_mesh_bytes
 
 
 def _get_simulation_task(task_id: str) -> SimulationTask:
@@ -713,42 +921,72 @@ def simulate_swept_tool_mesh_rhino_json(simulation_id: str):
 
 
 @router.get("/simulate/{simulation_id}/frames/{frame_index}/active-mesh.glb")
-def simulate_swept_frame_active_mesh(simulation_id: str, frame_index: int):
+def simulate_swept_frame_active_mesh(
+    simulation_id: str,
+    frame_index: int,
+    proximity_colors: bool = False,
+):
     with SIMULATION_FRAME_BUFFER_LOCK:
         simulation = _get_buffered_simulation(simulation_id)
         _get_buffered_frame(simulation, frame_index)
 
-    return Response(content=_active_mesh_bytes(simulation, frame_index), media_type="model/gltf-binary")
+    return Response(
+        content=_active_mesh_bytes(simulation, frame_index, proximity_colors),
+        media_type="model/gltf-binary",
+    )
 
 
 @router.get("/simulate/{simulation_id}/frames/{frame_index}/active-mesh.rhino.json")
-def simulate_swept_frame_active_mesh_rhino_json(simulation_id: str, frame_index: int):
+def simulate_swept_frame_active_mesh_rhino_json(
+    simulation_id: str,
+    frame_index: int,
+    proximity_colors: bool = False,
+):
     with SIMULATION_FRAME_BUFFER_LOCK:
         simulation = _get_buffered_simulation(simulation_id)
         _get_buffered_frame(simulation, frame_index)
 
     try:
-        return _rhino_mesh_response(_active_mesh_bytes(simulation, frame_index))
+        mesh_bytes = _active_mesh_bytes(simulation, frame_index, proximity_colors)
+        return _rhino_mesh_response(mesh_bytes)
     except ValueError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @router.get("/simulate/{simulation_id}/chunks/{chunk_index}/cached-mesh.glb")
-def simulate_swept_chunk_cached_mesh(simulation_id: str, chunk_index: int):
+def simulate_swept_chunk_cached_mesh(
+    simulation_id: str,
+    chunk_index: int,
+    proximity_colors: bool = False,
+):
     with SIMULATION_FRAME_BUFFER_LOCK:
         simulation = _get_buffered_simulation(simulation_id)
         chunk = _get_buffered_chunk(simulation, chunk_index)
 
-    return Response(content=chunk.cached_mesh_bytes, media_type="model/gltf-binary")
+    mesh_bytes = (
+        chunk.proximity_cached_mesh_bytes
+        if proximity_colors and chunk.proximity_cached_mesh_bytes
+        else chunk.cached_mesh_bytes
+    )
+    return Response(content=mesh_bytes, media_type="model/gltf-binary")
 
 
 @router.get("/simulate/{simulation_id}/chunks/{chunk_index}/cached-mesh.rhino.json")
-def simulate_swept_chunk_cached_mesh_rhino_json(simulation_id: str, chunk_index: int):
+def simulate_swept_chunk_cached_mesh_rhino_json(
+    simulation_id: str,
+    chunk_index: int,
+    proximity_colors: bool = False,
+):
     with SIMULATION_FRAME_BUFFER_LOCK:
         simulation = _get_buffered_simulation(simulation_id)
         chunk = _get_buffered_chunk(simulation, chunk_index)
 
+    mesh_bytes = (
+        chunk.proximity_cached_mesh_bytes
+        if proximity_colors and chunk.proximity_cached_mesh_bytes
+        else chunk.cached_mesh_bytes
+    )
     try:
-        return _rhino_mesh_response(chunk.cached_mesh_bytes)
+        return _rhino_mesh_response(mesh_bytes)
     except ValueError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc

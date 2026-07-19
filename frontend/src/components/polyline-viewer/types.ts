@@ -23,6 +23,8 @@ export type MeshFaceSelection = {
   validationError: string | null;
 };
 
+export type ToolRenderMode = "wireframe" | "shaded";
+
 export type PolylineViewerProps = {
   meshUrl?: string | null;
   secondaryMeshUrl?: string | null;
@@ -44,6 +46,7 @@ export type PolylineViewerProps = {
   showTertiaryMesh?: boolean;
   showSimulationStock?: boolean;
   showTool?: boolean;
+  toolRenderMode?: ToolRenderMode;
   polylines: ReadonlyArray<PolylineDefinition>;
   className?: string;
   faceSelectionMode?: boolean;

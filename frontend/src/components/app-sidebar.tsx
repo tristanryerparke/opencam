@@ -21,6 +21,7 @@ type OperationTreeItem = {
   operationId?: string;
   fileName?: string;
   needsAttention?: boolean;
+  progressPercent?: number;
 };
 
 type AppSidebarProps = {
@@ -29,12 +30,16 @@ type AppSidebarProps = {
   operations: Operation[];
   selectedNodeId: string;
   simulatableOperationIds: ReadonlySet<string>;
+  downloadableOperationIds: ReadonlySet<string>;
+  generatingOperationId: string | null;
+  generatingOperationProgressPercent: number;
   onMeshUpload: (file: File | null) => void;
   onAddOperation: () => void;
   onSelectNode: (nodeId: string) => void;
   onEditOperation: (operationId: string) => void;
   onDeleteOperation: (operationId: string) => void;
   onSimulateOperation: (operationId: string) => void;
+  onDownloadOperationClData: (operationId: string) => void;
   canManageOperations: boolean;
   canCancelGeneration: boolean;
   onCancelGeneration: () => void;
@@ -56,8 +61,10 @@ function renderTreeNode(
   onEditOperation: (operationId: string) => void,
   onDeleteOperation: (operationId: string) => void,
   onSimulateOperation: (operationId: string) => void,
+  onDownloadOperationClData: (operationId: string) => void,
   canManageOperations: boolean,
   simulatableOperationIds: ReadonlySet<string>,
+  downloadableOperationIds: ReadonlySet<string>,
 ) {
   const operationId = node.data.operationId;
   const content = (
@@ -83,17 +90,19 @@ function renderTreeNode(
         ) : node.id === "setup-1" ? (
           <Folders className="mt-0.5 h-4 w-4 shrink-0" />
         ) : null}
-        <span className="min-w-0 flex-1">
-          <span className="flex min-w-0 items-center gap-1.5 truncate font-medium">
-            <span className="truncate">{node.data.label}</span>
-            {node.data.fileName ? (
-              <span className="truncate text-xs font-normal text-sidebar-foreground/65">{node.data.fileName}</span>
-            ) : null}
-            {node.data.needsAttention ? (
-              <span className="ml-auto h-2 w-2 shrink-0 rounded-full bg-destructive" aria-label="Needs STEP file" />
-            ) : null}
-          </span>
+        <span className="flex min-w-0 flex-1 items-center gap-1.5 font-medium">
+          <span className="truncate">{node.data.label}</span>
+          {node.data.fileName ? (
+            <span className="truncate text-xs font-normal text-sidebar-foreground/65">{node.data.fileName}</span>
+          ) : null}
         </span>
+        {node.data.progressPercent != null ? (
+          <span className="ml-auto shrink-0 text-xs tabular-nums text-sidebar-foreground/65">
+            {Math.round(node.data.progressPercent)}%
+          </span>
+        ) : node.data.needsAttention ? (
+          <span className="ml-auto h-2 w-2 shrink-0 rounded-full bg-destructive" aria-label="Needs STEP file" />
+        ) : null}
         {hasChildren ? (
           <span
             className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center"
@@ -135,6 +144,12 @@ function renderTreeNode(
         <ContextMenuItem disabled={!simulatableOperationIds.has(operationId)} onSelect={() => onSimulateOperation(operationId)}>
           Simulate
         </ContextMenuItem>
+        <ContextMenuItem
+          disabled={!downloadableOperationIds.has(operationId)}
+          onSelect={() => onDownloadOperationClData(operationId)}
+        >
+          Download CL JSON
+        </ContextMenuItem>
         <ContextMenuItem disabled={!canManageOperations} onSelect={() => onEditOperation(operationId)}>
           Edit operation
         </ContextMenuItem>
@@ -156,12 +171,16 @@ export function AppSidebar({
   operations,
   selectedNodeId,
   simulatableOperationIds,
+  downloadableOperationIds,
+  generatingOperationId,
+  generatingOperationProgressPercent,
   onMeshUpload,
   onAddOperation,
   onSelectNode,
   onEditOperation,
   onDeleteOperation,
   onSimulateOperation,
+  onDownloadOperationClData,
   canManageOperations,
   canCancelGeneration,
   onCancelGeneration,
@@ -185,6 +204,8 @@ export function AppSidebar({
         data: {
           label: operation.displayName ?? `2.5D Pocketing ${index + 1}`,
           operationId: operation.id,
+          progressPercent:
+            operation.id && operation.id === generatingOperationId ? generatingOperationProgressPercent : undefined,
         },
       })),
     },
@@ -222,8 +243,10 @@ export function AppSidebar({
               onEditOperation,
               onDeleteOperation,
               onSimulateOperation,
+              onDownloadOperationClData,
               canManageOperations,
               simulatableOperationIds,
+              downloadableOperationIds,
             )}
           aria-label="CAM setup tree"
         />

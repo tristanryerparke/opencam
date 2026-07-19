@@ -35,6 +35,7 @@ class SimulatedChunk:
     cached_mesh_bytes: bytes
     frame_start_index: int
     frame_end_index: int
+    proximity_cached_mesh_bytes: bytes | None = None
 
 
 @dataclass

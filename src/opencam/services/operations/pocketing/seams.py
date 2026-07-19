@@ -36,32 +36,18 @@ class PocketSeamMixin:
         branch_side_vector: Coordinate2D,
         pocket_center: Coordinate2D,
     ) -> np.ndarray:
-        candidate = self.select_branch_side_run(
+        return self.shift_seam_to_nearest_point_on_ring(
             polyline,
-            branch_side_vector,
-            pocket_center,
-            start_reference=start_reference,
-        )
-        if candidate is None:
-            return self.shift_seam_to_nearest_point_on_longest_straight_edge(
-                polyline,
-                start_reference,
-            )
-
-        projected_distance = self.project_point_onto_segment_distance(
-            candidate.start_point,
-            candidate.end_point,
             start_reference,
+            branch_side_vector=branch_side_vector,
+            pocket_center=pocket_center,
         )
-        return seam_shift(polyline, candidate.start_length + projected_distance)
 
     def select_branch_side_run(
         self,
         polyline: np.ndarray,
         branch_side_vector: Coordinate2D,
         pocket_center: Coordinate2D,
-        *,
-        start_reference: Coordinate2D | None = None,
     ) -> StraightRunCandidate | None:
         candidates = self.straight_run_candidates(polyline)
         if not candidates:
@@ -85,23 +71,10 @@ class PocketSeamMixin:
                 pocket_center,
                 branch_side_vector,
             )
-            if start_reference is None:
-                distance_squared = self.distance_squared(candidate.midpoint, initial_seam)
-            else:
-                projected_distance = self.project_point_onto_segment_distance(
-                    candidate.start_point,
-                    candidate.end_point,
-                    start_reference,
-                )
-                target_point = evaluate_length(
-                    polyline,
-                    candidate.start_length + projected_distance,
-                )
-                distance_squared = self.distance_squared(
-                    (float(target_point[0]), float(target_point[1])),
-                    start_reference,
-                )
+            if side_score <= 1e-9:
+                continue
 
+            distance_squared = self.distance_squared(candidate.midpoint, initial_seam)
             if (
                 side_score > best_side_score + 1e-9
                 or (
@@ -123,9 +96,6 @@ class PocketSeamMixin:
                 best_side_score = side_score
                 best_distance_squared = distance_squared
                 best_length = candidate.length
-
-        if best_candidate is None or best_side_score <= 1e-9:
-            return None
 
         return best_candidate
 
@@ -280,6 +250,80 @@ class PocketSeamMixin:
 
         dot = first_dx * second_dx + first_dy * second_dy
         return dot > 0.0
+
+    def shift_seam_to_nearest_point_on_ring(
+        self,
+        polyline: np.ndarray,
+        start_reference: Coordinate2D,
+        *,
+        branch_side_vector: Coordinate2D | None = None,
+        pocket_center: Coordinate2D | None = None,
+    ) -> np.ndarray:
+        target_length = self.nearest_point_on_ring_length(
+            polyline,
+            start_reference,
+            branch_side_vector=branch_side_vector,
+            pocket_center=pocket_center,
+        )
+        if target_length <= 0.0:
+            return polyline
+
+        return seam_shift(polyline, target_length)
+
+    def nearest_point_on_ring_length(
+        self,
+        polyline: np.ndarray,
+        start_reference: Coordinate2D,
+        *,
+        branch_side_vector: Coordinate2D | None = None,
+        pocket_center: Coordinate2D | None = None,
+    ) -> float:
+        edge_lengths = self.closed_edge_lengths(polyline)
+        if edge_lengths.size == 0:
+            return 0.0
+
+        best_distance_squared = math.inf
+        best_side_score = -math.inf
+        best_target_length = 0.0
+        run_start_length = 0.0
+
+        for segment_index, segment_length in enumerate(edge_lengths):
+            segment_start = polyline[segment_index]
+            segment_end = polyline[segment_index + 1]
+            projected_distance = self.project_point_onto_segment_distance(
+                (float(segment_start[0]), float(segment_start[1])),
+                (float(segment_end[0]), float(segment_end[1])),
+                start_reference,
+            )
+            target_length = run_start_length + projected_distance
+            target_point = evaluate_length(polyline, target_length)
+            point = (float(target_point[0]), float(target_point[1]))
+            distance_squared = self.distance_squared(point, start_reference)
+            side_score = (
+                self.point_side_score(point, pocket_center, branch_side_vector)
+                if branch_side_vector is not None and pocket_center is not None
+                else 0.0
+            )
+
+            if (
+                distance_squared < best_distance_squared - 1e-9
+                or (
+                    math.isclose(
+                        distance_squared,
+                        best_distance_squared,
+                        rel_tol=1e-9,
+                        abs_tol=1e-9,
+                    )
+                    and side_score > best_side_score + 1e-9
+                )
+            ):
+                best_distance_squared = distance_squared
+                best_side_score = side_score
+                best_target_length = target_length
+
+            run_start_length += float(segment_length)
+
+        return best_target_length
 
     def shift_seam_to_nearest_point_on_longest_straight_edge(
         self,

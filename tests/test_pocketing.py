@@ -1,3 +1,11 @@
+import json
+from pathlib import Path
+
+import numpy as np
+import pytest
+from shapely.geometry import Polygon
+
+from opencam.engine.closed_polyline.validation import validate_closed_polyline
 from opencam.schemas.cam import CAMSetup
 from opencam.schemas.cl_data import FeedRatePositionRecord3D, RapidPositionRecord3D
 from opencam.schemas.geometry_2_5d import ClosedPolyline25D
@@ -5,7 +13,7 @@ from opencam.schemas.geometry_2d import Point2D
 from opencam.schemas.operations.base import AbsoluteClearance, CAMLevels, FeedsAndSpeeds
 from opencam.schemas.operations.pocketing import Pocketing2dOp, PocketingCutSettings, PocketingDriveGeometry, StepoverMode
 from opencam.schemas.tools import CylindricalTool
-from opencam.services.cam_engine import cam_engine
+from opencam.services.cam_engine import _PocketingContext, cam_engine
 
 
 def rectangle_vertices() -> list[Point2D]:
@@ -88,3 +96,93 @@ def test_pocketing_starts_first_loop_at_midpoint_of_longest_nearby_edge(tmp_path
         (9.0, 1.0, -1.0),
         (5.0, 1.0, -1.0),
     ]
+
+
+def test_pocketing_preserves_branch_seam_trajectory_between_rings():
+    polyline = validate_closed_polyline(
+        np.array(
+            [
+                vertex[:2]
+                for vertex in json.loads(
+                    Path("assets/operations/pocketing/pocketing_B_drive_curve.json").read_text()
+                )
+            ],
+            dtype=float,
+        )
+    )
+    context = _PocketingContext(
+        tool=CylindricalTool(
+            id="tool-1",
+            name="1/4in flat end mill",
+            tool_number=1,
+            diameter=6.35,
+            cutting_height=20.0,
+            shoulder_height=10.0,
+        ),
+        stepover=25.0,
+        stock_to_leave=0.0,
+    )
+    base_polyline = context.shift_seam_to_longest_straight_edge_near_initial_seam(polyline)
+    pocket_center = context.polygon_center(Polygon(base_polyline))
+    ordered_nodes = context.build_ordered_pocket_nodes(base_polyline)
+    branch_starts: list[list[tuple[float, float]]] = []
+    current_coordinates: np.ndarray | None = None
+    current_node = None
+    current_branch_side_vector = None
+    current_branch_seam_guide = None
+    current_branch_starts: list[tuple[float, float]] = []
+
+    for node in ordered_nodes:
+        connects_directly = current_node is not None and context.can_connect_directly(
+            current_node,
+            node,
+        )
+        if current_coordinates is not None and not connects_directly:
+            branch_starts.append(current_branch_starts)
+            current_coordinates = None
+            current_node = None
+            current_branch_side_vector = None
+            current_branch_seam_guide = None
+            current_branch_starts = []
+
+        if current_coordinates is None:
+            current_branch_side_vector = context.compute_branch_side_vector(
+                node,
+                pocket_center,
+            )
+
+        ring_coordinates = context.node_to_path_polyline(
+            node,
+            start_reference=context.last_coordinate(current_coordinates),
+            is_branch_start=current_coordinates is None,
+            branch_side_vector=current_branch_side_vector,
+            pocket_center=pocket_center,
+            seam_guide_reference=current_branch_seam_guide,
+        )
+        current_branch_starts.append(
+            (float(ring_coordinates[0, 0]), float(ring_coordinates[0, 1]))
+        )
+
+        if current_coordinates is None:
+            current_branch_seam_guide = context.last_coordinate(ring_coordinates)
+            current_coordinates = ring_coordinates
+            current_node = node
+            continue
+
+        current_coordinates = context.append_coordinates(
+            current_coordinates,
+            ring_coordinates,
+        )
+        current_node = node
+
+    branch_starts.append(current_branch_starts)
+    middle_branch_starts = next(
+        starts
+        for starts in branch_starts
+        if starts[0][0] > pocket_center[0] and starts[0][1] > pocket_center[1]
+    )
+
+    assert len(middle_branch_starts) == 5
+    assert [start[0] for start in middle_branch_starts] == pytest.approx(
+        [middle_branch_starts[0][0]] * len(middle_branch_starts)
+    )

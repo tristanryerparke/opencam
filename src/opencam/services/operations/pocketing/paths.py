@@ -22,6 +22,7 @@ class PocketPathMixin:
         current_coordinates: np.ndarray | None = None
         current_node: PocketTreeNode | None = None
         current_branch_side_vector: Coordinate2D | None = None
+        current_branch_seam_guide: Coordinate2D | None = None
 
         for node in ordered_nodes:
             connects_directly = current_node is not None and self.can_connect_directly(
@@ -34,6 +35,7 @@ class PocketPathMixin:
                 current_coordinates = None
                 current_node = None
                 current_branch_side_vector = None
+                current_branch_seam_guide = None
 
             if current_coordinates is None:
                 current_branch_side_vector = self.compute_branch_side_vector(
@@ -47,11 +49,13 @@ class PocketPathMixin:
                 is_branch_start=current_coordinates is None,
                 branch_side_vector=current_branch_side_vector,
                 pocket_center=pocket_center,
+                seam_guide_reference=current_branch_seam_guide,
             )
             if ring_coordinates.shape[0] == 0:
                 continue
 
             if current_coordinates is None:
+                current_branch_seam_guide = self.last_coordinate(ring_coordinates)
                 current_coordinates = ring_coordinates
                 current_node = node
                 continue
@@ -95,6 +99,7 @@ class PocketPathMixin:
         is_branch_start: bool = False,
         branch_side_vector: Coordinate2D | None = None,
         pocket_center: Coordinate2D | None = None,
+        seam_guide_reference: Coordinate2D | None = None,
     ) -> np.ndarray:
         polyline = node.polyline
         if polyline.shape[0] == 0:
@@ -108,10 +113,11 @@ class PocketPathMixin:
                     pocket_center,
                 )
 
-            if start_reference is not None:
+            reference = seam_guide_reference or start_reference
+            if reference is not None:
                 return self.shift_seam_to_branch_side_projection(
                     polyline,
-                    start_reference,
+                    reference,
                     branch_side_vector,
                     pocket_center,
                 )

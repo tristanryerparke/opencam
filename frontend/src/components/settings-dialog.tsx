@@ -29,6 +29,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "t-components/tabs";
 import { useTheme, type Theme } from "@/components/mode-toggle";
 import { ToolEditorDialog } from "@/components/tool-editor-dialog";
+import type { ToolRenderMode } from "@/components/polyline-viewer/types";
 import {
   addTool,
   deleteTool,
@@ -44,6 +45,10 @@ const themeModes = ["system", "light", "dark"] as const;
 type SettingsDialogProps = {
   simulationDebugUiEnabled: boolean;
   onSimulationDebugUiEnabledChange: (enabled: boolean) => void;
+  simulationProximityColorsEnabled: boolean;
+  onSimulationProximityColorsEnabledChange: (enabled: boolean) => void;
+  toolRenderMode: ToolRenderMode;
+  onToolRenderModeChange: (mode: ToolRenderMode) => void;
 };
 
 const themeModeConfig = {
@@ -254,7 +259,14 @@ function ToolsSettingsTab() {
   );
 }
 
-function GeneralSettingsTab({ simulationDebugUiEnabled, onSimulationDebugUiEnabledChange }: SettingsDialogProps) {
+function GeneralSettingsTab({
+  simulationDebugUiEnabled,
+  onSimulationDebugUiEnabledChange,
+  simulationProximityColorsEnabled,
+  onSimulationProximityColorsEnabledChange,
+  toolRenderMode,
+  onToolRenderModeChange,
+}: SettingsDialogProps) {
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-4 rounded-md border p-2">
@@ -263,6 +275,19 @@ function GeneralSettingsTab({ simulationDebugUiEnabled, onSimulationDebugUiEnabl
           <p className="text-xs text-muted-foreground">Choose light, dark, or follow the system preference.</p>
         </div>
         <ThemeSelect />
+      </div>
+
+      <div className="flex items-center justify-between gap-4 rounded-md border p-2">
+        <div>
+          <div className="text-sm font-medium">Tool render</div>
+          <p className="text-xs text-muted-foreground">Switch between wireframe and shaded tool previews.</p>
+        </div>
+        <Tabs aria-label="Tool render mode" value={toolRenderMode} onValueChange={(value) => onToolRenderModeChange(value as ToolRenderMode)}>
+          <TabsList>
+            <TabsTrigger value="wireframe">Wireframe</TabsTrigger>
+            <TabsTrigger value="shaded">Shaded</TabsTrigger>
+          </TabsList>
+        </Tabs>
       </div>
 
       <label className="flex items-center justify-between gap-4 rounded-md border p-2">
@@ -274,6 +299,18 @@ function GeneralSettingsTab({ simulationDebugUiEnabled, onSimulationDebugUiEnabl
           type="checkbox"
           checked={simulationDebugUiEnabled}
           onChange={(event) => onSimulationDebugUiEnabledChange(event.target.checked)}
+        />
+      </label>
+
+      <label className="flex items-center justify-between gap-4 rounded-md border p-2">
+        <div>
+          <div className="text-sm font-medium">Part proximity colors</div>
+          <p className="text-xs text-muted-foreground">Color simulated stock by distance from the target part.</p>
+        </div>
+        <input
+          type="checkbox"
+          checked={simulationProximityColorsEnabled}
+          onChange={(event) => onSimulationProximityColorsEnabledChange(event.target.checked)}
         />
       </label>
     </div>

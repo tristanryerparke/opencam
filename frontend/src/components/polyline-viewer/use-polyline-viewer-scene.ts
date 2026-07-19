@@ -50,7 +50,7 @@ import {
   createBaseSimulationCylinderGeometry,
   createSimulationStockMesh,
 } from "./simulation";
-import type { MeshFaceSelection, PolylinePoint, PolylineViewerSceneProps } from "./types";
+import type { MeshFaceSelection, PolylinePoint, PolylineViewerSceneProps, ToolRenderMode } from "./types";
 
 type LoadedDisplayMesh = {
   group: THREE.Group;
@@ -103,9 +103,10 @@ function applyStockVertexColor(geometry: THREE.BufferGeometry, stockColor: numbe
     const cutDistance = (r - cut.r) ** 2 + (g - cut.g) ** 2 + (b - cut.b) ** 2;
     const stockDistance = (r - stockSource.r) ** 2 + (g - stockSource.g) ** 2 + (b - stockSource.b) ** 2;
     const color = cutDistance < stockDistance ? cut : stock;
-    nextColors[index * 3] = color.r;
-    nextColors[index * 3 + 1] = color.g;
-    nextColors[index * 3 + 2] = color.b;
+    const shouldRemap = Math.min(cutDistance, stockDistance) <= 0.03;
+    nextColors[index * 3] = shouldRemap ? color.r : r;
+    nextColors[index * 3 + 1] = shouldRemap ? color.g : g;
+    nextColors[index * 3 + 2] = shouldRemap ? color.b : b;
   }
 
   geometry.setAttribute("color", new THREE.BufferAttribute(nextColors, 3));
@@ -145,6 +146,7 @@ export function usePolylineViewerScene(
     simulationToolPosition = null,
     simulationToolRotation = null,
     simulationToolRotationEnabled = true,
+    toolRenderMode = "wireframe",
     showOriginalMesh = true,
     onMeshFaceSelect,
   }: PolylineViewerSceneProps,
@@ -189,6 +191,7 @@ export function usePolylineViewerScene(
   const simulationToolPositionRef = useRef<PolylinePoint | null>(simulationToolPosition);
   const simulationToolRotationPropRef = useRef<number | null>(simulationToolRotation);
   const simulationToolRotationEnabledRef = useRef(simulationToolRotationEnabled);
+  const toolRenderModeRef = useRef<ToolRenderMode>(toolRenderMode);
   const showOriginalMeshRef = useRef(showOriginalMesh);
   const showMeshRef = useRef(showMesh);
   const showSecondaryMeshRef = useRef(showSecondaryMesh);
@@ -233,6 +236,20 @@ export function usePolylineViewerScene(
   useEffect(() => {
     simulationToolRotationEnabledRef.current = simulationToolRotationEnabled;
   }, [simulationToolRotationEnabled]);
+
+  useEffect(() => {
+    toolRenderModeRef.current = toolRenderMode;
+    const previewMesh = simulationToolPreviewMeshRef.current;
+    if (!previewMesh) {
+      return;
+    }
+
+    const material = previewMesh.material;
+    if (material instanceof THREE.MeshStandardMaterial) {
+      material.wireframe = toolRenderMode === "wireframe";
+      material.needsUpdate = true;
+    }
+  }, [toolRenderMode]);
 
   useEffect(() => {
     showOriginalMeshRef.current = showOriginalMesh;
@@ -1002,7 +1019,7 @@ export function usePolylineViewerScene(
         color: TOOL_PREVIEW_COLOR,
         transparent: true,
         opacity: 0.75,
-        wireframe: true,
+        wireframe: toolRenderModeRef.current === "wireframe",
         roughness: 0.45,
         metalness: 0.05,
       }),

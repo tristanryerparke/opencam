@@ -1,71 +1,13 @@
-# Display Remesh / Proximity Color Summary
+# Display Remesh / Comparison
 
-## What was implemented
+Simulation generation exports its normal simplified GLBs. It does not remesh or calculate signed-distance colors per chunk or frame.
 
-A display-only remeshing pass was added for simulation frame meshes and cached chunk meshes.
+`GET /simulate/{simulation_id}/comparison` lazily prepares the final cached-chunk and active meshes, then returns URLs for the two comparison GLBs. Results are cached until the simulation is resampled.
 
-- The simulation calculations still use the original meshes.
-- Only the final meshes sent to the frontend / Rhino are optionally remeshed.
-- The remeshing target is a roughly uniform edge length of **5.0** world units by default.
+Comparison meshes are remeshed to a **1.0 mm** target edge length, then colored by absolute signed distance to the original stock mesh:
 
-## New backend globals
+- `< 0.1 mm`: green
+- `0.1–0.25 mm`: green-to-blue gradient
+- `> 0.25 mm`: blue
 
-In `src/opencam/simulation/router.py`:
-
-- `DISPLAY_REMESH_FRAMES = True`
-- `DISPLAY_REMESH_CHUNKS = True`
-- `DISPLAY_REMESH_TARGET_EDGE_LENGTH = 5.0`
-- `DISPLAY_REMESH_ITERATIONS = 10`
-- `PROXIMITY_COLOR_FULL_RED_DISTANCE = 5.0`
-
-These are simple global switches / tuning values for now.
-
-## Remeshing behavior
-
-A new helper remeshes exported GLB meshes with PyMeshLab isotropic explicit remeshing:
-
-- input: existing display mesh bytes
-- output: denser triangle mesh with more consistent edge length
-- source colors are transferred onto the remeshed display mesh
-
-This happens in two places:
-
-- cached chunk mesh generation
-- active frame mesh generation
-
-## Proximity color behavior
-
-Proximity coloring was updated so that larger error becomes more red.
-
-### Watertight part mesh
-
-- extra stock: starts from `EXTRA_STOCK_COLOR_RGBA`, blends toward pure red as error increases
-- gouge: starts from `GOUGE_COLOR_RGBA`, blends toward pure red as error increases
-
-### Non-watertight part mesh
-
-- distance beyond tolerance starts from `EXTRA_STOCK_COLOR_RGBA`, then blends toward pure red
-
-## Important constraint preserved
-
-The display remesh is **not** used for:
-
-- chunk preparation
-- focus mesh simulation
-- boolean / manifold operations
-- proximity query source part mesh
-
-It is only for the exported visualization meshes.
-
-## Files changed
-
-- `src/opencam/simulation/router.py`
-- `tests/test_simulation_router.py`
-
-## Tests run
-
-```bash
-uv run pytest tests/test_simulation_router.py -q
-```
-
-Result: all tests passed.
+The frontend enters this state through **Compare** in the operation context menu; closing its bottom bar returns to the normal viewport.

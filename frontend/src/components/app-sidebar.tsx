@@ -30,6 +30,7 @@ type AppSidebarProps = {
   operations: Operation[];
   selectedNodeId: string;
   simulatableOperationIds: ReadonlySet<string>;
+  comparableOperationIds: ReadonlySet<string>;
   downloadableOperationIds: ReadonlySet<string>;
   generatingOperationId: string | null;
   generatingOperationProgressPercent: number;
@@ -39,6 +40,7 @@ type AppSidebarProps = {
   onEditOperation: (operationId: string) => void;
   onDeleteOperation: (operationId: string) => void;
   onSimulateOperation: (operationId: string) => void;
+  onCompareOperation: (operationId: string) => void;
   onDownloadOperationClData: (operationId: string) => void;
   canManageOperations: boolean;
   canCancelGeneration: boolean;
@@ -61,9 +63,11 @@ function renderTreeNode(
   onEditOperation: (operationId: string) => void,
   onDeleteOperation: (operationId: string) => void,
   onSimulateOperation: (operationId: string) => void,
+  onCompareOperation: (operationId: string) => void,
   onDownloadOperationClData: (operationId: string) => void,
   canManageOperations: boolean,
   simulatableOperationIds: ReadonlySet<string>,
+  comparableOperationIds: ReadonlySet<string>,
   downloadableOperationIds: ReadonlySet<string>,
 ) {
   const operationId = node.data.operationId;
@@ -144,6 +148,9 @@ function renderTreeNode(
         <ContextMenuItem disabled={!simulatableOperationIds.has(operationId)} onSelect={() => onSimulateOperation(operationId)}>
           Simulate
         </ContextMenuItem>
+        <ContextMenuItem disabled={!comparableOperationIds.has(operationId)} onSelect={() => onCompareOperation(operationId)}>
+          Compare
+        </ContextMenuItem>
         <ContextMenuItem
           disabled={!downloadableOperationIds.has(operationId)}
           onSelect={() => onDownloadOperationClData(operationId)}
@@ -171,6 +178,7 @@ export function AppSidebar({
   operations,
   selectedNodeId,
   simulatableOperationIds,
+  comparableOperationIds,
   downloadableOperationIds,
   generatingOperationId,
   generatingOperationProgressPercent,
@@ -180,6 +188,7 @@ export function AppSidebar({
   onEditOperation,
   onDeleteOperation,
   onSimulateOperation,
+  onCompareOperation,
   onDownloadOperationClData,
   canManageOperations,
   canCancelGeneration,
@@ -243,9 +252,11 @@ export function AppSidebar({
               onEditOperation,
               onDeleteOperation,
               onSimulateOperation,
+              onCompareOperation,
               onDownloadOperationClData,
               canManageOperations,
               simulatableOperationIds,
+              comparableOperationIds,
               downloadableOperationIds,
             )}
           aria-label="CAM setup tree"

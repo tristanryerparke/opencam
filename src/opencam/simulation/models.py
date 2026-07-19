@@ -39,6 +39,11 @@ class SweptSimulationStartResponse(CamelBaseModel):
     task_id: str
 
 
+class SweptSimulationComparisonResponse(CamelBaseModel):
+    cached_mesh_url: str
+    active_mesh_url: str
+
+
 class SweptSimulationResampleRequest(CamelBaseModel):
     frame_step_distance: float
 

@@ -63,6 +63,11 @@ type SweptSimulationStartResponse = {
   taskId: string;
 };
 
+type SweptSimulationComparisonResponse = {
+  cachedMeshUrl: string;
+  activeMeshUrl: string;
+};
+
 type SweptSimulationResampleRequest = {
   frameStepDistance: number;
 };
@@ -145,7 +150,6 @@ type SidebarSettingsPayload = {
 const SIDEBAR_SETTINGS_STORAGE_KEY = "opencam.sidebar-settings.v3";
 const LOCAL_MESH_STORAGE_KEY = "opencam.step.v1";
 const SIMULATION_DEBUG_UI_STORAGE_KEY = "opencam.simulation-debug-ui";
-const SIMULATION_PROXIMITY_COLORS_STORAGE_KEY = "opencam.simulation-proximity-colors";
 const TOOL_RENDER_MODE_STORAGE_KEY = "opencam.tool-render-mode.v1";
 const ORIGINAL_MESH_COLOR = 0x94a3b8;
 const ORIGINAL_MESH_EDGE_COLOR = 0x334155;
@@ -196,16 +200,6 @@ function resolveBackendAssetUrl(url: string) {
   }
 
   return `${getBackendUrl()}/${url}`;
-}
-
-function simulationMeshDisplayUrl(url: string, proximityColors: boolean) {
-  if (!proximityColors || url.startsWith("blob:") || url.startsWith("data:")) {
-    return url;
-  }
-
-  const nextUrl = new URL(resolveBackendAssetUrl(url));
-  nextUrl.searchParams.set("proximity_colors", "true");
-  return nextUrl.toString();
 }
 
 async function prefetchMeshObjectUrl(url: string, cache: RequestCache = "default") {
@@ -506,6 +500,7 @@ function App() {
   const [simulationToolPosition, setSimulationToolPosition] = useState<PolylinePoint | null>(null);
   const [simulationRotateToolWithPath, setSimulationRotateToolWithPath] = useState(false);
   const [simulationId, setSimulationId] = useState<string | null>(null);
+  const [simulationOperationId, setSimulationOperationId] = useState<string | null>(null);
   const [simulationTaskId, setSimulationTaskId] = useState<string | null>(null);
   const [generatingOperationId, setGeneratingOperationId] = useState<string | null>(null);
   const [simulationProgressPercent, setSimulationProgressPercent] = useState(0);
@@ -548,6 +543,11 @@ function App() {
   const [requestState, setRequestState] = useState<RequestState>("idle");
   const [requestMessage, setRequestMessage] = useState<string>("");
   const [isSimulationMode, setIsSimulationMode] = useState(false);
+  const [isComparisonMode, setIsComparisonMode] = useState(false);
+  const [comparisonCachedMeshUrl, setComparisonCachedMeshUrl] = useState<string | null>(null);
+  const [comparisonActiveMeshUrl, setComparisonActiveMeshUrl] = useState<string | null>(null);
+  const comparisonRequestRef = useRef(0);
+  const comparisonObjectUrlsRef = useRef<string[]>([]);
   const [showStock, setShowStock] = useState(false);
   const [showPartMesh, setShowPartMesh] = useState(true);
   const [showToolpaths, setShowToolpaths] = useState(true);
@@ -559,17 +559,6 @@ function App() {
 
     try {
       return window.localStorage.getItem(SIMULATION_DEBUG_UI_STORAGE_KEY) === "true";
-    } catch {
-      return false;
-    }
-  });
-  const [simulationProximityColorsEnabled, setSimulationProximityColorsEnabled] = useState(() => {
-    if (typeof window === "undefined") {
-      return false;
-    }
-
-    try {
-      return window.localStorage.getItem(SIMULATION_PROXIMITY_COLORS_STORAGE_KEY) === "true";
     } catch {
       return false;
     }
@@ -621,36 +610,11 @@ function App() {
     }
 
     try {
-      window.localStorage.setItem(
-        SIMULATION_PROXIMITY_COLORS_STORAGE_KEY,
-        simulationProximityColorsEnabled ? "true" : "false",
-      );
-    } catch {
-      // Ignore unavailable localStorage; the checkbox still works for this session.
-    }
-  }, [simulationProximityColorsEnabled]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    try {
       window.localStorage.setItem(TOOL_RENDER_MODE_STORAGE_KEY, toolRenderMode);
     } catch {
       // Ignore unavailable localStorage; the tabs switch still works for this session.
     }
   }, [toolRenderMode]);
-
-  useEffect(() => {
-    simulationFrameRequestTokenRef.current += 1;
-    simulationFrameCacheRef.current.clear();
-    simulationChunkMeshCacheRef.current.clear();
-    simulationChunkMeshRequestCacheRef.current.clear();
-    simulationFrameRequestCacheRef.current.clear();
-    simulationFramePrefetchTriggerRef.current = { simulationId: null, frameIndex: null };
-    loadedSimulationFrameRef.current = { simulationId: null, frameIndex: null };
-  }, [simulationProximityColorsEnabled]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -772,6 +736,7 @@ function App() {
   }, []);
 
   function resetSimulationPlaybackState() {
+    resetComparisonPreview();
     loadedSimulationFrameRef.current = {
       simulationId: null,
       frameIndex: null,
@@ -808,6 +773,7 @@ function App() {
     setSimulationToolPosition(null);
     setSimulationRotateToolWithPath(false);
     setSimulationId(null);
+    setSimulationOperationId(null);
     setSimulationTaskId(null);
     setSimulationProgressPercent(0);
     setSimulationFrameCount(0);
@@ -821,6 +787,15 @@ function App() {
     setSimulationFrameIndex(0);
     setDisplayedSimulationFrameIndex(null);
     setIsSimulationPlaying(false);
+  }
+
+  function resetComparisonPreview() {
+    comparisonRequestRef.current += 1;
+    comparisonObjectUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
+    comparisonObjectUrlsRef.current = [];
+    setComparisonCachedMeshUrl(null);
+    setComparisonActiveMeshUrl(null);
+    setIsComparisonMode(false);
   }
 
   const visibleOperations = useMemo(() => {
@@ -865,8 +840,12 @@ function App() {
 
     return null;
   }, [isSimulationMode, simulationFrameIndex, simulationId, simulationRotateToolWithPath, simulationSamples]);
-  const secondaryMeshUrl = isSimulationMode ? simulationCachedMeshUrl : null;
-  const tertiaryMeshUrl = isSimulationMode ? simulationActiveMeshUrl : null;
+  const secondaryMeshUrl = isSimulationMode
+    ? simulationCachedMeshUrl
+    : isComparisonMode ? comparisonCachedMeshUrl : null;
+  const tertiaryMeshUrl = isSimulationMode
+    ? simulationActiveMeshUrl
+    : isComparisonMode ? comparisonActiveMeshUrl : null;
   const simulationDebugDisplayActive = simulationDebugUiEnabled && isSimulationMode && Boolean(simulationCachedMeshUrl);
   const stockMeshColor = simulationDebugDisplayActive ? DEBUG_REST_MESH_COLOR : MILLED_STOCK_MESH_COLOR;
   const activeMeshColor = simulationDebugDisplayActive ? MILLED_STOCK_MESH_COLOR : ACTIVE_DEBUG_MESH_COLOR;
@@ -901,8 +880,12 @@ function App() {
     [operations, selectedOperationId],
   );
   const simulatableOperationIds = useMemo(
-    () => simulationId && selectedOperationId ? new Set([selectedOperationId]) : new Set<string>(),
-    [selectedOperationId, simulationId],
+    () => simulationId && simulationOperationId ? new Set([simulationOperationId]) : new Set<string>(),
+    [simulationId, simulationOperationId],
+  );
+  const comparableOperationIds = useMemo(
+    () => simulationId && simulationOperationId ? new Set([simulationOperationId]) : new Set<string>(),
+    [simulationId, simulationOperationId],
   );
   const downloadableOperationIds = useMemo(
     () => new Set(Object.keys(generatedOperationsById)),
@@ -918,7 +901,7 @@ function App() {
   }, [faceSelectionMode, isOperationDialogOpen, operationDraft, visibleOperations]);
 
   const fetchChunkMesh = useCallback(async (nextSimulationId: string, chunkIndex: number) => {
-    const cacheKey = `${simulationProximityColorsEnabled ? "proximity" : "normal"}:${chunkIndex}`;
+    const cacheKey = String(chunkIndex);
     const cachedMesh = simulationChunkMeshCacheRef.current.get(cacheKey);
     if (cachedMesh) {
       return { objectUrl: cachedMesh, elapsedMs: 0 };
@@ -930,10 +913,7 @@ function App() {
     }
 
     const request = prefetchMeshObjectUrlWithTiming(
-      simulationMeshDisplayUrl(
-        `/simulate/${nextSimulationId}/chunks/${chunkIndex}/cached-mesh.glb`,
-        simulationProximityColorsEnabled,
-      ),
+      `/simulate/${nextSimulationId}/chunks/${chunkIndex}/cached-mesh.glb`,
       ENABLE_FRONTEND_FRAME_CACHE ? "default" : "no-store",
     )
       .then((result) => {
@@ -946,7 +926,7 @@ function App() {
 
     simulationChunkMeshRequestCacheRef.current.set(cacheKey, request);
     return request;
-  }, [simulationProximityColorsEnabled]);
+  }, []);
 
   const prefetchAdjacentChunkMeshes = useCallback(
     (nextSimulationId: string, chunkIndex: number, chunkCount: number) => {
@@ -977,10 +957,7 @@ function App() {
     ) => {
       const focusMeshRequest = ENABLE_FRONTEND_FRAME_CACHE
         ? { objectUrl: frame.activeMeshUrl, elapsedMs: 0 }
-        : await prefetchMeshObjectUrlWithTiming(
-            simulationMeshDisplayUrl(frame.activeMeshUrl, simulationProximityColorsEnabled),
-            "no-store",
-          );
+        : await prefetchMeshObjectUrlWithTiming(frame.activeMeshUrl, "no-store");
       const activeMeshUrl = focusMeshRequest.objectUrl;
       const chunkMeshRequest = await fetchChunkMesh(nextSimulationId, frame.chunkIndex);
       const cachedMeshUrl = chunkMeshRequest.objectUrl;
@@ -1020,7 +997,6 @@ function App() {
       prefetchAdjacentChunkMeshes,
       simulationActiveMeshUrl,
       simulationCachedMeshUrl,
-      simulationProximityColorsEnabled,
     ],
   );
 
@@ -1094,9 +1070,7 @@ function App() {
               };
             }
 
-            const activeMeshUrl = await prefetchMeshObjectUrl(
-              simulationMeshDisplayUrl(frame.activeMeshUrl, simulationProximityColorsEnabled),
-            );
+            const activeMeshUrl = await prefetchMeshObjectUrl(frame.activeMeshUrl);
             return {
               frameIndex,
               frame: {
@@ -1137,7 +1111,7 @@ function App() {
         simulationFrameRequestCacheRef.current.delete(requestKey);
       }
     },
-    [simulationProximityColorsEnabled],
+    [],
   );
 
   const updateSimulationPrefetchTrigger = useCallback(
@@ -1272,7 +1246,7 @@ function App() {
     async (simulation: SweptSimulationResponse, nextIsSimulationMode = false) => {
       const finalFrameIndex = Math.max(simulation.frameCount - 1, 0);
       const focusMeshRequest = await prefetchMeshObjectUrlWithTiming(
-        simulationMeshDisplayUrl(simulation.activeMeshUrl, simulationProximityColorsEnabled),
+        simulation.activeMeshUrl,
         ENABLE_FRONTEND_FRAME_CACHE ? "default" : "no-store",
       );
       const finalFrame: SweptSimulationFrameResponse = {
@@ -1286,7 +1260,7 @@ function App() {
         rotateToolWithPath: simulation.rotateToolWithPath,
       };
       const chunkMeshRequest = await prefetchMeshObjectUrlWithTiming(
-        simulationMeshDisplayUrl(simulation.cachedMeshUrl, simulationProximityColorsEnabled),
+        simulation.cachedMeshUrl,
         ENABLE_FRONTEND_FRAME_CACHE ? "default" : "no-store",
       );
       const cachedChunkMeshUrl = chunkMeshRequest.objectUrl;
@@ -1294,10 +1268,7 @@ function App() {
       if (ENABLE_FRONTEND_FRAME_CACHE) {
         simulationFrameCacheRef.current.set(finalFrameIndex, finalFrame);
       }
-      simulationChunkMeshCacheRef.current.set(
-        `${simulationProximityColorsEnabled ? "proximity" : "normal"}:${simulation.chunkIndex}`,
-        cachedChunkMeshUrl,
-      );
+      simulationChunkMeshCacheRef.current.set(String(simulation.chunkIndex), cachedChunkMeshUrl);
 
       loadedSimulationFrameRef.current = {
         simulationId: simulation.simulationId,
@@ -1343,7 +1314,6 @@ function App() {
     [
       fetchSimulationFrameBatch,
       prefetchAdjacentChunkMeshes,
-      simulationProximityColorsEnabled,
       updateSimulationPrefetchTrigger,
     ],
   );
@@ -1657,11 +1627,66 @@ function App() {
     window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
   }
 
+  async function handleCompareOperation(operationId: string) {
+    setSelectedTreeNodeId(operationId);
+    setSelectedOperationId(operationId);
+
+    if (!simulationId || simulationFrameCount === 0 || operationId !== simulationOperationId) {
+      setRequestState("error");
+      setRequestMessage("Generate the selected operation before comparing it.");
+      return;
+    }
+
+    resetComparisonPreview();
+    const requestId = comparisonRequestRef.current;
+
+    try {
+      setRequestState("submitting");
+      setRequestMessage("Preparing 1 mm comparison meshes...");
+      const response = await fetch(`${getBackendUrl()}/simulate/${simulationId}/comparison`);
+      if (!response.ok) {
+        const payload = (await response.json()) as { detail?: string };
+        throw new Error(payload.detail ?? "Failed to prepare comparison meshes.");
+      }
+
+      const comparison = (await response.json()) as SweptSimulationComparisonResponse;
+      const cachedMeshUrl = await prefetchMeshObjectUrl(comparison.cachedMeshUrl, "no-store");
+      let activeMeshUrl: string;
+      try {
+        activeMeshUrl = await prefetchMeshObjectUrl(comparison.activeMeshUrl, "no-store");
+      } catch (error) {
+        URL.revokeObjectURL(cachedMeshUrl);
+        throw error;
+      }
+      if (comparisonRequestRef.current !== requestId) {
+        URL.revokeObjectURL(cachedMeshUrl);
+        URL.revokeObjectURL(activeMeshUrl);
+        return;
+      }
+
+      comparisonObjectUrlsRef.current = [cachedMeshUrl, activeMeshUrl];
+      setComparisonCachedMeshUrl(cachedMeshUrl);
+      setComparisonActiveMeshUrl(activeMeshUrl);
+      setIsSimulationPlaying(false);
+      setIsSimulationMode(false);
+      setIsComparisonMode(true);
+      setShowStock(true);
+      setRequestState("success");
+      setRequestMessage("Comparison meshes ready.");
+    } catch (error) {
+      if (comparisonRequestRef.current !== requestId) {
+        return;
+      }
+      setRequestState("error");
+      setRequestMessage(error instanceof Error ? error.message : "Failed to prepare comparison meshes.");
+    }
+  }
+
   function handleSimulateOperation(operationId: string) {
     setSelectedTreeNodeId(operationId);
     setSelectedOperationId(operationId);
 
-    if (!simulationId || simulationFrameCount === 0 || operationId !== selectedOperationId) {
+    if (!simulationId || simulationFrameCount === 0 || operationId !== simulationOperationId) {
       setRequestState("error");
       setRequestMessage("Generate the selected operation before simulating it.");
       return;
@@ -1675,6 +1700,7 @@ function App() {
       return;
     }
 
+    resetComparisonPreview();
     setShowStock(true);
     setIsSimulationMode(true);
   }
@@ -1682,6 +1708,10 @@ function App() {
   function handleExitSimulation() {
     setIsSimulationPlaying(false);
     setIsSimulationMode(false);
+  }
+
+  function handleExitComparison() {
+    resetComparisonPreview();
   }
 
   function handleSimulationFrameChange(values: number[]) {
@@ -1723,6 +1753,7 @@ function App() {
     }
 
     const currentSimulationId = simulationId;
+    const currentSimulationOperationId = simulationOperationId;
     const currentFrameProgress =
       simulationFrameCount > 1 ? simulationFrameIndex / (simulationFrameCount - 1) : 0;
 
@@ -1762,6 +1793,7 @@ function App() {
       );
 
       resetSimulationPlaybackState();
+      setSimulationOperationId(currentSimulationOperationId);
       await applyCompletedSimulation(simulation, true);
       setSimulationFrameIndex(nextFrameIndex);
       setRequestState("success");
@@ -1931,6 +1963,7 @@ function App() {
       setSimulationActiveMeshUrl(null);
       setSimulationCachedMeshUrl(null);
       resetSimulationPlaybackState();
+      setSimulationOperationId(operationToGenerate.id ?? null);
       setIsSimulationMode(false);
       setRequestState("submitting");
       setRequestMessage(`Generating ${nextOperationLabel.toLowerCase()} toolpath...`);
@@ -2133,8 +2166,6 @@ function App() {
           <SettingsDialog
             simulationDebugUiEnabled={simulationDebugUiEnabled}
             onSimulationDebugUiEnabledChange={setSimulationDebugUiEnabled}
-            simulationProximityColorsEnabled={simulationProximityColorsEnabled}
-            onSimulationProximityColorsEnabledChange={setSimulationProximityColorsEnabled}
             toolRenderMode={toolRenderMode}
             onToolRenderModeChange={setToolRenderMode}
           />
@@ -2147,6 +2178,7 @@ function App() {
             operations={operations}
             selectedNodeId={selectedTreeNodeId}
             simulatableOperationIds={simulatableOperationIds}
+            comparableOperationIds={comparableOperationIds}
             downloadableOperationIds={downloadableOperationIds}
             generatingOperationId={generatingOperationId}
             generatingOperationProgressPercent={simulationProgressPercent}
@@ -2156,6 +2188,7 @@ function App() {
             onEditOperation={handleEditOperation}
             onDeleteOperation={handleDeleteOperation}
             onSimulateOperation={handleSimulateOperation}
+            onCompareOperation={handleCompareOperation}
             onDownloadOperationClData={handleDownloadOperationClData}
             canManageOperations={requestState !== "submitting"}
             canCancelGeneration={requestState === "submitting" && simulationTaskId !== null}
@@ -2176,11 +2209,11 @@ function App() {
                   tertiaryMeshColor={stockMeshColor}
                   tertiaryMeshUseVertexColors
                   tertiaryMeshEdgeColor={null}
-                  meshOpacity={showPartMesh && showStock && isSimulationMode ? 0.3 : 1}
+                  meshOpacity={showPartMesh && showStock && (isSimulationMode || isComparisonMode) ? 0.3 : 1}
                   showMesh={showPartMesh}
-                  showSecondaryMesh={showStock && isSimulationMode}
-                  showTertiaryMesh={showStock && isSimulationMode}
-                  showSimulationStock={showStock && !isSimulationMode}
+                  showSecondaryMesh={showStock && (isSimulationMode || isComparisonMode)}
+                  showTertiaryMesh={showStock && (isSimulationMode || isComparisonMode)}
+                  showSimulationStock={showStock && !isSimulationMode && !isComparisonMode}
                   showTool={showTool && isSimulationMode}
                   polylines={showToolpaths ? viewportPolylines : []}
                   faceSelectionMode={faceSelectionMode}
@@ -2268,6 +2301,17 @@ function App() {
                   </div>
 
                   <Button type="button" variant="ghost" size="icon-xs" onClick={handleExitSimulation} aria-label="Exit simulation" title="Exit simulation">
+                    <X />
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+
+            {isComparisonMode ? (
+              <div className="pointer-events-none absolute inset-x-2 bottom-2 z-20">
+                <div className="pointer-events-auto mx-auto flex max-w-4xl items-center justify-between gap-3 rounded-md border bg-background/95 px-2 py-2 shadow">
+                  <span className="text-sm font-medium">Stock comparison</span>
+                  <Button type="button" variant="ghost" size="icon-xs" onClick={handleExitComparison} aria-label="Close comparison" title="Close comparison">
                     <X />
                   </Button>
                 </div>

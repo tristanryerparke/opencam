@@ -45,8 +45,6 @@ const themeModes = ["system", "light", "dark"] as const;
 type SettingsDialogProps = {
   simulationDebugUiEnabled: boolean;
   onSimulationDebugUiEnabledChange: (enabled: boolean) => void;
-  simulationProximityColorsEnabled: boolean;
-  onSimulationProximityColorsEnabledChange: (enabled: boolean) => void;
   toolRenderMode: ToolRenderMode;
   onToolRenderModeChange: (mode: ToolRenderMode) => void;
 };
@@ -262,8 +260,6 @@ function ToolsSettingsTab() {
 function GeneralSettingsTab({
   simulationDebugUiEnabled,
   onSimulationDebugUiEnabledChange,
-  simulationProximityColorsEnabled,
-  onSimulationProximityColorsEnabledChange,
   toolRenderMode,
   onToolRenderModeChange,
 }: SettingsDialogProps) {
@@ -302,17 +298,6 @@ function GeneralSettingsTab({
         />
       </label>
 
-      <label className="flex items-center justify-between gap-4 rounded-md border p-2">
-        <div>
-          <div className="text-sm font-medium">Part proximity colors</div>
-          <p className="text-xs text-muted-foreground">Color simulated stock by distance from the target part.</p>
-        </div>
-        <input
-          type="checkbox"
-          checked={simulationProximityColorsEnabled}
-          onChange={(event) => onSimulationProximityColorsEnabledChange(event.target.checked)}
-        />
-      </label>
     </div>
   );
 }

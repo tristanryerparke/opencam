@@ -115,7 +115,7 @@ def test_comparison_vertex_colors_follow_requested_thresholds():
 
     assert colors[0].tolist() == router.COMPARISON_GREEN_RGBA.tolist()
     assert colors[1].tolist() == router.COMPARISON_GREEN_RGBA.tolist()
-    assert colors[2].tolist() == [46, 164, 170, 255]
+    assert colors[2].tolist() == [32, 138, 155, 255]
     assert colors[3].tolist() == router.COMPARISON_BLUE_RGBA.tolist()
     assert colors[4].tolist() == router.COMPARISON_BLUE_RGBA.tolist()
 

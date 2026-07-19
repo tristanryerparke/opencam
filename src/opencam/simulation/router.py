@@ -51,8 +51,8 @@ DISPLAY_REMESH_TARGET_EDGE_LENGTH = 1.0
 DISPLAY_REMESH_ITERATIONS = 10
 COMPARISON_CLOSE_DISTANCE = 0.1
 COMPARISON_FAR_DISTANCE = 0.25
-COMPARISON_GREEN_RGBA = np.array([34, 197, 94, 255], dtype=np.uint8)
-COMPARISON_BLUE_RGBA = np.array([59, 130, 246, 255], dtype=np.uint8)
+COMPARISON_GREEN_RGBA = np.array([0, 255, 0, 255], dtype=np.uint8)
+COMPARISON_BLUE_RGBA = np.array([0, 0, 255, 255], dtype=np.uint8)
 
 
 @dataclass(frozen=True)

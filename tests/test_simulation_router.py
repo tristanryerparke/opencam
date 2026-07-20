@@ -3,7 +3,12 @@ import numpy as np
 from opencam.schemas.cl_data import OperationRecord3D, PositionRecord3D, RapidPositionRecord3D
 from opencam.schemas.tools import CylindricalTool
 from opencam.simulation import router
-from opencam.simulation.swept_volume import ChunkClData, PreparedSimulationChunk, SimulatedChunk
+from opencam.simulation.swept_volume import (
+    ChunkClData,
+    PreparedSimulationChunk,
+    SimulatedChunk,
+    map_positions_to_operation_progress,
+)
 
 
 TOOL = CylindricalTool(
@@ -105,6 +110,53 @@ def test_build_animation_frames_reaches_retract_endpoint_with_scaled_rapid_sampl
     assert frames[-1].point_index == 1
     assert frames[-1].mesh_state_index == 1
     assert frames[0].mesh_state_index == -1
+
+
+def test_map_positions_to_operation_progress_tolerates_orphan_positions():
+    # A contact position produced by chunking/marching can land off every operation segment.
+    # The map must still return one progress per position (preserving order/count) instead of
+    # desyncing, otherwise _build_animation_frames bails to contact-only frames and the first
+    # frame stops landing on the travel start point.
+    operation = build_operation((0.0, 0.0, 0.0), (4.0, 0.0, 0.0), (4.0, 0.0, 10.0))
+    positions = [
+        PositionRecord3D(x=0.0, y=0.0, z=0.0),
+        PositionRecord3D(x=9.0, y=9.0, z=9.0),  # orphan: not on any segment
+        PositionRecord3D(x=4.0, y=0.0, z=0.0),
+        PositionRecord3D(x=4.0, y=0.0, z=10.0),
+    ]
+
+    progresses = map_positions_to_operation_progress(operation, positions)
+
+    assert len(progresses) == len(positions)
+    assert progresses[0] == 0.0
+    assert progresses[1] == progresses[0]  # orphan inherits last known progress
+    assert progresses[2] > progresses[1]
+    assert progresses[3] > progresses[2]
+
+
+def test_build_animation_frames_guarantees_travel_start_and_end_tool_positions():
+    operation = OperationRecord3D(
+        tool=TOOL,
+        clearance_plane_height=10.0,
+        records=[
+            RapidPositionRecord3D(x=0.0, y=0.0, z=10.0),
+            RapidPositionRecord3D(x=0.0, y=0.0, z=0.0),
+            RapidPositionRecord3D(x=4.0, y=0.0, z=0.0),
+            RapidPositionRecord3D(x=4.0, y=0.0, z=10.0),
+        ],
+    )
+    # First mesh frame is an orphan (off every segment), which used to trigger the fallback.
+    mesh_frames = [
+        router.PreparedSimulationFrame(0, 0, PositionRecord3D(x=2.0, y=2.0, z=2.0), 2, 0),
+        router.PreparedSimulationFrame(0, 1, PositionRecord3D(x=0.0, y=0.0, z=0.0), 2, 1),
+        router.PreparedSimulationFrame(0, 2, PositionRecord3D(x=4.0, y=0.0, z=0.0), 2, 2),
+    ]
+
+    frames = router._build_animation_frames(mesh_frames, operation, 2.5, rapid_frame_step_scale=2.0)
+
+    assert (frames[0].tool_position.x, frames[0].tool_position.y, frames[0].tool_position.z) == (0.0, 0.0, 10.0)
+    assert (frames[-1].tool_position.x, frames[-1].tool_position.y, frames[-1].tool_position.z) == (4.0, 0.0, 10.0)
+    assert len(frames) > len(mesh_frames)  # travel frames produced, not contact-only fallback
 
 
 def test_active_frame_mesh_uses_rotation_flags_and_reuses_mesh_state_cache(monkeypatch):

@@ -443,28 +443,49 @@ def map_positions_to_operation_progress(
     if not positions:
         return []
 
-    progress_values: list[float] = []
-    position_index = 0
-    traversed_distance = 0.0
-
-    for segment_start, segment_end in zip(operation.records, operation.records[1:], strict=False):
+    segments = list(zip(operation.records, operation.records[1:], strict=False))
+    segment_lengths: list[float] = []
+    cumulative_starts: list[float] = []
+    cumulative_distance = 0.0
+    for segment_start, segment_end in segments:
         dx = segment_end.x - segment_start.x
         dy = segment_end.y - segment_start.y
         dz = segment_end.z - segment_start.z
-        segment_length = math.sqrt(dx * dx + dy * dy + dz * dz)
-        if segment_length <= 1e-9:
-            continue
+        length = math.sqrt(dx * dx + dy * dy + dz * dz)
+        segment_lengths.append(length)
+        cumulative_starts.append(cumulative_distance)
+        cumulative_distance += length
 
-        while position_index < len(positions):
-            parameter = segment_parameter_for_position(segment_start, segment_end, positions[position_index])
+    # Positions are ordered along the path, so scan forward from the last matched segment.
+    # ponytail: chunking/marching can emit a position that lies on no operation segment; it
+    # inherits the last known progress instead of desyncing the whole ordered match, which
+    # would otherwise drop every later position and force _build_animation_frames back to
+    # contact-only frames (losing the travel start/end endpoints).
+    progress_values: list[float] = []
+    segment_cursor = 0
+    last_progress = 0.0
+    for position in positions:
+        matched_progress: float | None = None
+        for segment_index in range(segment_cursor, len(segments)):
+            length = segment_lengths[segment_index]
+            if length <= 1e-9:
+                continue
+            parameter = segment_parameter_for_position(
+                segments[segment_index][0],
+                segments[segment_index][1],
+                position,
+            )
             if parameter is None:
-                break
-            progress_values.append(traversed_distance + segment_length * parameter)
-            position_index += 1
+                continue
+            matched_progress = cumulative_starts[segment_index] + length * parameter
+            segment_cursor = segment_index
+            break
 
-        traversed_distance += segment_length
-        if position_index >= len(positions):
-            return progress_values
+        if matched_progress is None:
+            matched_progress = last_progress
+        else:
+            last_progress = matched_progress
+        progress_values.append(matched_progress)
 
     return progress_values
 

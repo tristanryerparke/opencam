@@ -55,12 +55,13 @@ def pocket_request_payload() -> dict:
             "driveGeometry": {
                 "cutAreas": [
                     {
-                        "planeZ": 0.0,
+                        "z": 0.0,
                         "vertices": [
                             {"x": 0.0, "y": 0.0},
                             {"x": 10.0, "y": 0.0},
                             {"x": 10.0, "y": 6.0},
                             {"x": 0.0, "y": 6.0},
+                            {"x": 0.0, "y": 0.0},
                         ],
                     },
                 ],
@@ -95,12 +96,13 @@ def test_generate_cam_toolpath_endpoint_returns_cl_data(pocket_request_payload: 
 def test_generate_cam_toolpath_connects_multiple_pockets_with_xy_travel(pocket_request_payload: dict):
     pocket_request_payload["operation"]["driveGeometry"]["cutAreas"].append(
         {
-            "planeZ": 0.0,
+            "z": 0.0,
             "vertices": [
                 {"x": 20.0, "y": 0.0},
                 {"x": 30.0, "y": 0.0},
                 {"x": 30.0, "y": 6.0},
                 {"x": 20.0, "y": 6.0},
+                {"x": 20.0, "y": 0.0},
             ],
         }
     )
@@ -116,12 +118,13 @@ def test_generate_cam_toolpath_connects_multiple_pockets_with_xy_travel(pocket_r
 def test_generate_cam_toolpath_shifts_pockets_without_changing_cut_depth(pocket_request_payload: dict):
     pocket_request_payload["operation"]["driveGeometry"]["cutAreas"].append(
         {
-            "planeZ": 3.0,
+            "z": 3.0,
             "vertices": [
                 {"x": 20.0, "y": 0.0},
                 {"x": 30.0, "y": 0.0},
                 {"x": 30.0, "y": 6.0},
                 {"x": 20.0, "y": 6.0},
+                {"x": 20.0, "y": 0.0},
             ],
         }
     )

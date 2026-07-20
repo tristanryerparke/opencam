@@ -11,7 +11,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { TreeView, type TreeNodeNested, type TreeNodeRenderProps } from "@/components/tree-view/tree-view";
-import { type Pocketing2DOp as Operation } from "@/generated_schemas/cam";
+import type { Operation } from "@/lib/cam-schema";
 import { cn } from "@/lib/utils";
 
 export type RequestState = "idle" | "submitting" | "success" | "error";
@@ -211,7 +211,7 @@ export function AppSidebar({
       children: operations.map((operation, index) => ({
         id: operation.id ?? `operation-${index}`,
         data: {
-          label: operation.displayName ?? `2.5D Pocketing ${index + 1}`,
+          label: operation.displayName ?? `Operation ${index + 1}`,
           operationId: operation.id,
           progressPercent:
             operation.id && operation.id === generatingOperationId ? generatingOperationProgressPercent : undefined,

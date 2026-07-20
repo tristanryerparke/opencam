@@ -22,6 +22,7 @@ def rectangle_vertices() -> list[Point2D]:
         Point2D(x=10.0, y=0.0),
         Point2D(x=10.0, y=6.0),
         Point2D(x=0.0, y=6.0),
+        Point2D(x=0.0, y=0.0),
     ]
 
 
@@ -121,6 +122,7 @@ def test_pocketing_preserves_branch_seam_trajectory_between_rings():
         ),
         stepover=25.0,
         stock_to_leave=0.0,
+        chord_tolerance=0.01,
     )
     base_polyline = context.shift_seam_to_longest_straight_edge_near_initial_seam(polyline)
     pocket_center = context.polygon_center(Polygon(base_polyline))

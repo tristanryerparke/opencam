@@ -8,7 +8,6 @@ from opencam.schemas.operations.base import Material
 from opencam.schemas.tools import Tool
 from opencam.services.cam_engine import cam_engine
 from opencam.services.mesh_cache import CachedMeshMetadata, get_mesh_cache
-from opencam.services.operations.profiling import ClosedProfilingEngine
 from opencam.simulation.router import router as simulation_router
 from opencam.services.tool_library import ToolLibrary, get_tool_library
 
@@ -25,15 +24,6 @@ app.include_router(simulation_router)
 
 
 
-def _build_operation_record(engine) -> OperationRecord3D:
-    operation = OperationRecord3D(
-        tool=engine.tool,
-        clearance_plane_height=engine.clearance_plane_height,
-        records=engine.process(),
-    )
-    return operation
-
-
 @app.get("/test")
 async def root():
     return {"message": "hello from opencam"}
@@ -42,16 +32,6 @@ async def root():
 @app.get("/ping")
 async def ping():
     return {"status": "ok", "timestamp": datetime.now().isoformat()}
-
-
-@app.post("/profile/closed", response_model=OperationRecord3D)
-async def profile_closed(engine: ClosedProfilingEngine):
-    try:
-        return _build_operation_record(engine)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except NotImplementedError as exc:
-        raise HTTPException(status_code=501, detail=str(exc)) from exc
 
 
 @app.get("/cam/tools", response_model=list[Tool])

@@ -47,6 +47,7 @@ function pushUniqueSample(
 export function sampleOperationRecords(
   records: ReadonlyArray<PositionRecord3D>,
   spacing: number,
+  rapidSpacingScale = 1,
 ): SimulationSamplePoint[] {
   if (records.length === 0) {
     return [];
@@ -66,8 +67,9 @@ export function sampleOperationRecords(
       continue;
     }
 
-    if (shouldSampleSegments) {
-      for (let segmentDistance = spacing; segmentDistance < segmentLength - POSITION_EPSILON; segmentDistance += spacing) {
+    const segmentSpacing = end.feedType === "rapid" ? spacing * rapidSpacingScale : spacing;
+    if (shouldSampleSegments && Number.isFinite(segmentSpacing) && segmentSpacing > 0) {
+      for (let segmentDistance = segmentSpacing; segmentDistance < segmentLength - POSITION_EPSILON; segmentDistance += segmentSpacing) {
         const interpolation = segmentDistance / segmentLength;
         pushUniqueSample(
           samples,

@@ -1,13 +1,12 @@
 import { camSchemaBundle } from "@/generated_schemas/cam.schemas";
-import type {
-  GenerateToolpathRequest,
-  Pocketing2DOp as Operation,
-} from "@/generated_schemas/cam";
+import type { GenerateToolpathRequest } from "@/generated_schemas/cam";
 import type { MeshFaceSelection } from "@/components/polyline-viewer/types";
 
 type JsonPrimitive = string | number | boolean | null;
 export type DraftValue = JsonPrimitive | DraftObject | DraftValue[];
 export type DraftObject = { [key: string]: DraftValue | undefined };
+export type Operation = GenerateToolpathRequest["operation"];
+export type OperationType = NonNullable<Operation["type"]>;
 
 export type OpenCamUiMetadata = {
   readOnly?: boolean;
@@ -31,6 +30,7 @@ export type JsonSchema = {
   maximum?: number;
   minimum?: number;
   minItems?: number;
+  items?: JsonSchema;
   properties?: Readonly<Record<string, JsonSchema>>;
   required?: readonly string[];
   title?: string;
@@ -45,6 +45,17 @@ export type SchemaSection = {
 };
 
 export const pocketOperationSchema = camSchemaBundle.pocket2dOperation as JsonSchema;
+export const profileOperationSchema = camSchemaBundle.profile2dOperation as JsonSchema;
+
+const operationSchemas: Record<OperationType, JsonSchema> = {
+  pocketing_2d: pocketOperationSchema,
+  profiling_2d: profileOperationSchema,
+};
+
+const operationLabels: Record<OperationType, string> = {
+  pocketing_2d: "2D Pocket",
+  profiling_2d: "2D Profile",
+};
 
 const hiddenOperationFields = new Set(["type", "id", "displayName"]);
 const operationSectionOrder = new Map([
@@ -65,6 +76,22 @@ const operationSectionTitles: Record<string, string> = {
   clearance: "Clearance",
   advanced: "Advanced",
 };
+
+function operationTypeFromValue(value: OperationType | DraftObject | Operation | null | undefined): OperationType {
+  if (value === "profiling_2d" || value === "pocketing_2d") {
+    return value;
+  }
+  const type = value && typeof value === "object" && !Array.isArray(value) ? value.type : undefined;
+  return type === "profiling_2d" ? "profiling_2d" : "pocketing_2d";
+}
+
+export function getOperationSchema(value: OperationType | DraftObject | Operation | null | undefined): JsonSchema {
+  return operationSchemas[operationTypeFromValue(value)];
+}
+
+export function getOperationLabel(value: OperationType | DraftObject | Operation | null | undefined): string {
+  return operationLabels[operationTypeFromValue(value)];
+}
 
 export function resolveSchema(schema: JsonSchema, rootSchema: JsonSchema = pocketOperationSchema): JsonSchema {
   if (!schema.$ref) {
@@ -149,15 +176,25 @@ function getUnionSchemaForValue(
   }
 
   const discriminator = resolved.discriminator;
+  const source = value && typeof value === "object" && !Array.isArray(value) ? (value as DraftObject) : undefined;
   if (discriminator) {
-    const selectedValue =
-      value && typeof value === "object" && !Array.isArray(value)
-        ? (value as DraftObject)[discriminator.propertyName]
-        : undefined;
+    const selectedValue = source?.[discriminator.propertyName];
     if (typeof selectedValue === "string") {
       return options.find(
         (option) => getDiscriminatorValue(option, discriminator.propertyName, rootSchema) === selectedValue,
       );
+    }
+  }
+
+  if (source) {
+    const matchingOption = options.find((option) =>
+      Object.entries(option.properties ?? {}).some(([key, property]) => {
+        const expected = resolveSchema(property, rootSchema).const;
+        return expected !== undefined && source[key] === expected;
+      }),
+    );
+    if (matchingOption) {
+      return matchingOption;
     }
   }
 
@@ -338,6 +375,10 @@ export function parseDraftValue(schema: JsonSchema, draft: DraftValue | undefine
       throw new Error(`${path} must have at least ${resolved.minItems} items.`);
     }
 
+    if (resolved.items) {
+      return draft.map((item, index) => parseDraftValue(resolved.items!, item, rootSchema, `${path} ${index + 1}`));
+    }
+
     return cloneValue(draft);
   }
 
@@ -397,80 +438,94 @@ export function setDraftValueAtPath(draft: DraftObject, path: readonly string[],
   };
 }
 
+export function getGeometryArrayKey(rootSchema: JsonSchema): string | null {
+  const driveGeometrySchema = rootSchema.properties?.driveGeometry;
+  const driveGeometry = driveGeometrySchema ? resolveSchema(driveGeometrySchema, rootSchema) : undefined;
+  return Object.entries(driveGeometry?.properties ?? {}).find(([, schema]) => resolveSchema(schema, rootSchema).type === "array")?.[0] ?? null;
+}
+
 export function createDriveGeometryFromSelection(selection: MeshFaceSelection) {
   if (!selection.boundaryLoop || selection.planeZ == null) {
     return null;
   }
 
   return {
+    kind: "closed_polyline",
     z: selection.planeZ,
     vertices: selection.boundaryLoop.map(([x, y]) => ({ x, y })),
-  };
+  } satisfies DraftObject;
 }
 
-function getCutAreaList(value: DraftValue | undefined): DraftValue[] {
+function asList(value: DraftValue | undefined): DraftValue[] {
   if (Array.isArray(value)) {
     return value;
   }
   return value ? [value] : [];
 }
 
-export function createPocketOperationDraft(
+export function createOperationDraft(
+  operationType: OperationType,
   operationIndex: number,
   selection: MeshFaceSelection | null,
   _meshMaxZ: number | null,
   existingOperation?: Operation,
 ): DraftObject {
+  const rootSchema = getOperationSchema(existingOperation ?? operationType);
+  const geometryKey = getGeometryArrayKey(rootSchema);
   const actualOperation =
     existingOperation ??
     ({
-      ...(materializeDefaults(pocketOperationSchema, pocketOperationSchema) as DraftObject),
+      ...(materializeDefaults(rootSchema, rootSchema) as DraftObject),
       id: crypto.randomUUID(),
-      type: "pocketing_2d",
-      displayName: `2D Pocket ${operationIndex}`,
+      type: operationType,
+      displayName: `${getOperationLabel(operationType)} ${operationIndex}`,
     } satisfies DraftObject);
-
-  const cutArea = selection ? createDriveGeometryFromSelection(selection) : null;
-  const existingCutAreas = (((actualOperation as DraftObject).driveGeometry as DraftObject | undefined)
-    ?.cutAreas as DraftValue | undefined);
+  const geometry = selection ? createDriveGeometryFromSelection(selection) : null;
+  const driveGeometry = ((actualOperation as DraftObject).driveGeometry as DraftObject | undefined) ?? {};
   const hydratedOperation = {
     ...(actualOperation as DraftObject),
-    driveGeometry: {
-      ...(((actualOperation as DraftObject).driveGeometry as DraftObject | undefined) ?? {}),
-      cutAreas: cutArea ? [cutArea] : existingCutAreas,
-    },
+    driveGeometry: geometryKey
+      ? {
+          ...driveGeometry,
+          [geometryKey]: geometry ? [geometry] : driveGeometry[geometryKey],
+        }
+      : driveGeometry,
   } satisfies DraftObject;
 
-  return schemaValueToDraft(pocketOperationSchema, hydratedOperation, pocketOperationSchema) as DraftObject;
+  return schemaValueToDraft(rootSchema, hydratedOperation, rootSchema) as DraftObject;
 }
 
-export function applySelectionToPocketOperationDraft(
+export function applySelectionToOperationDraft(
   draft: DraftObject,
   selection: MeshFaceSelection,
   _meshMaxZ: number | null,
 ): DraftObject {
-  const cutArea = createDriveGeometryFromSelection(selection);
+  const rootSchema = getOperationSchema(draft);
+  const geometryKey = getGeometryArrayKey(rootSchema);
+  const geometry = createDriveGeometryFromSelection(selection);
+  if (!geometryKey || !geometry) {
+    return draft;
+  }
+
   const driveGeometry = (draft.driveGeometry as DraftObject | undefined) ?? {};
-  const cutAreas = [
-    ...getCutAreaList(driveGeometry.cutAreas),
-    ...(cutArea ? [cutArea] : []),
-  ];
+  const geometries = [...asList(driveGeometry[geometryKey]), geometry];
 
   return schemaValueToDraft(
-    pocketOperationSchema,
+    rootSchema,
     {
       ...draft,
       driveGeometry: {
         ...driveGeometry,
-        cutAreas,
+        [geometryKey]: geometries,
       },
     },
-    pocketOperationSchema,
+    rootSchema,
   ) as DraftObject;
 }
 
-export function parsePocketOperationDraft(draft: DraftObject): Operation {
-  return parseDraftValue(pocketOperationSchema, draft, pocketOperationSchema, "Operation") as unknown as Operation;
+export function parseOperationDraft(draft: DraftObject): Operation {
+  const rootSchema = getOperationSchema(draft);
+  return parseDraftValue(rootSchema, draft, rootSchema, "Operation") as unknown as Operation;
 }
 
 export function buildGenerateToolpathRequest(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import Annotated, Literal
 from uuid import uuid4
 
@@ -64,9 +65,17 @@ class CAMLevels(CamelBaseModel):
     depth_of_cut: float = Field(default=5.0, gt=0, title="Depth of cut", json_schema_extra=ui_metadata(unit="mm"))
     max_stepdown: float = Field(default=20.0, gt=0, title="Max stepdown", json_schema_extra=ui_metadata(unit="mm"))
 
+    def z_bounds(self, geometry_z: float) -> tuple[float, float]:
+        if self.drive_geometry_position == "at_top":
+            return geometry_z, geometry_z - self.depth_of_cut
+        return geometry_z + self.depth_of_cut, geometry_z
+
+    def max_cut_z(self, geometry_zs: Iterable[float]) -> float:
+        return max(self.z_bounds(z)[0] for z in geometry_zs)
+
 
 class CAMAdvancedParameters(CamelBaseModel):
-    operations_sorting: Literal["selection", "shortest_distance"] = Field(default="selection", title="Operation sorting")
+    operations_sorting: Literal["selection", "shortest_distance"] = Field(default="shortest_distance", title="Operation sorting")
     chordal_tolerance: float = Field(default=0.01, gt=0, title="Chordal tolerance", json_schema_extra=ui_metadata(unit="mm"))
 
 

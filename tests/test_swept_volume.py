@@ -1,12 +1,13 @@
 import numpy as np
 
-from opencam.schemas.cl_data import PositionRecord3D
+from opencam.schemas.cl_data import FeedRatePositionRecord3D, OperationRecord3D, PositionRecord3D, RapidPositionRecord3D
 from opencam.schemas.tools import CylindricalTool
 from opencam.simulation.swept_volume import (
     ChunkClData,
     build_position_chunks,
     coalesce_straight_tool_positions,
     march_tool_positions,
+    sample_operation_points_with_progress,
     simulate_chunk_focus_mesh,
 )
 
@@ -62,6 +63,52 @@ def test_march_tool_positions_downsamples_dense_curves():
     assert len(marched) < len(positions) / 2
     np.testing.assert_allclose(marched[0], positions[0])
     np.testing.assert_allclose(marched[-1], positions[-1])
+
+
+def test_sample_operation_points_with_progress_keeps_segment_endpoints():
+    operation = OperationRecord3D(
+        tool=CylindricalTool(
+            name="Test Tool",
+            tool_number=1,
+            diameter=1.0,
+            cutting_height=1.0,
+            shoulder_height=1.0,
+        ),
+        clearance_plane_height=10.0,
+        records=[
+            FeedRatePositionRecord3D(x=0.0, y=0.0, z=0.0, feedrate=100.0),
+            FeedRatePositionRecord3D(x=4.0, y=0.0, z=0.0, feedrate=100.0),
+            FeedRatePositionRecord3D(x=8.0, y=0.0, z=0.0, feedrate=100.0),
+        ],
+    )
+
+    sampled_points = sample_operation_points_with_progress(operation, 5.0)
+    sampled_x = [point.x for _progress, point in sampled_points]
+
+    assert sampled_x[-1] == 8.0
+    assert 4.0 in sampled_x
+
+
+def test_sample_operation_points_with_progress_uses_larger_step_for_rapid_moves():
+    operation = OperationRecord3D(
+        tool=CylindricalTool(
+            name="Test Tool",
+            tool_number=1,
+            diameter=1.0,
+            cutting_height=1.0,
+            shoulder_height=1.0,
+        ),
+        clearance_plane_height=10.0,
+        records=[
+            RapidPositionRecord3D(x=0.0, y=0.0, z=0.0),
+            RapidPositionRecord3D(x=10.0, y=0.0, z=0.0),
+            FeedRatePositionRecord3D(x=20.0, y=0.0, z=0.0, feedrate=100.0),
+        ],
+    )
+
+    sampled_points = sample_operation_points_with_progress(operation, 4.0, rapid_frame_step_scale=2.0)
+
+    assert [point.x for _progress, point in sampled_points] == [0.0, 8.0, 10.0, 12.0, 16.0, 20.0]
 
 
 def test_coalesce_straight_tool_positions_merges_straight_runs():

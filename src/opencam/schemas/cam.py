@@ -1,14 +1,20 @@
 from __future__ import annotations
 
+from typing import Annotated
+
 from pydantic import ConfigDict, Field, model_validator
 
 from opencam.schemas.base import CamelBaseModel
 from opencam.schemas.geometry_2d import ClosedPolyline2D
 from opencam.schemas.operations.pocketing import Pocketing2dOp
+from opencam.schemas.operations.profiling import Profiling2dOp
 from opencam.schemas.setup import CAMSetup
 
 
-MachiningOperation = Pocketing2dOp
+MachiningOperation = Annotated[
+    Pocketing2dOp | Profiling2dOp,
+    Field(discriminator="type"),
+]
 
 
 class GenerateToolpathRequest(CamelBaseModel):
@@ -24,6 +30,8 @@ class GenerateToolpathRequest(CamelBaseModel):
         return self
 
     def to_closed_polylines(self) -> list[ClosedPolyline2D]:
+        if not isinstance(self.operation, Pocketing2dOp):
+            return []
         return [
             ClosedPolyline2D(vertices=area.vertices)
             for area in self.operation.drive_geometry.cut_areas
@@ -34,4 +42,5 @@ def build_frontend_cam_schema_bundle() -> dict[str, dict]:
     return {
         "generateToolpathRequest": GenerateToolpathRequest.model_json_schema(mode="validation"),
         "pocket2dOperation": Pocketing2dOp.model_json_schema(mode="validation"),
+        "profile2dOperation": Profiling2dOp.model_json_schema(mode="validation"),
     }

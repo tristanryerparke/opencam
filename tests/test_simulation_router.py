@@ -54,11 +54,12 @@ def test_resample_buffered_simulation_rebuilds_frames_and_clears_display_caches(
         PositionRecord3D(x=4.0, y=0.0, z=0.0),
     ]
     monkeypatch.setattr(router, "resample_chunk_cl_data", lambda *_args, **_kwargs: points)
+    monkeypatch.setattr(router, "_run_comparison_mesh_build", lambda *_args: None)
 
     router._resample_buffered_simulation(simulation, 2.5)
 
     assert simulation.frame_step_distance == 2.5
-    assert [frame.point_index for frame in simulation.frames] == [-1, -1, -1, -1, 0, 0, 1, 1, 1, 1, 1]
+    assert [frame.point_index for frame in simulation.frames] == [-1, -1, -1, -1, 0, 0, 1, 1, 1, 1, 1, 1]
     assert simulation.active_mesh_cache == {}
     assert simulation.comparison_meshes is None
 
@@ -78,17 +79,44 @@ def test_build_animation_frames_samples_operation_by_step_distance():
 
     frames = router._build_animation_frames(mesh_frames, operation, 2.0)
 
-    assert [frame.tool_position.x for frame in frames] == [0.0, 2.0, 4.0]
-    assert [frame.point_index for frame in frames] == [0, 0, 1]
+    assert [frame.tool_position.x for frame in frames] == [0.0, 1.0, 2.0, 3.0, 4.0]
+    assert [frame.point_index for frame in frames] == [0, 0, 0, 0, 1]
 
 
-def test_active_frame_mesh_uses_rotation_flags_and_is_cached(monkeypatch):
+def test_build_animation_frames_reaches_retract_endpoint_with_scaled_rapid_sampling():
+    operation = OperationRecord3D(
+        tool=TOOL,
+        clearance_plane_height=10.0,
+        records=[
+            RapidPositionRecord3D(x=0.0, y=0.0, z=10.0),
+            RapidPositionRecord3D(x=0.0, y=0.0, z=0.0),
+            RapidPositionRecord3D(x=4.0, y=0.0, z=0.0),
+            RapidPositionRecord3D(x=4.0, y=0.0, z=10.0),
+        ],
+    )
+    mesh_frames = [
+        router.PreparedSimulationFrame(0, 0, PositionRecord3D(x=0.0, y=0.0, z=0.0), 2, 0),
+        router.PreparedSimulationFrame(0, 1, PositionRecord3D(x=4.0, y=0.0, z=0.0), 2, 1),
+    ]
+
+    frames = router._build_animation_frames(mesh_frames, operation, 2.5, rapid_frame_step_scale=2.0)
+
+    assert (frames[-1].tool_position.x, frames[-1].tool_position.y, frames[-1].tool_position.z) == (4.0, 0.0, 10.0)
+    assert frames[-1].point_index == 1
+    assert frames[-1].mesh_state_index == 1
+    assert frames[0].mesh_state_index == -1
+
+
+def test_active_frame_mesh_uses_rotation_flags_and_reuses_mesh_state_cache(monkeypatch):
     simulation = router.BufferedSimulationResult(
         tool_mesh_bytes=b"",
         chunks=[],
         prepared_chunks=[prepared_chunk()],
         operation=build_operation((0.0, 0.0, 0.0), (1.0, 1.0, 0.0)),
-        frames=[router.PreparedSimulationFrame(0, 1, PositionRecord3D(x=1.0, y=1.0, z=0.0))],
+        frames=[
+            router.PreparedSimulationFrame(0, 1, PositionRecord3D(x=1.0, y=1.0, z=0.0), mesh_state_index=7),
+            router.PreparedSimulationFrame(0, 1, PositionRecord3D(x=1.0, y=1.0, z=5.0), mesh_state_index=7),
+        ],
         frame_step_distance=5.0,
         include_corner_rotation_sweeps=False,
     )
@@ -106,7 +134,7 @@ def test_active_frame_mesh_uses_rotation_flags_and_is_cached(monkeypatch):
     monkeypatch.setattr(router, "manifold_to_simplified_glb", lambda *_args, **_kwargs: b"frame")
 
     assert router._active_mesh_bytes(simulation, 0) == b"frame"
-    assert router._active_mesh_bytes(simulation, 0) == b"frame"
+    assert router._active_mesh_bytes(simulation, 1) == b"frame"
     assert calls == 1
 
 
@@ -142,6 +170,7 @@ def test_simulation_generation_keeps_raw_display_meshes(monkeypatch):
         chunk_padding=(0.0, 0.0, 0.0),
         chunk_step_distance=1.0,
         frame_step_distance=1.0,
+        rapid_frame_step_scale=1.0,
         rotate_tool_with_path=False,
         include_corner_rotation_sweeps=False,
         should_cancel=None,
@@ -182,6 +211,50 @@ def test_comparison_meshes_are_remeshed_colored_and_cached(monkeypatch):
     )
     assert remesh_calls == [b"cached", b"active"]
     assert color_calls == [(b"cached:remeshed", b"stock"), (b"active:remeshed", b"stock")]
+
+
+def test_comparison_background_build_warms_cache_skips_warm_and_discards_stale(monkeypatch):
+    simulation = router.BufferedSimulationResult(
+        tool_mesh_bytes=b"",
+        chunks=[SimulatedChunk(cached_mesh_bytes=b"cached", frame_start_index=0, frame_end_index=0)],
+        prepared_chunks=[prepared_chunk()],
+        operation=build_operation((0.0, 0.0, 0.0)),
+        frames=[router.PreparedSimulationFrame(0, 0, PositionRecord3D(x=0.0, y=0.0, z=0.0))],
+        frame_step_distance=1.0,
+        stock_mesh_bytes=b"stock",
+    )
+    monkeypatch.setattr(router, "_active_mesh_bytes", lambda *_args: b"active")
+    monkeypatch.setattr(router, "_remesh_visualization_mesh", lambda mesh: mesh + b":remeshed")
+    monkeypatch.setattr(
+        router,
+        "_apply_comparison_distance_colors",
+        lambda mesh, stock: mesh + b":colored",
+    )
+
+    # cold cache -> builds and stores
+    router._run_comparison_mesh_build(simulation)
+    assert simulation.comparison_meshes == (b"cached:remeshed:colored", b"active:remeshed:colored")
+
+    # warm cache -> skips rebuild
+    build_calls: list[tuple[bytes, bytes, bytes]] = []
+    monkeypatch.setattr(
+        router,
+        "_build_comparison_mesh_bytes",
+        lambda cached, active, stock: build_calls.append((cached, active, stock)) or (b"should-not-store", b""),
+    )
+    router._run_comparison_mesh_build(simulation)
+    assert build_calls == []
+    assert simulation.comparison_meshes == (b"cached:remeshed:colored", b"active:remeshed:colored")
+
+    # generation bumped mid-build (concurrent resample) -> result discarded
+    def build_and_invalidate(cached: bytes, active: bytes, stock: bytes):
+        simulation.comparison_mesh_generation += 1
+        return (b"stale", b"stale")
+
+    simulation.comparison_meshes = None  # resample cleared it
+    monkeypatch.setattr(router, "_build_comparison_mesh_bytes", build_and_invalidate)
+    router._run_comparison_mesh_build(simulation)
+    assert simulation.comparison_meshes is None
 
 
 def test_comparison_endpoint_reports_final_mesh_urls(monkeypatch):

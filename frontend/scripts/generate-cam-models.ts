@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 type SchemaBundle = {
   generateToolpathRequest: Record<string, unknown>;
   pocket2dOperation: Record<string, unknown>;
+  profile2dOperation: Record<string, unknown>;
 };
 
 const frontendRoot = process.cwd();
@@ -24,6 +25,7 @@ const typescriptSchemaModules = [
   "geometry_2d.py",
   "operations/base.py",
   "operations/pocketing.py",
+  "operations/profiling.py",
   "setup.py",
   "tool_library.py",
   "tools.py",

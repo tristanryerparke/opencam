@@ -6,9 +6,14 @@
 */
 
 export interface ClosedPolyline2D {
+  kind?: "closed_polyline";
   vertices: Point2D[];
 }
 export interface Point2D {
   x: number;
   y: number;
+}
+export interface Polyline2D {
+  kind?: "polyline";
+  vertices: Point2D[];
 }

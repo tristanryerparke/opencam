@@ -41,6 +41,7 @@ htmlcov/
 /frontend/*.local
 
 # C# / Rhino plugin
+*.rhl
 /csharp/**/bin/
 /csharp/**/obj/
 /csharp/**/web-ui/node_modules/

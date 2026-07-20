@@ -46,6 +46,7 @@ class SweptSimulationComparisonResponse(CamelBaseModel):
 
 class SweptSimulationResampleRequest(CamelBaseModel):
     frame_step_distance: float
+    rapid_frame_step_scale: float | None = None
 
 
 class SweptSimulationStatusResponse(CamelBaseModel):

@@ -13,10 +13,12 @@ export function OperationTypeDialog({
   open,
   onOpenChange,
   onSelectPocketing,
+  onSelectProfiling,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSelectPocketing: () => void;
+  onSelectProfiling: () => void;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -35,7 +37,7 @@ export function OperationTypeDialog({
             <img src={pocketingIconUrl} alt="" className="h-20 w-20 scale-150" />
             <span>2.5D Pocketing</span>
           </Button>
-          <Button type="button" variant="outline" className="h-auto flex-col gap-3 p-4">
+          <Button type="button" variant="outline" className="h-auto flex-col gap-3 p-4" onClick={onSelectProfiling}>
             <img src={profilingIconUrl} alt="" className="h-20 w-20 scale-150" />
             <span>2.5D Profiling</span>
           </Button>

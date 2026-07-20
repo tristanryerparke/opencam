@@ -10,9 +10,9 @@ import numpy as np
 import trimesh
 from manifold3d import Error, Manifold, Mesh64, OpType
 
+from opencam._cgal_planar import remesh_planar_patches
 from opencam.schemas.cl_data import OperationRecord3D, PositionRecord3D
 from opencam.schemas.tools import CylindricalTool
-from opencam.services.mesh.planar_region_2d_reduction import simplify_mesh_data_2d
 
 TOOL_SEGMENTS = 16
 SIM_STEPDISTANCE = 5
@@ -20,12 +20,11 @@ SIMPLIFY_AFTER_EACH_CHUNK = False
 DEFAULT_MAX_SIM_DISTANCE = 20
 DEFAULT_CHUNK_PADDING = (5.0, 5.0, 1.0)
 DEFAULT_CHUNK_STEP_DISTANCE = 0.5
+DEFAULT_RAPID_FRAME_STEP_SCALE = 2.0
 DEFAULT_PATH_ANGLE_TOLERANCE_DEGREES = 15
 DEFAULT_STRAIGHT_LINE_TOLERANCE_DEGREES = 2
 DEFAULT_ROTATE_TOOL_WITH_PATH = False
 DEFAULT_INCLUDE_CORNER_ROTATION_SWEEPS = True
-DEFAULT_PLANAR_ANGLE_DEGREES = 0.01
-DEFAULT_MIN_REGION_FACES = 3
 STOCK_FACE_COLOR_RGBA = np.array([251, 146, 60, 255], dtype=np.uint8)
 CUT_FACE_COLOR_RGBA = np.array([156, 163, 175, 255], dtype=np.uint8)
 
@@ -378,6 +377,7 @@ def segment_parameter_for_position(
 def sample_operation_points_with_progress(
     operation: OperationRecord3D,
     step_distance: float,
+    rapid_frame_step_scale: float = 1.0,
 ) -> list[tuple[float, PositionRecord3D]]:
     if not operation.records:
         return []
@@ -398,9 +398,14 @@ def sample_operation_points_with_progress(
         segment_traversed_start = traversed_distance
         segment_consumed = 0.0
         segment_remaining = segment_length
+        segment_step_distance = (
+            step_distance * rapid_frame_step_scale
+            if getattr(segment_end, "feed_type", None) == "rapid"
+            else step_distance
+        )
 
-        while step_distance > 0 and distance_since_sample + segment_remaining >= step_distance:
-            distance_to_sample = max(step_distance - distance_since_sample, 0.0)
+        while segment_step_distance > 0 and distance_since_sample + segment_remaining >= segment_step_distance:
+            distance_to_sample = max(segment_step_distance - distance_since_sample, 0.0)
             segment_consumed += distance_to_sample
             interpolation = min(segment_consumed / segment_length, 1.0)
             position = PositionRecord3D(
@@ -423,12 +428,10 @@ def sample_operation_points_with_progress(
 
         traversed_distance += segment_length
         distance_since_sample += segment_length - segment_consumed
-
-    final_position = operation.records[-1]
-    if positions_match(sampled_points[-1][1], final_position):
-        sampled_points[-1] = (traversed_distance, final_position)
-    else:
-        sampled_points.append((traversed_distance, final_position))
+        if positions_match(sampled_points[-1][1], segment_end):
+            sampled_points[-1] = (traversed_distance, segment_end)
+        else:
+            sampled_points.append((traversed_distance, segment_end))
 
     return sampled_points
 
@@ -470,11 +473,16 @@ def build_animation_frames(
     mesh_frames: list[SimulatedMeshFrame],
     operation: OperationRecord3D,
     initial_non_contact_frame: SimulatedMeshFrame | None = None,
+    rapid_frame_step_scale: float = 1.0,
 ) -> list[SimulatedMeshFrame]:
     if not mesh_frames:
         return mesh_frames
 
-    sampled_points = sample_operation_points_with_progress(operation, SIM_STEPDISTANCE)
+    sampled_points = sample_operation_points_with_progress(
+        operation,
+        SIM_STEPDISTANCE,
+        rapid_frame_step_scale=rapid_frame_step_scale,
+    )
     if not sampled_points:
         return mesh_frames
 
@@ -562,20 +570,15 @@ def simplify_planar_mesh(vertices: np.ndarray, faces: np.ndarray) -> tuple[np.nd
     if len(face_array) == 0:
         return vertex_array[:, :3], face_array
 
-    simplified = simplify_mesh_data_2d(
-        vertex_array[:, :3],
-        face_array,
-        planar_angle_degrees=DEFAULT_PLANAR_ANGLE_DEGREES,
-        min_region_faces=DEFAULT_MIN_REGION_FACES,
-        verbose=False,
+    simplified_vertices, simplified_faces = remesh_planar_patches(
+        np.ascontiguousarray(vertex_array[:, :3]),
+        np.ascontiguousarray(face_array, dtype=np.int64),
     )
-    simplified_vertices = np.asarray(simplified.vertices, dtype=np.float64)
-    simplified_faces = ensure_triangle_faces(np.asarray(simplified.faces, dtype=np.int32))
-
+    simplified_faces = ensure_triangle_faces(simplified_faces)
     if len(simplified_faces) >= len(face_array):
         return vertex_array[:, :3], face_array
 
-    return simplified_vertices, simplified_faces
+    return np.asarray(simplified_vertices, dtype=np.float64), simplified_faces
 
 
 def simplify_labeled_mesh(
@@ -1764,7 +1767,12 @@ def simulate_swept_milling_frames(
                 context=f"recombined stock after chunk {chunk_index}",
             )
 
-    frames = build_animation_frames(frames, operation, initial_non_contact_frame)
+    frames = build_animation_frames(
+        frames,
+        operation,
+        initial_non_contact_frame,
+        rapid_frame_step_scale=DEFAULT_RAPID_FRAME_STEP_SCALE,
+    )
     advance_progress("Finalizing simulation frames...")
 
     print(f"[simulate/swept] Total stock subtraction time: {stock_subtraction_seconds:.3f}s")

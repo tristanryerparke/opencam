@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 from shapely.geometry import Polygon
 
-from opencam.engine.closed_polyline.offset import offset
+from opencam.engine.closed_polyline.offset import DEFAULT_BUFFER_CHORD_TOLERANCE, offset
 from opencam.services.operations.pocketing.models import PocketTreeNode
 
 
@@ -30,6 +30,7 @@ class PocketTreeMixin:
             polylines = offset(
                 base_polyline,
                 -offset_distance,
+                chord_tolerance=getattr(self, "chord_tolerance", DEFAULT_BUFFER_CHORD_TOLERANCE),
             )
             if not polylines:
                 break

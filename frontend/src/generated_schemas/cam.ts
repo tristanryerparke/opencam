@@ -31,6 +31,7 @@ export interface SetupStock {
   [k: string]: unknown;
 }
 export interface ClosedPolyline2D {
+  kind?: "closed_polyline";
   vertices: Point2D[];
 }
 export interface Point2D {
@@ -40,7 +41,7 @@ export interface Point2D {
 }
 export interface GenerateToolpathRequest {
   setup?: CAMSetup;
-  operation: Pocketing2DOp;
+  operation: Pocketing2DOp | Profiling2DOp;
 }
 export interface Pocketing2DOp {
   type?: "pocketing_2d";
@@ -134,6 +135,7 @@ export interface PocketingDriveGeometry {
   [k: string]: unknown;
 }
 export interface ClosedPolyline25D {
+  kind?: "closed_polyline";
   vertices: Point2D[];
   z: number;
   [k: string]: unknown;
@@ -147,5 +149,36 @@ export interface PocketingCutSettings {
 export interface StepoverMode {
   mode?: "percentage_of_tool_diameter" | "absolute";
   value?: number;
+  [k: string]: unknown;
+}
+export interface Profiling2DOp {
+  type?: "profiling_2d";
+  id?: string;
+  displayName?: string;
+  tool: CylindricalTool | BallTool | VTool;
+  feedsAndSpeeds?: FeedsAndSpeeds;
+  clearance?: AbsoluteClearance | StockMaxZPlusOffsetClearance | PartMaxZPlusOffsetClearance;
+  levels?: CAMLevels;
+  advanced?: CAMAdvancedParameters;
+  driveGeometry: ProfilingDriveGeometry;
+  cutParameters?: ProfilingCutSettings;
+}
+export interface ProfilingDriveGeometry {
+  /**
+   * @minItems 1
+   */
+  profiles: [ClosedPolyline25D | Polyline25D, ...(ClosedPolyline25D | Polyline25D)[]];
+  [k: string]: unknown;
+}
+export interface Polyline25D {
+  kind?: "polyline";
+  vertices: Point2D[];
+  z: number;
+  [k: string]: unknown;
+}
+export interface ProfilingCutSettings {
+  side?: "outside" | "inside";
+  cutDirection?: "climb" | "conventional";
+  stockToLeave?: number;
   [k: string]: unknown;
 }

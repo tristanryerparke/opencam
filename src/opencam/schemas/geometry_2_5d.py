@@ -1,8 +1,11 @@
-from pydantic import ConfigDict, Field
+from __future__ import annotations
 
-from opencam.schemas.geometry_2d import ClosedPolyline2D as ClosedPolyline, Point2D
-from opencam.schemas.operations.base import ui_metadata
+from opencam.schemas.geometry_2d import ClosedPolyline2D, Polyline2D
 
 
-class ClosedPolyline25D(ClosedPolyline):
-    z: float 
+class Polyline25D(Polyline2D):
+    z: float
+
+
+class ClosedPolyline25D(ClosedPolyline2D):
+    z: float

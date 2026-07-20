@@ -1,10 +1,9 @@
 import numpy as np
 
-from opencam._cgal_planar import remesh_planar_patches
-from opencam.services.mesh.planar_region_2d_reduction import simplify_mesh_data_2d
+from opencam.simulation.swept_volume import simplify_planar_mesh
 
 
-def test_cgal_planar_remesh_matches_current_simple_plane():
+def test_cgal_planar_remesh_reduces_simulation_mesh():
     vertices = np.array(
         [
             [0.0, 0.0, 0.0],
@@ -33,13 +32,8 @@ def test_cgal_planar_remesh_matches_current_simple_plane():
         dtype=np.int64,
     )
 
-    current = simplify_mesh_data_2d(vertices, faces)
-    cgal_vertices, cgal_faces = remesh_planar_patches(vertices, faces)
+    reduced_vertices, reduced_faces = simplify_planar_mesh(vertices, faces)
 
-    assert len(current.faces) == 6
-    assert len(cgal_faces) == 2
-    assert len(cgal_faces) < len(current.faces)
-    np.testing.assert_allclose(np.min(current.vertices, axis=0), [0.0, 0.0, 0.0])
-    np.testing.assert_allclose(np.max(current.vertices, axis=0), [2.0, 2.0, 0.0])
-    np.testing.assert_allclose(np.min(cgal_vertices, axis=0), [0.0, 0.0, 0.0])
-    np.testing.assert_allclose(np.max(cgal_vertices, axis=0), [2.0, 2.0, 0.0])
+    assert len(reduced_faces) == 2
+    np.testing.assert_allclose(np.min(reduced_vertices, axis=0), [0.0, 0.0, 0.0])
+    np.testing.assert_allclose(np.max(reduced_vertices, axis=0), [2.0, 2.0, 0.0])

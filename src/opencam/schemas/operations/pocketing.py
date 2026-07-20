@@ -32,8 +32,5 @@ class Pocketing2dOp(BaseCAMOperation):
     cut_parameters: PocketingCutSettings = Field(default_factory=PocketingCutSettings, title="Cut parameters")
 
     def max_cut_z(self) -> float:
-        geometry_zs = [area.z for area in self.drive_geometry.cut_areas]
-        if self.levels.drive_geometry_position == "at_top":
-            return max(geometry_zs)
-        return max(z + self.levels.depth_of_cut for z in geometry_zs)
+        return self.levels.max_cut_z(area.z for area in self.drive_geometry.cut_areas)
  

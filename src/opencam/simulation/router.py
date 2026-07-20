@@ -1,5 +1,6 @@
 import io
 import json
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from threading import Event, Lock, Thread
@@ -28,6 +29,7 @@ from opencam.simulation.swept_volume import (
     DEFAULT_CHUNK_STEP_DISTANCE,
     DEFAULT_INCLUDE_CORNER_ROTATION_SWEEPS,
     DEFAULT_MAX_SIM_DISTANCE,
+    DEFAULT_RAPID_FRAME_STEP_SCALE,
     DEFAULT_ROTATE_TOOL_WITH_PATH,
     SIM_STEPDISTANCE,
     TOOL_SEGMENTS,
@@ -47,12 +49,18 @@ from opencam.simulation.swept_volume import (
 
 router = APIRouter()
 
-DISPLAY_REMESH_TARGET_EDGE_LENGTH = 1.0
+DISPLAY_REMESH_TARGET_EDGE_LENGTH = 0.1
 DISPLAY_REMESH_ITERATIONS = 10
 COMPARISON_CLOSE_DISTANCE = 0.1
 COMPARISON_FAR_DISTANCE = 0.25
 COMPARISON_GREEN_RGBA = np.array([0, 255, 0, 255], dtype=np.uint8)
 COMPARISON_BLUE_RGBA = np.array([0, 0, 255, 255], dtype=np.uint8)
+
+
+def _comparison_debug(label: str, started_at: float, **details: object) -> None:
+    parts = [f"{key}={value}" for key, value in details.items()]
+    suffix = f" {' '.join(parts)}" if parts else ""
+    print(f"[simulate/comparison] {label} elapsed={time.perf_counter() - started_at:.3f}s{suffix}")
 
 
 @dataclass(frozen=True)
@@ -61,6 +69,7 @@ class PreparedSimulationFrame:
     point_index: int
     tool_position: PositionRecord3D
     chunk_step_count: int = 0
+    mesh_state_index: int | None = None
 
 
 @dataclass
@@ -71,6 +80,7 @@ class BufferedSimulationResult:
     operation: OperationRecord3D
     frames: list[PreparedSimulationFrame]
     frame_step_distance: float
+    rapid_frame_step_scale: float = 1.0
     rotate_tool_with_path: bool = DEFAULT_ROTATE_TOOL_WITH_PATH
     include_corner_rotation_sweeps: bool = DEFAULT_INCLUDE_CORNER_ROTATION_SWEEPS
     stock_mesh_bytes: bytes = b""
@@ -79,6 +89,7 @@ class BufferedSimulationResult:
     active_mesh_cache_lock: Lock = field(default_factory=Lock)
     comparison_meshes: tuple[bytes, bytes] | None = None
     comparison_mesh_lock: Lock = field(default_factory=Lock)
+    comparison_mesh_generation: int = 0
 
 
 @dataclass
@@ -133,6 +144,7 @@ def _remesh_visualization_mesh(
     mesh_bytes: bytes,
     target_edge_length: float = DISPLAY_REMESH_TARGET_EDGE_LENGTH,
 ) -> bytes:
+    started_at = time.perf_counter()
     try:
         import pymeshlab
 
@@ -156,10 +168,26 @@ def _remesh_visualization_mesh(
         vertices = np.asarray(remeshed.vertex_matrix(), dtype=np.float64)
         faces = np.asarray(remeshed.face_matrix(), dtype=np.int64)
         if len(vertices) == 0 or len(faces) == 0:
+            _comparison_debug(
+                "remesh-empty",
+                started_at,
+                input_vertices=len(source_mesh.vertices),
+                input_faces=len(source_mesh.faces),
+            )
             return mesh_bytes
-        return trimesh.Trimesh(vertices=vertices, faces=faces, process=False).export(file_type="glb")
+        remeshed_bytes = trimesh.Trimesh(vertices=vertices, faces=faces, process=False).export(file_type="glb")
+        _comparison_debug(
+            "remesh",
+            started_at,
+            input_vertices=len(source_mesh.vertices),
+            input_faces=len(source_mesh.faces),
+            output_vertices=len(vertices),
+            output_faces=len(faces),
+            output_bytes=len(remeshed_bytes),
+        )
+        return remeshed_bytes
     except Exception as exc:  # comparison is optional display work
-        print(f"[simulate/comparison] remesh fallback: {exc}")
+        print(f"[simulate/comparison] remesh fallback after {time.perf_counter() - started_at:.3f}s: {exc}")
         return mesh_bytes
 
 
@@ -179,6 +207,7 @@ def _comparison_vertex_colors(distances: np.ndarray) -> np.ndarray:
 
 
 def _apply_comparison_distance_colors(mesh_bytes: bytes, stock_mesh_bytes: bytes) -> bytes:
+    started_at = time.perf_counter()
     try:
         mesh = _load_trimesh_from_bytes(mesh_bytes, file_type="glb")
         stock_mesh = _load_trimesh_from_bytes(stock_mesh_bytes, file_type="stl")
@@ -189,33 +218,97 @@ def _apply_comparison_distance_colors(mesh_bytes: bytes, stock_mesh_bytes: bytes
         else:
             _closest, distances, _triangle_ids = query.on_surface(vertices)
         mesh.visual.vertex_colors = _comparison_vertex_colors(distances)
-        return mesh.export(file_type="glb")
+        colored_mesh_bytes = mesh.export(file_type="glb")
+        _comparison_debug(
+            "colorize",
+            started_at,
+            vertices=len(vertices),
+            watertight=stock_mesh.is_watertight,
+            output_bytes=len(colored_mesh_bytes),
+        )
+        return colored_mesh_bytes
     except Exception as exc:  # comparison colors should not hide otherwise usable meshes
-        print(f"[simulate/comparison] color fallback: {exc}")
+        print(f"[simulate/comparison] color fallback after {time.perf_counter() - started_at:.3f}s: {exc}")
         return mesh_bytes
 
 
+def _build_comparison_mesh_bytes(
+    cached_mesh: bytes,
+    active_mesh: bytes,
+    stock_mesh: bytes,
+) -> tuple[bytes, bytes]:
+    return (
+        _apply_comparison_distance_colors(_remesh_visualization_mesh(cached_mesh), stock_mesh),
+        _apply_comparison_distance_colors(_remesh_visualization_mesh(active_mesh), stock_mesh),
+    )
+
+
 def _comparison_meshes(simulation: BufferedSimulationResult) -> tuple[bytes, bytes]:
+    # Synchronous fallback called by the comparison endpoints, which already hold
+    # SIMULATION_FRAME_BUFFER_LOCK, so resample cannot mutate frames concurrently.
+    started_at = time.perf_counter()
     with simulation.comparison_mesh_lock:
         if simulation.comparison_meshes is not None:
+            _comparison_debug(
+                "build-cache-hit",
+                started_at,
+                cached_bytes=len(simulation.comparison_meshes[0]),
+                active_bytes=len(simulation.comparison_meshes[1]),
+            )
             return simulation.comparison_meshes
 
-        final_frame_index = len(simulation.frames) - 1
-        final_frame = _get_buffered_frame(simulation, final_frame_index)
-        cached_mesh = simulation.chunks[final_frame.chunk_index].cached_mesh_bytes
-        active_mesh = _active_mesh_bytes(simulation, final_frame_index)
-        comparison_meshes = (
-            _apply_comparison_distance_colors(
-                _remesh_visualization_mesh(cached_mesh),
-                simulation.stock_mesh_bytes,
-            ),
-            _apply_comparison_distance_colors(
-                _remesh_visualization_mesh(active_mesh),
-                simulation.stock_mesh_bytes,
-            ),
-        )
+    final_frame_index = len(simulation.frames) - 1
+    final_frame = _get_buffered_frame(simulation, final_frame_index)
+    cached_mesh = simulation.chunks[final_frame.chunk_index].cached_mesh_bytes
+    active_mesh = _active_mesh_bytes(simulation, final_frame_index)
+    comparison_meshes = _build_comparison_mesh_bytes(cached_mesh, active_mesh, simulation.stock_mesh_bytes)
+    with simulation.comparison_mesh_lock:
         simulation.comparison_meshes = comparison_meshes
-        return comparison_meshes
+    _comparison_debug(
+        "build-cache-miss",
+        started_at,
+        cached_source_bytes=len(cached_mesh),
+        active_source_bytes=len(active_mesh),
+        cached_output_bytes=len(comparison_meshes[0]),
+        active_output_bytes=len(comparison_meshes[1]),
+    )
+    return comparison_meshes
+
+
+def _run_comparison_mesh_build(simulation: BufferedSimulationResult) -> None:
+    # Warms the comparison cache off the request path. Snapshots cheap inputs under
+    # the buffer lock, then runs the expensive remesh/colorize unlocked so endpoints
+    # stay responsive. A generation token discards results made stale by a resample.
+    started_at = time.perf_counter()
+    try:
+        with SIMULATION_FRAME_BUFFER_LOCK:
+            generation = simulation.comparison_mesh_generation
+            if simulation.comparison_meshes is not None:
+                _comparison_debug("build-skipped-warm", started_at)
+                return
+            final_frame_index = len(simulation.frames) - 1
+            final_frame = _get_buffered_frame(simulation, final_frame_index)
+            cached_mesh = simulation.chunks[final_frame.chunk_index].cached_mesh_bytes
+            stock_mesh = simulation.stock_mesh_bytes
+
+        # _active_mesh_bytes guards its own cache; if a resample rewrote frames under
+        # us, _get_buffered_frame raises and we abort gracefully below.
+        active_mesh = _active_mesh_bytes(simulation, final_frame_index)
+        comparison_meshes = _build_comparison_mesh_bytes(cached_mesh, active_mesh, stock_mesh)
+
+        with simulation.comparison_mesh_lock:
+            if simulation.comparison_mesh_generation != generation:
+                _comparison_debug("build-discarded-stale", started_at, generation=generation)
+                return
+            simulation.comparison_meshes = comparison_meshes
+        _comparison_debug(
+            "build-background",
+            started_at,
+            cached_output_bytes=len(comparison_meshes[0]),
+            active_output_bytes=len(comparison_meshes[1]),
+        )
+    except Exception as exc:  # background warming is best-effort; endpoints rebuild on demand
+        print(f"[simulate/comparison] background build failed after {time.perf_counter() - started_at:.3f}s: {exc}")
 
 
 def _rhino_mesh_payload_from_bytes(mesh_bytes: bytes, file_type: str = "glb") -> dict:
@@ -311,21 +404,24 @@ def _build_contact_frames(
     frame_step_distance: float,
 ) -> list[PreparedSimulationFrame]:
     frames: list[PreparedSimulationFrame] = []
+    mesh_state_index = 0
 
     for prepared_chunk in prepared_chunks:
         sampled_points = resample_chunk_cl_data(prepared_chunk.cl_data, frame_step_distance)
 
         if sampled_points:
             chunk_step_count = len(sampled_points)
-            frames.extend(
-                PreparedSimulationFrame(
-                    chunk_index=prepared_chunk.chunk_index,
-                    point_index=point_index,
-                    tool_position=point,
-                    chunk_step_count=chunk_step_count,
+            for point_index, point in enumerate(sampled_points):
+                frames.append(
+                    PreparedSimulationFrame(
+                        chunk_index=prepared_chunk.chunk_index,
+                        point_index=point_index,
+                        tool_position=point,
+                        chunk_step_count=chunk_step_count,
+                        mesh_state_index=mesh_state_index,
+                    )
                 )
-                for point_index, point in enumerate(sampled_points)
-            )
+                mesh_state_index += 1
             continue
 
         fallback_position = prepared_chunk.cl_data.points[0] if prepared_chunk.cl_data.points else PositionRecord3D(x=0.0, y=0.0, z=0.0)
@@ -335,8 +431,10 @@ def _build_contact_frames(
                 point_index=-1,
                 tool_position=fallback_position,
                 chunk_step_count=0,
+                mesh_state_index=mesh_state_index,
             )
         )
+        mesh_state_index += 1
 
     return frames
 
@@ -345,8 +443,13 @@ def _build_animation_frames(
     mesh_frames: list[PreparedSimulationFrame],
     operation: OperationRecord3D,
     frame_step_distance: float,
+    rapid_frame_step_scale: float = 1.0,
 ) -> list[PreparedSimulationFrame]:
-    sampled_points = sample_operation_points_with_progress(operation, frame_step_distance)
+    sampled_points = sample_operation_points_with_progress(
+        operation,
+        frame_step_distance,
+        rapid_frame_step_scale=rapid_frame_step_scale,
+    )
     if not mesh_frames or not sampled_points:
         return mesh_frames
 
@@ -362,6 +465,7 @@ def _build_animation_frames(
         point_index=-1,
         tool_position=sampled_points[0][1],
         chunk_step_count=mesh_frames[0].chunk_step_count,
+        mesh_state_index=-1,
     )
     mesh_frame_index = 0
     animation_frames: list[PreparedSimulationFrame] = []
@@ -379,6 +483,7 @@ def _build_animation_frames(
             point_index=current_mesh_frame.point_index,
             tool_position=position,
             chunk_step_count=current_mesh_frame.chunk_step_count,
+            mesh_state_index=current_mesh_frame.mesh_state_index,
         )
         if (
             animation_frames
@@ -400,6 +505,7 @@ def _build_buffered_simulation(
     chunk_padding: tuple[float, float, float],
     chunk_step_distance: float,
     frame_step_distance: float,
+    rapid_frame_step_scale: float,
     rotate_tool_with_path: bool,
     include_corner_rotation_sweeps: bool,
     should_cancel: Callable[[], bool] | None,
@@ -461,8 +567,14 @@ def _build_buffered_simulation(
         chunks=chunks,
         prepared_chunks=prepared_chunks,
         operation=operation,
-        frames=_build_animation_frames(_build_contact_frames(prepared_chunks, frame_step_distance), operation, frame_step_distance),
+        frames=_build_animation_frames(
+            _build_contact_frames(prepared_chunks, frame_step_distance),
+            operation,
+            frame_step_distance,
+            rapid_frame_step_scale=rapid_frame_step_scale,
+        ),
         frame_step_distance=frame_step_distance,
+        rapid_frame_step_scale=rapid_frame_step_scale,
         rotate_tool_with_path=rotate_tool_with_path,
         include_corner_rotation_sweeps=include_corner_rotation_sweeps,
         stock_mesh_bytes=mesh_bytes,
@@ -472,28 +584,36 @@ def _build_buffered_simulation(
 def _resample_buffered_simulation(
     simulation: BufferedSimulationResult,
     frame_step_distance: float,
+    rapid_frame_step_scale: float | None = None,
 ) -> None:
     with simulation.active_mesh_cache_lock:
         simulation.active_mesh_cache.clear()
     with simulation.comparison_mesh_lock:
         simulation.comparison_meshes = None
+        simulation.comparison_mesh_generation += 1
 
+    next_rapid_frame_step_scale = simulation.rapid_frame_step_scale if rapid_frame_step_scale is None else rapid_frame_step_scale
     simulation.frames = _build_animation_frames(
         _build_contact_frames(simulation.prepared_chunks, frame_step_distance),
         simulation.operation,
         frame_step_distance,
+        rapid_frame_step_scale=next_rapid_frame_step_scale,
     )
     simulation.frame_step_distance = frame_step_distance
+    simulation.rapid_frame_step_scale = next_rapid_frame_step_scale
+    Thread(target=_run_comparison_mesh_build, args=(simulation,), daemon=True).start()
 
 
 def _active_mesh_bytes(
     simulation: BufferedSimulationResult,
     frame_index: int,
 ) -> bytes:
+    frame = _get_buffered_frame(simulation, frame_index)
+    cache_key = frame.mesh_state_index if frame.mesh_state_index is not None else frame_index
+
     with simulation.active_mesh_cache_lock:
-        mesh_bytes = simulation.active_mesh_cache.get(frame_index)
+        mesh_bytes = simulation.active_mesh_cache.get(cache_key)
         if mesh_bytes is None:
-            frame = _get_buffered_frame(simulation, frame_index)
             prepared_chunk = simulation.prepared_chunks[frame.chunk_index]
             active_mesh = (
                 prepared_chunk.focus_mesh
@@ -513,7 +633,7 @@ def _active_mesh_bytes(
                 context=f"extracting active mesh for chunk {frame.chunk_index} frame {frame.point_index}",
                 stock_like_original_ids=prepared_chunk.stock_like_original_ids,
             )
-            simulation.active_mesh_cache[frame_index] = mesh_bytes
+            simulation.active_mesh_cache[cache_key] = mesh_bytes
 
         return mesh_bytes
 
@@ -576,6 +696,7 @@ def _run_swept_simulation_task(
     chunk_padding_z: float,
     chunk_step_distance: float,
     frame_step_distance: float,
+    rapid_frame_step_scale: float,
     rotate_tool_with_path: bool,
     include_corner_rotation_sweeps: bool,
 ) -> None:
@@ -607,6 +728,7 @@ def _run_swept_simulation_task(
             chunk_padding=(chunk_padding_x, chunk_padding_y, chunk_padding_z),
             chunk_step_distance=chunk_step_distance,
             frame_step_distance=frame_step_distance,
+            rapid_frame_step_scale=rapid_frame_step_scale,
             rotate_tool_with_path=rotate_tool_with_path,
             include_corner_rotation_sweeps=include_corner_rotation_sweeps,
             should_cancel=should_cancel,
@@ -618,6 +740,7 @@ def _run_swept_simulation_task(
         simulation_id = str(uuid4())
         with SIMULATION_FRAME_BUFFER_LOCK:
             SIMULATION_FRAME_BUFFER[simulation_id] = simulation
+        Thread(target=_run_comparison_mesh_build, args=(simulation,), daemon=True).start()
 
         final_frame_index = len(simulation.frames) - 1
         final_frame = simulation.frames[final_frame_index]
@@ -668,6 +791,7 @@ async def simulate_swept(
     chunk_padding_z: float = Form(1.0),
     chunk_step_distance: float = Form(DEFAULT_CHUNK_STEP_DISTANCE),
     frame_step_distance: float = Form(SIM_STEPDISTANCE),
+    rapid_frame_step_scale: float = Form(DEFAULT_RAPID_FRAME_STEP_SCALE),
     rotate_tool_with_path: bool = Form(DEFAULT_ROTATE_TOOL_WITH_PATH),
     include_corner_rotation_sweeps: bool = Form(DEFAULT_INCLUDE_CORNER_ROTATION_SWEEPS),
 ):
@@ -700,6 +824,9 @@ async def simulate_swept(
     if not np.isfinite(frame_step_distance) or frame_step_distance <= 0:
         raise HTTPException(status_code=400, detail="frame_step_distance must be positive.")
 
+    if not np.isfinite(rapid_frame_step_scale) or rapid_frame_step_scale <= 0:
+        raise HTTPException(status_code=400, detail="rapid_frame_step_scale must be positive.")
+
     task_id = str(uuid4())
     with SIMULATION_TASKS_LOCK:
         SIMULATION_TASKS[task_id] = SimulationTask(message="Queued simulation...")
@@ -715,6 +842,7 @@ async def simulate_swept(
             chunk_padding_z,
             chunk_step_distance,
             frame_step_distance,
+            rapid_frame_step_scale,
             rotate_tool_with_path,
             include_corner_rotation_sweeps,
         ),
@@ -729,9 +857,18 @@ def resample_simulation(simulation_id: str, request: SweptSimulationResampleRequ
     if not np.isfinite(request.frame_step_distance) or request.frame_step_distance <= 0:
         raise HTTPException(status_code=400, detail="frame_step_distance must be positive.")
 
+    if request.rapid_frame_step_scale is not None and (
+        not np.isfinite(request.rapid_frame_step_scale) or request.rapid_frame_step_scale <= 0
+    ):
+        raise HTTPException(status_code=400, detail="rapid_frame_step_scale must be positive.")
+
     with SIMULATION_FRAME_BUFFER_LOCK:
         simulation = _get_buffered_simulation(simulation_id)
-        _resample_buffered_simulation(simulation, request.frame_step_distance)
+        _resample_buffered_simulation(
+            simulation,
+            request.frame_step_distance,
+            rapid_frame_step_scale=request.rapid_frame_step_scale,
+        )
         final_frame_index = len(simulation.frames) - 1
         final_frame = simulation.frames[final_frame_index]
         final_chunk = simulation.prepared_chunks[final_frame.chunk_index]
@@ -828,12 +965,14 @@ def simulate_swept_tool_mesh_rhino_json(simulation_id: str):
 
 @router.get("/simulate/{simulation_id}/comparison", response_model=SweptSimulationComparisonResponse)
 def simulate_swept_comparison(simulation_id: str):
+    started_at = time.perf_counter()
     with SIMULATION_FRAME_BUFFER_LOCK:
         simulation = _get_buffered_simulation(simulation_id)
         if not simulation.frames:
             raise HTTPException(status_code=404, detail="Simulation has no frames.")
         _comparison_meshes(simulation)
 
+    _comparison_debug("prepare-endpoint", started_at, simulation_id=simulation_id)
     return SweptSimulationComparisonResponse(
         cached_mesh_url=_comparison_cached_mesh_url(simulation_id),
         active_mesh_url=_comparison_active_mesh_url(simulation_id),
@@ -842,19 +981,23 @@ def simulate_swept_comparison(simulation_id: str):
 
 @router.get("/simulate/{simulation_id}/comparison/cached-mesh.glb")
 def simulate_swept_comparison_cached_mesh(simulation_id: str):
+    started_at = time.perf_counter()
     with SIMULATION_FRAME_BUFFER_LOCK:
         simulation = _get_buffered_simulation(simulation_id)
         cached_mesh, _active_mesh = _comparison_meshes(simulation)
 
+    _comparison_debug("cached-mesh-endpoint", started_at, simulation_id=simulation_id, bytes=len(cached_mesh))
     return Response(content=cached_mesh, media_type="model/gltf-binary")
 
 
 @router.get("/simulate/{simulation_id}/comparison/active-mesh.glb")
 def simulate_swept_comparison_active_mesh(simulation_id: str):
+    started_at = time.perf_counter()
     with SIMULATION_FRAME_BUFFER_LOCK:
         simulation = _get_buffered_simulation(simulation_id)
         _cached_mesh, active_mesh = _comparison_meshes(simulation)
 
+    _comparison_debug("active-mesh-endpoint", started_at, simulation_id=simulation_id, bytes=len(active_mesh))
     return Response(content=active_mesh, media_type="model/gltf-binary")
 
 

@@ -19,16 +19,16 @@ import { X } from "lucide-react";
 import { Slider } from "@/components/ui/slider";
 import { SidebarProvider, SidebarTrigger } from "t-components/sidebar";
 import { getOpenCamBootstrap, sendRhinoUiDebug } from "@/bootstrap";
-import type { DraftObject } from "@/lib/cam-schema";
+import type { DraftObject, Operation, OperationType } from "@/lib/cam-schema";
 import {
-  applySelectionToPocketOperationDraft,
+  applySelectionToOperationDraft,
   buildGenerateToolpathRequest,
-  createPocketOperationDraft,
-  parsePocketOperationDraft,
-  pocketOperationSchema,
+  createOperationDraft,
+  getGeometryArrayKey,
+  getOperationSchema,
+  parseOperationDraft,
 } from "@/lib/cam-schema";
 import { getBackendUrl } from "@/hooks/useBackendConnection";
-import type { Pocketing2DOp as Operation } from "@/generated_schemas/cam";
 import type { ClosedPolyline25D } from "@/generated_schemas/geometry_2_5d";
 import {
   sampleOperationRecords,
@@ -70,6 +70,7 @@ type SweptSimulationComparisonResponse = {
 
 type SweptSimulationResampleRequest = {
   frameStepDistance: number;
+  rapidFrameStepScale?: number;
 };
 
 type SweptSimulationStatusResponse = {
@@ -167,7 +168,7 @@ const SIMULATION_FRAME_STEP_DISTANCE_STEP = 0.5;
 const SIMULATION_FRAME_STEP_DISTANCE_DEFAULT = 5;
 const SIMULATION_ROTATE_TOOL_WITH_PATH = false;
 const SIMULATION_FRAME_BATCH_SIZE = 10;
-const SIMULATION_SAMPLE_SPACING = 2;
+const SIMULATION_RAPID_FRAME_STEP_SCALE = 2;
 const CHUNK_PADDING_X = 5;
 const CHUNK_PADDING_Y = 5;
 const CHUNK_PADDING_Z = 1;
@@ -418,15 +419,25 @@ function geometryToMeshFaceSelection(geometry: ClosedPolyline25D, index: number)
   };
 }
 
+function asList<T>(value: T | T[] | undefined): T[] {
+  if (Array.isArray(value)) {
+    return value;
+  }
+  return value ? [value] : [];
+}
+
 function operationToMeshFaceSelections(operation: Operation | null): MeshFaceSelection[] {
-  const cutAreas = operation?.driveGeometry?.cutAreas;
-  const geometries = Array.isArray(cutAreas) ? cutAreas : cutAreas ? [cutAreas] : [];
-  return geometries.map(geometryToMeshFaceSelection);
+  if (!operation) {
+    return [];
+  }
+  const geometryKey = getGeometryArrayKey(getOperationSchema(operation));
+  const driveGeometry = operation.driveGeometry as Record<string, ClosedPolyline25D | ClosedPolyline25D[] | undefined>;
+  return asList(geometryKey ? driveGeometry[geometryKey] : undefined).map(geometryToMeshFaceSelection);
 }
 
 function draftToMeshFaceSelections(draft: DraftObject | null): MeshFaceSelection[] {
-  const cutAreas = (draft?.driveGeometry as DraftObject | undefined)?.cutAreas;
-  const geometries = Array.isArray(cutAreas) ? cutAreas : cutAreas ? [cutAreas] : [];
+  const geometryKey = draft ? getGeometryArrayKey(getOperationSchema(draft)) : null;
+  const geometries = asList(geometryKey ? (draft?.driveGeometry as DraftObject | undefined)?.[geometryKey] : undefined);
 
   return geometries.flatMap((geometry, index) => {
     if (!geometry || typeof geometry !== "object" || Array.isArray(geometry)) {
@@ -811,8 +822,12 @@ function App() {
     [generatedOperationsById, visibleOperations],
   );
   const simulationSamples = useMemo(
-    () => sampleOperationRecords(generatedRecords, SIMULATION_SAMPLE_SPACING),
-    [generatedRecords],
+    () => sampleOperationRecords(
+      generatedRecords,
+      simulationFrameStepDistance,
+      SIMULATION_RAPID_FRAME_STEP_SCALE,
+    ),
+    [generatedRecords, simulationFrameStepDistance],
   );
   const simulationToolRotation = useMemo(() => {
     if (!simulationRotateToolWithPath || !simulationId || !isSimulationMode || simulationSamples.length === 0) {
@@ -1441,7 +1456,7 @@ function App() {
     setFaceSelectionMode(false);
 
     if (resumeOperationDialogAfterSelection && operationDraft) {
-      setOperationDraft(applySelectionToPocketOperationDraft(operationDraft, selection, meshMaxZ));
+      setOperationDraft(applySelectionToOperationDraft(operationDraft, selection, meshMaxZ));
       setIsOperationDialogOpen(true);
       setResumeOperationDialogAfterSelection(false);
     }
@@ -1489,17 +1504,17 @@ function App() {
     setIsOperationTypeDialogOpen(true);
   }
 
-  function handleAddPocketOperation() {
+  function handleAddTypedOperation(operationType: OperationType) {
     if (!meshUrl) {
       setRequestState("error");
-      setRequestMessage("Upload a STEP file before adding a pocket operation.");
+      setRequestMessage("Upload a STEP file before adding an operation.");
       return;
     }
 
     setIsOperationTypeDialogOpen(false);
     setOperationDialogMode("create");
     setResumeOperationDialogAfterSelection(false);
-    setOperationDraft(createPocketOperationDraft(operations.length + 1, null, meshMaxZ));
+    setOperationDraft(createOperationDraft(operationType, operations.length + 1, null, meshMaxZ));
     setIsOperationDialogOpen(true);
   }
 
@@ -1515,7 +1530,7 @@ function App() {
     setIsOperationTypeDialogOpen(false);
     setOperationDialogMode("edit");
     setResumeOperationDialogAfterSelection(false);
-    setOperationDraft(createPocketOperationDraft(operationIndex + 1, null, meshMaxZ, operation));
+    setOperationDraft(createOperationDraft((operation.type ?? "pocketing_2d") as OperationType, operationIndex + 1, null, meshMaxZ, operation));
     setIsOperationDialogOpen(true);
   }
 
@@ -1544,7 +1559,7 @@ function App() {
     }
 
     try {
-      const parsedOperation = parsePocketOperationDraft(operationDraft);
+      const parsedOperation = parseOperationDraft(operationDraft);
       let nextOperations: Operation[];
       let operationsToGenerate: Operation[];
 
@@ -1639,31 +1654,58 @@ function App() {
 
     resetComparisonPreview();
     const requestId = comparisonRequestRef.current;
+    const comparisonStartedAt = performance.now();
 
     try {
       setRequestState("submitting");
       setRequestMessage("Preparing 1 mm comparison meshes...");
+      const prepareStartedAt = performance.now();
       const response = await fetch(`${getBackendUrl()}/simulate/${simulationId}/comparison`);
+      const prepareElapsedMs = performance.now() - prepareStartedAt;
+      console.debug("[comparison] prepare", {
+        simulationId,
+        status: response.status,
+        elapsedMs: prepareElapsedMs,
+      });
       if (!response.ok) {
         const payload = (await response.json()) as { detail?: string };
         throw new Error(payload.detail ?? "Failed to prepare comparison meshes.");
       }
 
       const comparison = (await response.json()) as SweptSimulationComparisonResponse;
-      const cachedMeshUrl = await prefetchMeshObjectUrl(comparison.cachedMeshUrl, "no-store");
-      let activeMeshUrl: string;
+      const cachedMeshRequest = await prefetchMeshObjectUrlWithTiming(comparison.cachedMeshUrl, "no-store");
+      console.debug("[comparison] cached mesh fetch", {
+        simulationId,
+        elapsedMs: cachedMeshRequest.elapsedMs,
+        url: comparison.cachedMeshUrl,
+      });
+      const cachedMeshUrl = cachedMeshRequest.objectUrl;
+      let activeMeshRequest: { objectUrl: string; elapsedMs: number };
       try {
-        activeMeshUrl = await prefetchMeshObjectUrl(comparison.activeMeshUrl, "no-store");
+        activeMeshRequest = await prefetchMeshObjectUrlWithTiming(comparison.activeMeshUrl, "no-store");
+        console.debug("[comparison] active mesh fetch", {
+          simulationId,
+          elapsedMs: activeMeshRequest.elapsedMs,
+          url: comparison.activeMeshUrl,
+        });
       } catch (error) {
         URL.revokeObjectURL(cachedMeshUrl);
         throw error;
       }
+      const activeMeshUrl = activeMeshRequest.objectUrl;
       if (comparisonRequestRef.current !== requestId) {
         URL.revokeObjectURL(cachedMeshUrl);
         URL.revokeObjectURL(activeMeshUrl);
         return;
       }
 
+      console.debug("[comparison] ready", {
+        simulationId,
+        totalElapsedMs: performance.now() - comparisonStartedAt,
+        prepareElapsedMs,
+        cachedMeshFetchMs: cachedMeshRequest.elapsedMs,
+        activeMeshFetchMs: activeMeshRequest.elapsedMs,
+      });
       comparisonObjectUrlsRef.current = [cachedMeshUrl, activeMeshUrl];
       setComparisonCachedMeshUrl(cachedMeshUrl);
       setComparisonActiveMeshUrl(activeMeshUrl);
@@ -1677,6 +1719,11 @@ function App() {
       if (comparisonRequestRef.current !== requestId) {
         return;
       }
+      console.debug("[comparison] failed", {
+        simulationId,
+        elapsedMs: performance.now() - comparisonStartedAt,
+        error,
+      });
       setRequestState("error");
       setRequestMessage(error instanceof Error ? error.message : "Failed to prepare comparison meshes.");
     }
@@ -1769,6 +1816,7 @@ function App() {
         },
         body: JSON.stringify({
           frameStepDistance: nextStepDistance,
+          rapidFrameStepScale: SIMULATION_RAPID_FRAME_STEP_SCALE,
         } satisfies SweptSimulationResampleRequest),
       });
 
@@ -1995,6 +2043,7 @@ function App() {
       simulationRequest.append("chunk_padding_z", String(CHUNK_PADDING_Z));
       simulationRequest.append("chunk_step_distance", String(SIMULATION_FRAME_STEP_DISTANCE_MIN));
       simulationRequest.append("frame_step_distance", String(simulationFrameStepDistance));
+      simulationRequest.append("rapid_frame_step_scale", String(SIMULATION_RAPID_FRAME_STEP_SCALE));
       simulationRequest.append("rotate_tool_with_path", String(SIMULATION_ROTATE_TOOL_WITH_PATH));
       await appendFrontendCachedMesh(simulationRequest, meshUrl, meshName);
 
@@ -2242,9 +2291,11 @@ function App() {
                   <Button type="button" className="w-18" variant={showToolpaths ? "outline" : "secondary"} onClick={() => setShowToolpaths((current) => !current)} aria-pressed={showToolpaths}>
                     Toolpaths
                   </Button>
-                  <Button type="button" className="w-12" variant={showTool ? "outline" : "secondary"} onClick={() => setShowTool((current) => !current)} aria-pressed={showTool}>
-                    Tool
-                  </Button>
+                  {isSimulationMode ? (
+                    <Button type="button" className="w-12" variant={showTool ? "outline" : "secondary"} onClick={() => setShowTool((current) => !current)} aria-pressed={showTool}>
+                      Tool
+                    </Button>
+                  ) : null}
                 </div>
 
                 <SimulationDebugOverlay
@@ -2323,14 +2374,15 @@ function App() {
         <OperationTypeDialog
           open={isOperationTypeDialogOpen}
           onOpenChange={setIsOperationTypeDialogOpen}
-          onSelectPocketing={handleAddPocketOperation}
+          onSelectPocketing={() => handleAddTypedOperation("pocketing_2d")}
+          onSelectProfiling={() => handleAddTypedOperation("profiling_2d")}
         />
 
         <OperationDialog
           open={isOperationDialogOpen}
           draft={operationDraft}
           mode={operationDialogMode}
-          rootSchema={pocketOperationSchema}
+          rootSchema={getOperationSchema(operationDraft)}
           onDraftChange={setOperationDraft}
           onOpenChange={(open) => {
             setIsOperationDialogOpen(open);

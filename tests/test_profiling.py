@@ -1,5 +1,7 @@
 from fastapi.testclient import TestClient
 
+from opencam.schemas.tools import CylindricalToolInput
+from opencam.services.tool_mesh import build_tool
 from server.main import app
 
 
@@ -24,15 +26,16 @@ def profile_payload(*, side="outside", kind="polyline", stock_to_leave=0.0):
         "setup": {"stock": {"maxZ": 0.0}},
         "operation": {
             "type": "profiling_2d",
-            "tool": {
-                "id": "tool-2mm",
-                "name": "2mm flat end mill",
-                "type": "cylinder",
-                "toolNumber": 1,
-                "diameter": 2.0,
-                "cuttingHeight": 10.0,
-                "shoulderHeight": 12.0,
-            },
+            "tool": build_tool(
+                CylindricalToolInput(
+                    id="tool-2mm",
+                    name="2mm flat end mill",
+                    tool_number=1,
+                    diameter=2.0,
+                    cutting_height=10.0,
+                    shoulder_height=12.0,
+                )
+            ).model_dump(mode="json", by_alias=True),
             "clearance": {"clearanceHeightType": "absolute", "absoluteHeight": 5.0},
             "levels": {"driveGeometryPosition": "at_top", "depthOfCut": 2.0, "maxStepdown": 1.0},
             "advanced": {"chordalTolerance": 0.01},

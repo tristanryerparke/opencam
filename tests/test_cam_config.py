@@ -4,6 +4,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from opencam.schemas.cam import GenerateToolpathRequest
+from opencam.schemas.tools import BallToolInput, CylindricalToolInput
+from opencam.services.tool_mesh import build_tool
 from server.main import app
 
 
@@ -12,6 +14,16 @@ client = TestClient(app)
 
 @pytest.fixture
 def pocket_request_payload() -> dict:
+    tool = build_tool(
+        CylindricalToolInput(
+            id="tool-2mm",
+            name="2mm flat end mill",
+            tool_number=1,
+            diameter=2.0,
+            cutting_height=10.0,
+            shoulder_height=12.0,
+        )
+    ).model_dump(mode="json", by_alias=True)
     return {
         "setup": {
             "origin": {"x": 0, "y": 0, "z": 0},
@@ -22,15 +34,7 @@ def pocket_request_payload() -> dict:
             "id": "pocket-1",
             "type": "pocketing_2d",
             "displayName": "2D Pocket 1",
-            "tool": {
-                "id": "tool-2mm",
-                "name": "2mm flat end mill",
-                "type": "cylinder",
-                "toolNumber": 1,
-                "diameter": 2.0,
-                "cuttingHeight": 10.0,
-                "shoulderHeight": 12.0,
-            },
+            "tool": tool,
             "feedsAndSpeeds": {
                 "spindleRpm": 1000,
                 "plungeFeedrate": 50.0,
@@ -148,14 +152,20 @@ def test_absolute_stepover_is_converted_for_the_pocket_engine(pocket_request_pay
     assert client.post("/cam/toolpath", json=pocket_request_payload).status_code == 200
 
 
-def test_non_cylindrical_tools_are_not_implemented(pocket_request_payload: dict):
+def test_ball_tools_are_supported(pocket_request_payload: dict):
     payload = deepcopy(pocket_request_payload)
-    payload["operation"]["tool"] = {
-        **payload["operation"]["tool"],
-        "type": "ball",
-    }
+    payload["operation"]["tool"] = build_tool(
+        BallToolInput(
+            id="tool-2mm-ball",
+            name="2mm ball end mill",
+            tool_number=1,
+            diameter=2.0,
+            cutting_height=10.0,
+            shoulder_height=12.0,
+        )
+    ).model_dump(mode="json", by_alias=True)
 
     response = client.post("/cam/toolpath", json=payload)
 
-    assert response.status_code == 501
-    assert "not supported" in response.json()["detail"]
+    assert response.status_code == 200
+    assert response.json()["tool"]["type"] == "ball"

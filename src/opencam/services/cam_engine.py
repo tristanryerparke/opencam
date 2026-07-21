@@ -15,7 +15,7 @@ from opencam.schemas.geometry_2_5d import ClosedPolyline25D, Polyline25D
 from opencam.schemas.operations.base import BaseCAMOperation
 from opencam.schemas.operations.pocketing import Pocketing2dOp
 from opencam.schemas.operations.profiling import Profiling2dOp
-from opencam.schemas.tools import CylindricalTool
+from opencam.schemas.tools import BallTool, CylindricalTool
 from opencam.services.operations.base import BaseOperation
 from opencam.services.operations.pocketing.geometry import PocketGeometryMixin
 from opencam.services.operations.pocketing.paths import PocketPathMixin
@@ -30,7 +30,7 @@ class _PocketingContext(
     PocketTreeMixin,
     PocketPathMixin,
 ):
-    tool: CylindricalTool
+    tool: CylindricalTool | BallTool
     stepover: float
     stock_to_leave: float
     chord_tolerance: float
@@ -100,8 +100,8 @@ def _geometry_records(
     return records
 
 
-def _tool_and_feeds(operation: BaseCAMOperation) -> tuple[CylindricalTool, float, int]:
-    if not isinstance(operation.tool, CylindricalTool):
+def _tool_and_feeds(operation: BaseCAMOperation) -> tuple[CylindricalTool | BallTool, float, int]:
+    if not isinstance(operation.tool, (CylindricalTool, BallTool)):
         raise NotImplementedError(f"Tool type {operation.tool.type!r} is not supported for operation generation.")
     return (
         operation.tool,
@@ -112,7 +112,7 @@ def _tool_and_feeds(operation: BaseCAMOperation) -> tuple[CylindricalTool, float
 
 def _record_builder(
     *,
-    tool: CylindricalTool,
+    tool: CylindricalTool | BallTool,
     feedrate: float,
     rpm: int,
     clearance_plane_height: float,
@@ -129,7 +129,7 @@ def _pocket_records(
     geometry: ClosedPolyline25D,
     operation: Pocketing2dOp,
     *,
-    tool: CylindricalTool,
+    tool: CylindricalTool | BallTool,
     feedrate: float,
     rpm: int,
     clearance_plane_height: float,
@@ -176,7 +176,7 @@ def _profile_records(
     geometry: ClosedPolyline25D | Polyline25D,
     operation: Profiling2dOp,
     *,
-    tool: CylindricalTool,
+    tool: CylindricalTool | BallTool,
     feedrate: float,
     rpm: int,
     clearance_plane_height: float,
@@ -205,7 +205,7 @@ def _profile_records(
     return record_builder.build_cut_record_sequence(cut_records)
 
 
-def _profile_offset_distance(tool: CylindricalTool, operation: Profiling2dOp) -> float:
+def _profile_offset_distance(tool: CylindricalTool | BallTool, operation: Profiling2dOp) -> float:
     distance = tool.diameter / 2 + operation.cut_parameters.stock_to_leave
     return -distance if operation.cut_parameters.side == "inside" else distance
 

@@ -46,6 +46,7 @@ type ToolPositionResponse = {
 
 type SweptSimulationResponse = {
   activeMeshUrl: string;
+  activeMeshKey: number;
   cachedMeshUrl: string;
   simulationId: string;
   frameCount: number;
@@ -56,7 +57,6 @@ type SweptSimulationResponse = {
   chunkToolpathPoints?: ToolPositionResponse[];
   toolMeshUrl: string;
   toolPosition: ToolPositionResponse;
-  rotateToolWithPath: boolean;
 };
 
 type SweptSimulationStartResponse = {
@@ -84,18 +84,17 @@ type SweptSimulationStatusResponse = {
 
 type SweptSimulationFrameResponse = {
   activeMeshUrl: string;
+  activeMeshKey: number;
   cachedMeshUrl: string;
   chunkIndex: number;
   chunkStepIndex?: number | null;
   chunkStepCount?: number;
   chunkToolpathPoints?: ToolPositionResponse[];
   toolPosition: ToolPositionResponse;
-  rotateToolWithPath: boolean;
 };
 
 const CUT_PATH_COLOR = "#1d4ed8";
 const CLEARANCE_PATH_COLOR = "#dc2626";
-const POSITION_EPSILON = 1e-6;
 
 function createDisplayPolylines(records: ReadonlyArray<PositionRecord3D>): PolylineDefinition[] {
   const polylines: PolylineDefinition[] = [];
@@ -128,6 +127,20 @@ type SweptSimulationFramesResponse = {
   frames: SweptSimulationFrameResponse[];
 };
 
+type PendingSimulationPresentation = {
+  simulationId: string;
+  frameIndex: number;
+  frame: SweptSimulationFrameResponse;
+  activeMeshUrl: string;
+  cachedMeshUrl: string;
+  waitingForSecondaryUrl: string | null;
+  waitingForTertiaryUrl: string | null;
+  secondaryElapsedMs: number | null;
+  tertiaryElapsedMs: number | null;
+  shouldApply: () => boolean;
+  resolve: (applied: boolean) => void;
+};
+
 type MeshCacheState = "idle" | "saving" | "ready" | "error";
 
 type CachedMeshResponse = {
@@ -152,6 +165,8 @@ const SIDEBAR_SETTINGS_STORAGE_KEY = "opencam.sidebar-settings.v3";
 const LOCAL_MESH_STORAGE_KEY = "opencam.step.v1";
 const SIMULATION_DEBUG_UI_STORAGE_KEY = "opencam.simulation-debug-ui";
 const TOOL_RENDER_MODE_STORAGE_KEY = "opencam.tool-render-mode.v1";
+const PART_RENDER_MODE_STORAGE_KEY = "opencam.part-render-mode.v1";
+const STOCK_RENDER_MODE_STORAGE_KEY = "opencam.stock-render-mode.v1";
 const ORIGINAL_MESH_COLOR = 0x94a3b8;
 const ORIGINAL_MESH_EDGE_COLOR = 0x334155;
 const MILLED_STOCK_MESH_COLOR = 0xfb923c;
@@ -166,7 +181,6 @@ const SIMULATION_FRAME_STEP_DISTANCE_MIN = 0.5;
 const SIMULATION_FRAME_STEP_DISTANCE_MAX = 10;
 const SIMULATION_FRAME_STEP_DISTANCE_STEP = 0.5;
 const SIMULATION_FRAME_STEP_DISTANCE_DEFAULT = 5;
-const SIMULATION_ROTATE_TOOL_WITH_PATH = false;
 const SIMULATION_FRAME_BATCH_SIZE = 10;
 const SIMULATION_RAPID_FRAME_STEP_SCALE = 2;
 const CHUNK_PADDING_X = 5;
@@ -509,7 +523,6 @@ function App() {
   const [simulationCachedMeshUrl, setSimulationCachedMeshUrl] = useState<string | null>(null);
   const [simulationToolMeshUrl, setSimulationToolMeshUrl] = useState<string | null>(null);
   const [simulationToolPosition, setSimulationToolPosition] = useState<PolylinePoint | null>(null);
-  const [simulationRotateToolWithPath, setSimulationRotateToolWithPath] = useState(false);
   const [simulationId, setSimulationId] = useState<string | null>(null);
   const [simulationOperationId, setSimulationOperationId] = useState<string | null>(null);
   const [simulationTaskId, setSimulationTaskId] = useState<string | null>(null);
@@ -541,9 +554,14 @@ function App() {
   const queuedGenerationOperationsRef = useRef<Operation[]>([]);
   const currentGenerationLabelRef = useRef("2D Pocket");
   const simulationFrameCacheRef = useRef<Map<number, SweptSimulationFrameResponse>>(new Map());
-  const simulationChunkMeshCacheRef = useRef<Map<string, string>>(new Map());
-  const simulationChunkMeshRequestCacheRef = useRef<Map<string, Promise<{ objectUrl: string; elapsedMs: number }>>>(new Map());
   const simulationFrameRequestCacheRef = useRef<Map<string, Promise<void>>>(new Map());
+  const simulationActiveMeshUrlRef = useRef<string | null>(null);
+  const simulationCachedMeshUrlRef = useRef<string | null>(null);
+  const displayedSimulationActiveMeshKeyRef = useRef<number | null>(null);
+  const displayedSimulationActiveMeshUrlRef = useRef<string | null>(null);
+  const displayedSimulationChunkIndexRef = useRef<number | null>(null);
+  const displayedSimulationCachedMeshUrlRef = useRef<string | null>(null);
+  const pendingSimulationPresentationRef = useRef<PendingSimulationPresentation | null>(null);
   const simulationFramePrefetchTriggerRef = useRef<{
     simulationId: string | null;
     frameIndex: number | null;
@@ -587,12 +605,42 @@ function App() {
       return "wireframe";
     }
   });
-  useEffect(() => {
-    if (!simulationId) {
-      setIsSimulationMode(false);
+  const [partRenderMode, setPartRenderMode] = useState<ToolRenderMode>(() => {
+    if (typeof window === "undefined") {
+      return "shaded";
     }
-  }, [simulationId]);
 
+    try {
+      return window.localStorage.getItem(PART_RENDER_MODE_STORAGE_KEY) === "wireframe"
+        ? "wireframe"
+        : "shaded";
+    } catch {
+      return "shaded";
+    }
+  });
+  const [stockRenderMode, setStockRenderMode] = useState<ToolRenderMode>(() => {
+    if (typeof window === "undefined") {
+      return "shaded";
+    }
+
+    try {
+      return window.localStorage.getItem(STOCK_RENDER_MODE_STORAGE_KEY) === "wireframe"
+        ? "wireframe"
+        : "shaded";
+    } catch {
+      return "shaded";
+    }
+  });
+
+  const updateSimulationActiveMeshUrl = useCallback((url: string | null) => {
+    simulationActiveMeshUrlRef.current = url;
+    setSimulationActiveMeshUrl(url);
+  }, []);
+
+  const updateSimulationCachedMeshUrl = useCallback((url: string | null) => {
+    simulationCachedMeshUrlRef.current = url;
+    setSimulationCachedMeshUrl(url);
+  }, []);
   useEffect(() => {
     sendRhinoUiDebug("info", "App mounted", {
       bootstrap: getOpenCamBootstrap(),
@@ -626,6 +674,30 @@ function App() {
       // Ignore unavailable localStorage; the tabs switch still works for this session.
     }
   }, [toolRenderMode]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    try {
+      window.localStorage.setItem(PART_RENDER_MODE_STORAGE_KEY, partRenderMode);
+    } catch {
+      // Ignore unavailable localStorage; the tabs switch still works for this session.
+    }
+  }, [partRenderMode]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    try {
+      window.localStorage.setItem(STOCK_RENDER_MODE_STORAGE_KEY, stockRenderMode);
+    } catch {
+      // Ignore unavailable localStorage; the tabs switch still works for this session.
+    }
+  }, [stockRenderMode]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -748,6 +820,7 @@ function App() {
 
   function resetSimulationPlaybackState() {
     resetComparisonPreview();
+    resolvePendingSimulationPresentation(false);
     loadedSimulationFrameRef.current = {
       simulationId: null,
       frameIndex: null,
@@ -760,29 +833,25 @@ function App() {
       }
     });
     simulationFrameCacheRef.current.clear();
-    simulationChunkMeshCacheRef.current.forEach((objectUrl) => {
-      if (objectUrl.startsWith("blob:")) {
-        URL.revokeObjectURL(objectUrl);
-      }
-    });
-    simulationChunkMeshCacheRef.current.clear();
-    if (simulationActiveMeshUrl?.startsWith("blob:")) {
-      URL.revokeObjectURL(simulationActiveMeshUrl);
+    if (simulationActiveMeshUrlRef.current?.startsWith("blob:")) {
+      URL.revokeObjectURL(simulationActiveMeshUrlRef.current);
     }
-    if (simulationCachedMeshUrl?.startsWith("blob:")) {
-      URL.revokeObjectURL(simulationCachedMeshUrl);
+    if (simulationCachedMeshUrlRef.current?.startsWith("blob:")) {
+      URL.revokeObjectURL(simulationCachedMeshUrlRef.current);
     }
-    simulationChunkMeshRequestCacheRef.current.clear();
     simulationFrameRequestCacheRef.current.clear();
     simulationFramePrefetchTriggerRef.current = {
       simulationId: null,
       frameIndex: null,
     };
-    setSimulationActiveMeshUrl(null);
-    setSimulationCachedMeshUrl(null);
+    displayedSimulationActiveMeshKeyRef.current = null;
+    displayedSimulationActiveMeshUrlRef.current = null;
+    displayedSimulationChunkIndexRef.current = null;
+    displayedSimulationCachedMeshUrlRef.current = null;
+    updateSimulationActiveMeshUrl(null);
+    updateSimulationCachedMeshUrl(null);
     setSimulationToolMeshUrl(null);
     setSimulationToolPosition(null);
-    setSimulationRotateToolWithPath(false);
     setSimulationId(null);
     setSimulationOperationId(null);
     setSimulationTaskId(null);
@@ -829,38 +898,13 @@ function App() {
     ),
     [generatedRecords, simulationFrameStepDistance],
   );
-  const simulationToolRotation = useMemo(() => {
-    if (!simulationRotateToolWithPath || !simulationId || !isSimulationMode || simulationSamples.length === 0) {
-      return null;
-    }
-
-    const sampleIndex = Math.min(Math.max(simulationFrameIndex, 0), simulationSamples.length - 1);
-    const sample = simulationSamples[sampleIndex] ?? null;
-    const previousSample = sampleIndex > 0 ? simulationSamples[sampleIndex - 1] : null;
-    const nextSample = sampleIndex + 1 < simulationSamples.length ? simulationSamples[sampleIndex + 1] : null;
-
-    if (!sample) {
-      return null;
-    }
-
-    for (const [dx, dy] of [
-      previousSample ? [sample.x - previousSample.x, sample.y - previousSample.y] : null,
-      nextSample ? [nextSample.x - sample.x, nextSample.y - sample.y] : null,
-    ].filter((value): value is [number, number] => value !== null)) {
-      if (Math.hypot(dx, dy) <= POSITION_EPSILON) {
-        continue;
-      }
-      return Math.atan2(dy, dx);
-    }
-
-    return null;
-  }, [isSimulationMode, simulationFrameIndex, simulationId, simulationRotateToolWithPath, simulationSamples]);
+  const hasCompletedSimulationStock = Boolean(simulationCachedMeshUrl && simulationActiveMeshUrl);
   const secondaryMeshUrl = isSimulationMode
     ? simulationCachedMeshUrl
-    : isComparisonMode ? comparisonCachedMeshUrl : null;
+    : isComparisonMode ? comparisonCachedMeshUrl : hasCompletedSimulationStock ? simulationCachedMeshUrl : null;
   const tertiaryMeshUrl = isSimulationMode
     ? simulationActiveMeshUrl
-    : isComparisonMode ? comparisonActiveMeshUrl : null;
+    : isComparisonMode ? comparisonActiveMeshUrl : hasCompletedSimulationStock ? simulationActiveMeshUrl : null;
   const simulationDebugDisplayActive = simulationDebugUiEnabled && isSimulationMode && Boolean(simulationCachedMeshUrl);
   const stockMeshColor = simulationDebugDisplayActive ? DEBUG_REST_MESH_COLOR : MILLED_STOCK_MESH_COLOR;
   const activeMeshColor = simulationDebugDisplayActive ? MILLED_STOCK_MESH_COLOR : ACTIVE_DEBUG_MESH_COLOR;
@@ -915,51 +959,107 @@ function App() {
     return visibleOperations.flatMap(operationToMeshFaceSelections);
   }, [faceSelectionMode, isOperationDialogOpen, operationDraft, visibleOperations]);
 
-  const fetchChunkMesh = useCallback(async (nextSimulationId: string, chunkIndex: number) => {
-    const cacheKey = String(chunkIndex);
-    const cachedMesh = simulationChunkMeshCacheRef.current.get(cacheKey);
-    if (cachedMesh) {
-      return { objectUrl: cachedMesh, elapsedMs: 0 };
+  const resolvePendingSimulationPresentation = useCallback((applied: boolean) => {
+    const pending = pendingSimulationPresentationRef.current;
+    if (!pending) {
+      return;
     }
 
-    const inFlightRequest = simulationChunkMeshRequestCacheRef.current.get(cacheKey);
-    if (inFlightRequest) {
-      return inFlightRequest;
+    pendingSimulationPresentationRef.current = null;
+    if (!applied) {
+      if (simulationActiveMeshUrlRef.current !== displayedSimulationActiveMeshUrlRef.current) {
+        updateSimulationActiveMeshUrl(displayedSimulationActiveMeshUrlRef.current);
+      }
+      if (simulationCachedMeshUrlRef.current !== displayedSimulationCachedMeshUrlRef.current) {
+        updateSimulationCachedMeshUrl(displayedSimulationCachedMeshUrlRef.current);
+      }
+    }
+    pending.resolve(applied);
+  }, [updateSimulationActiveMeshUrl, updateSimulationCachedMeshUrl]);
+
+  const commitSimulationFramePresentation = useCallback(
+    (
+      nextSimulationId: string,
+      frameIndex: number,
+      frame: SweptSimulationFrameResponse,
+      activeMeshUrl: string,
+      cachedMeshUrl: string,
+      tertiaryElapsedMs: number,
+      secondaryElapsedMs: number,
+    ) => {
+      loadedSimulationFrameRef.current = {
+        simulationId: nextSimulationId,
+        frameIndex,
+      };
+      displayedSimulationActiveMeshKeyRef.current = frame.activeMeshKey;
+      displayedSimulationActiveMeshUrlRef.current = activeMeshUrl;
+      displayedSimulationChunkIndexRef.current = frame.chunkIndex;
+      displayedSimulationCachedMeshUrlRef.current = cachedMeshUrl;
+      setDisplayedSimulationFrameIndex(frameIndex);
+      setSimulationChunkIndex(frame.chunkIndex);
+      setSimulationChunkStepIndex(frame.chunkStepIndex ?? null);
+      setSimulationChunkStepCount(frame.chunkStepCount ?? 0);
+      setSimulationFocusMeshRequestMs(tertiaryElapsedMs);
+      setSimulationChunkFetchMs(secondaryElapsedMs);
+      setSimulationChunkToolpathPoints((frame.chunkToolpathPoints ?? []).map(toolPositionToPoint));
+      setSimulationToolPosition(toolPositionToPoint(frame.toolPosition));
+    },
+    [],
+  );
+
+  const maybeCommitPendingSimulationPresentation = useCallback(() => {
+    const pending = pendingSimulationPresentationRef.current;
+    if (!pending) {
+      return;
     }
 
-    const request = prefetchMeshObjectUrlWithTiming(
-      `/simulate/${nextSimulationId}/chunks/${chunkIndex}/cached-mesh.glb`,
-      ENABLE_FRONTEND_FRAME_CACHE ? "default" : "no-store",
-    )
-      .then((result) => {
-        simulationChunkMeshCacheRef.current.set(cacheKey, result.objectUrl);
-        return result;
-      })
-      .finally(() => {
-        simulationChunkMeshRequestCacheRef.current.delete(cacheKey);
-      });
+    if (pending.waitingForSecondaryUrl || pending.waitingForTertiaryUrl) {
+      return;
+    }
 
-    simulationChunkMeshRequestCacheRef.current.set(cacheKey, request);
-    return request;
-  }, []);
+    if (!pending.shouldApply()) {
+      resolvePendingSimulationPresentation(false);
+      return;
+    }
 
-  const prefetchAdjacentChunkMeshes = useCallback(
-    (nextSimulationId: string, chunkIndex: number, chunkCount: number) => {
-      if (!ENABLE_FRONTEND_FRAME_CACHE) {
+    commitSimulationFramePresentation(
+      pending.simulationId,
+      pending.frameIndex,
+      pending.frame,
+      pending.activeMeshUrl,
+      pending.cachedMeshUrl,
+      pending.tertiaryElapsedMs ?? 0,
+      pending.secondaryElapsedMs ?? 0,
+    );
+    resolvePendingSimulationPresentation(true);
+  }, [commitSimulationFramePresentation, resolvePendingSimulationPresentation]);
+
+  const handleSecondaryMeshDisplayed = useCallback(
+    (meshUrl: string, elapsedMs: number) => {
+      const pending = pendingSimulationPresentationRef.current;
+      if (!pending || pending.waitingForSecondaryUrl !== meshUrl) {
         return;
       }
 
-      for (const neighborIndex of [chunkIndex - 1, chunkIndex + 1]) {
-        if (neighborIndex < 0 || neighborIndex >= chunkCount) {
-          continue;
-        }
-
-        void fetchChunkMesh(nextSimulationId, neighborIndex).catch((error: unknown) => {
-          console.error("Failed to prefetch adjacent chunk mesh", error);
-        });
-      }
+      pending.waitingForSecondaryUrl = null;
+      pending.secondaryElapsedMs = elapsedMs;
+      maybeCommitPendingSimulationPresentation();
     },
-    [fetchChunkMesh],
+    [maybeCommitPendingSimulationPresentation],
+  );
+
+  const handleTertiaryMeshDisplayed = useCallback(
+    (meshUrl: string, elapsedMs: number) => {
+      const pending = pendingSimulationPresentationRef.current;
+      if (!pending || pending.waitingForTertiaryUrl !== meshUrl) {
+        return;
+      }
+
+      pending.waitingForTertiaryUrl = null;
+      pending.tertiaryElapsedMs = elapsedMs;
+      maybeCommitPendingSimulationPresentation();
+    },
+    [maybeCommitPendingSimulationPresentation],
   );
 
   const applySimulationFrame = useCallback(
@@ -967,51 +1067,70 @@ function App() {
       nextSimulationId: string,
       frameIndex: number,
       frame: SweptSimulationFrameResponse,
-      chunkCount: number,
       shouldApply: () => boolean = () => true,
     ) => {
-      const focusMeshRequest = ENABLE_FRONTEND_FRAME_CACHE
-        ? { objectUrl: frame.activeMeshUrl, elapsedMs: 0 }
-        : await prefetchMeshObjectUrlWithTiming(frame.activeMeshUrl, "no-store");
-      const activeMeshUrl = focusMeshRequest.objectUrl;
-      const chunkMeshRequest = await fetchChunkMesh(nextSimulationId, frame.chunkIndex);
-      const cachedMeshUrl = chunkMeshRequest.objectUrl;
+      resolvePendingSimulationPresentation(false);
+
+      const activeMeshUrl = frame.activeMeshKey === displayedSimulationActiveMeshKeyRef.current
+        && displayedSimulationActiveMeshUrlRef.current
+        ? displayedSimulationActiveMeshUrlRef.current
+        : resolveBackendAssetUrl(frame.activeMeshUrl);
+      const cachedMeshUrl = frame.chunkIndex === displayedSimulationChunkIndexRef.current
+        && displayedSimulationCachedMeshUrlRef.current
+        ? displayedSimulationCachedMeshUrlRef.current
+        : resolveBackendAssetUrl(frame.cachedMeshUrl);
+      const needsActiveMeshDisplay = displayedSimulationActiveMeshKeyRef.current !== frame.activeMeshKey
+        || displayedSimulationActiveMeshUrlRef.current == null;
+      const needsCachedMeshDisplay = displayedSimulationChunkIndexRef.current !== frame.chunkIndex
+        || displayedSimulationCachedMeshUrlRef.current == null;
+
       if (!shouldApply()) {
-        if (!ENABLE_FRONTEND_FRAME_CACHE && activeMeshUrl.startsWith("blob:")) {
-          URL.revokeObjectURL(activeMeshUrl);
-        }
         return false;
       }
 
-      if (!ENABLE_FRONTEND_FRAME_CACHE) {
-        if (simulationActiveMeshUrl?.startsWith("blob:") && simulationActiveMeshUrl !== activeMeshUrl) {
-          URL.revokeObjectURL(simulationActiveMeshUrl);
-        }
+      if (simulationActiveMeshUrlRef.current !== activeMeshUrl) {
+        updateSimulationActiveMeshUrl(activeMeshUrl);
+      }
+      if (simulationCachedMeshUrlRef.current !== cachedMeshUrl) {
+        updateSimulationCachedMeshUrl(cachedMeshUrl);
       }
 
-      loadedSimulationFrameRef.current = {
-        simulationId: nextSimulationId,
-        frameIndex,
-      };
-      setDisplayedSimulationFrameIndex(frameIndex);
-      setSimulationActiveMeshUrl(activeMeshUrl);
-      setSimulationCachedMeshUrl(cachedMeshUrl);
-      setSimulationChunkIndex(frame.chunkIndex);
-      setSimulationChunkStepIndex(frame.chunkStepIndex ?? null);
-      setSimulationChunkStepCount(frame.chunkStepCount ?? 0);
-      setSimulationFocusMeshRequestMs(focusMeshRequest.elapsedMs);
-      setSimulationChunkFetchMs(chunkMeshRequest.elapsedMs);
-      setSimulationChunkToolpathPoints((frame.chunkToolpathPoints ?? []).map(toolPositionToPoint));
-      setSimulationToolPosition(toolPositionToPoint(frame.toolPosition));
-      setSimulationRotateToolWithPath(frame.rotateToolWithPath);
-      prefetchAdjacentChunkMeshes(nextSimulationId, frame.chunkIndex, chunkCount);
-      return true;
+      if (!needsActiveMeshDisplay && !needsCachedMeshDisplay) {
+        commitSimulationFramePresentation(
+          nextSimulationId,
+          frameIndex,
+          frame,
+          activeMeshUrl,
+          cachedMeshUrl,
+          0,
+          0,
+        );
+        return true;
+      }
+
+      return await new Promise<boolean>((resolve) => {
+        pendingSimulationPresentationRef.current = {
+          simulationId: nextSimulationId,
+          frameIndex,
+          frame,
+          activeMeshUrl,
+          cachedMeshUrl,
+          waitingForSecondaryUrl: needsCachedMeshDisplay ? cachedMeshUrl : null,
+          waitingForTertiaryUrl: needsActiveMeshDisplay ? activeMeshUrl : null,
+          secondaryElapsedMs: needsCachedMeshDisplay ? null : 0,
+          tertiaryElapsedMs: needsActiveMeshDisplay ? null : 0,
+          shouldApply,
+          resolve,
+        };
+        maybeCommitPendingSimulationPresentation();
+      });
     },
     [
-      fetchChunkMesh,
-      prefetchAdjacentChunkMeshes,
-      simulationActiveMeshUrl,
-      simulationCachedMeshUrl,
+      commitSimulationFramePresentation,
+      maybeCommitPendingSimulationPresentation,
+      resolvePendingSimulationPresentation,
+      updateSimulationActiveMeshUrl,
+      updateSimulationCachedMeshUrl,
     ],
   );
 
@@ -1073,44 +1192,9 @@ function App() {
           return;
         }
 
-        const prefetchedFrames = await Promise.all(
-          payload.frames.map(async (frame, index) => {
-            const frameIndex = payload.startIndex + index;
-            const cachedFrame = simulationFrameCacheRef.current.get(frameIndex);
-            if (cachedFrame) {
-              return {
-                frameIndex,
-                frame: cachedFrame,
-                createdMeshUrl: null,
-              };
-            }
-
-            const activeMeshUrl = await prefetchMeshObjectUrl(frame.activeMeshUrl);
-            return {
-              frameIndex,
-              frame: {
-                ...frame,
-                activeMeshUrl,
-              },
-              createdMeshUrl: activeMeshUrl,
-            };
-          }),
-        );
-
-        if (simulationFrameRequestTokenRef.current !== requestToken) {
-          prefetchedFrames.forEach(({ createdMeshUrl }) => {
-            if (createdMeshUrl) {
-              URL.revokeObjectURL(createdMeshUrl);
-            }
-          });
-          return;
-        }
-
-        prefetchedFrames.forEach(({ frameIndex, frame, createdMeshUrl }) => {
+        payload.frames.forEach((frame, index) => {
+          const frameIndex = payload.startIndex + index;
           if (simulationFrameCacheRef.current.has(frameIndex)) {
-            if (createdMeshUrl) {
-              URL.revokeObjectURL(createdMeshUrl);
-            }
             return;
           }
 
@@ -1247,65 +1331,59 @@ function App() {
         nextSimulationId,
         frameIndex,
         frame,
-        simulationChunkCount,
         () => simulationFrameDisplayRequestRef.current === requestId,
       );
       if (applied) {
         prefetchSimulationFrames(nextSimulationId, frameIndex, frameCount);
       }
     },
-    [applySimulationFrame, fetchSimulationFrame, prefetchSimulationFrames, simulationChunkCount],
+    [applySimulationFrame, fetchSimulationFrame, prefetchSimulationFrames],
   );
 
   const applyCompletedSimulation = useCallback(
     async (simulation: SweptSimulationResponse, nextIsSimulationMode = false) => {
       const finalFrameIndex = Math.max(simulation.frameCount - 1, 0);
-      const focusMeshRequest = await prefetchMeshObjectUrlWithTiming(
-        simulation.activeMeshUrl,
-        ENABLE_FRONTEND_FRAME_CACHE ? "default" : "no-store",
-      );
       const finalFrame: SweptSimulationFrameResponse = {
-        activeMeshUrl: focusMeshRequest.objectUrl,
+        activeMeshUrl: simulation.activeMeshUrl,
+        activeMeshKey: simulation.activeMeshKey,
         cachedMeshUrl: simulation.cachedMeshUrl,
         chunkIndex: simulation.chunkIndex,
         chunkStepIndex: simulation.chunkStepIndex,
         chunkStepCount: simulation.chunkStepCount,
         chunkToolpathPoints: simulation.chunkToolpathPoints,
         toolPosition: simulation.toolPosition,
-        rotateToolWithPath: simulation.rotateToolWithPath,
       };
-      const chunkMeshRequest = await prefetchMeshObjectUrlWithTiming(
-        simulation.cachedMeshUrl,
-        ENABLE_FRONTEND_FRAME_CACHE ? "default" : "no-store",
-      );
-      const cachedChunkMeshUrl = chunkMeshRequest.objectUrl;
 
       if (ENABLE_FRONTEND_FRAME_CACHE) {
         simulationFrameCacheRef.current.set(finalFrameIndex, finalFrame);
       }
-      simulationChunkMeshCacheRef.current.set(String(simulation.chunkIndex), cachedChunkMeshUrl);
 
+      // Stage sim identity synchronously, before the mesh-display await, so
+      // callers that swap simulations (e.g. resample) don't hit a null/zero
+      // gap that unmounts the playback bar. resetSimulationPlaybackState()
+      // runs first in that path; these sets collapse with it into one batched
+      // render. The await below is purely for the 3D mesh swap.
+      setSimulationId(simulation.simulationId);
+      setSimulationFrameCount(simulation.frameCount);
+      setSimulationChunkCount(simulation.chunkCount);
+      setSimulationFrameIndex(finalFrameIndex);
+      setIsSimulationMode(nextIsSimulationMode);
       loadedSimulationFrameRef.current = {
         simulationId: simulation.simulationId,
         frameIndex: finalFrameIndex,
       };
-      setDisplayedSimulationFrameIndex(finalFrameIndex);
+
       setSimulationToolMeshUrl(resolveBackendAssetUrl(simulation.toolMeshUrl));
-      setSimulationToolPosition(toolPositionToPoint(simulation.toolPosition));
-      setSimulationId(simulation.simulationId);
-      setSimulationRotateToolWithPath(simulation.rotateToolWithPath);
-      setSimulationFrameCount(simulation.frameCount);
-      setSimulationChunkCount(simulation.chunkCount);
-      setSimulationChunkIndex(simulation.chunkIndex);
-      setSimulationChunkStepIndex(simulation.chunkStepIndex ?? null);
-      setSimulationChunkStepCount(simulation.chunkStepCount ?? 0);
-      setSimulationFocusMeshRequestMs(focusMeshRequest.elapsedMs);
-      setSimulationChunkFetchMs(chunkMeshRequest.elapsedMs);
-      setSimulationChunkToolpathPoints((simulation.chunkToolpathPoints ?? []).map(toolPositionToPoint));
-      setSimulationFrameIndex(finalFrameIndex);
+      const applied = await applySimulationFrame(
+        simulation.simulationId,
+        finalFrameIndex,
+        finalFrame,
+      );
+      if (!applied) {
+        return;
+      }
+
       setIsSimulationPlaying(false);
-      setSimulationActiveMeshUrl(finalFrame.activeMeshUrl);
-      setSimulationCachedMeshUrl(cachedChunkMeshUrl);
       if (ENABLE_FRONTEND_FRAME_CACHE && simulation.frameCount > 0) {
         const initialPrefetchCount = Math.min(SIMULATION_FRAME_BATCH_SIZE, simulation.frameCount);
         updateSimulationPrefetchTrigger(simulation.simulationId, initialPrefetchCount - 1);
@@ -1319,18 +1397,8 @@ function App() {
           updateSimulationPrefetchTrigger(simulation.simulationId, null);
         });
       }
-      setIsSimulationMode(nextIsSimulationMode);
-      prefetchAdjacentChunkMeshes(
-        simulation.simulationId,
-        simulation.chunkIndex,
-        simulation.chunkCount,
-      );
     },
-    [
-      fetchSimulationFrameBatch,
-      prefetchAdjacentChunkMeshes,
-      updateSimulationPrefetchTrigger,
-    ],
+    [applySimulationFrame, fetchSimulationFrameBatch, updateSimulationPrefetchTrigger],
   );
 
   useEffect(() => {
@@ -1400,7 +1468,6 @@ function App() {
             simulationId,
             nextFrameIndex,
             frame,
-            simulationChunkCount,
             () => !cancelled,
           );
           if (!applied || cancelled) {
@@ -1434,7 +1501,6 @@ function App() {
     fetchSimulationFrame,
     isSimulationPlaying,
     prefetchSimulationFrames,
-    simulationChunkCount,
     simulationFrameCount,
     simulationFrameIndex,
     simulationId,
@@ -1442,8 +1508,6 @@ function App() {
 
   function resetGeneratedPreview() {
     setGeneratedOperation(null);
-    setSimulationActiveMeshUrl(null);
-    setSimulationCachedMeshUrl(null);
     resetSimulationPlaybackState();
     setRequestState("idle");
     setRequestMessage("");
@@ -1934,8 +1998,6 @@ function App() {
           setGeneratingOperationId(null);
           setSimulationTaskId(null);
           setSimulationProgressPercent(0);
-          setSimulationActiveMeshUrl(null);
-          setSimulationCachedMeshUrl(null);
           resetSimulationPlaybackState();
           setIsSimulationMode(false);
           setRequestState("idle");
@@ -1959,8 +2021,6 @@ function App() {
         setGeneratingOperationId(null);
         setSimulationTaskId(null);
         setSimulationProgressPercent(0);
-        setSimulationActiveMeshUrl(null);
-        setSimulationCachedMeshUrl(null);
         resetSimulationPlaybackState();
         setIsSimulationMode(false);
         setRequestState("error");
@@ -2008,8 +2068,6 @@ function App() {
           return next;
         });
       }
-      setSimulationActiveMeshUrl(null);
-      setSimulationCachedMeshUrl(null);
       resetSimulationPlaybackState();
       setSimulationOperationId(operationToGenerate.id ?? null);
       setIsSimulationMode(false);
@@ -2044,7 +2102,6 @@ function App() {
       simulationRequest.append("chunk_step_distance", String(SIMULATION_FRAME_STEP_DISTANCE_MIN));
       simulationRequest.append("frame_step_distance", String(simulationFrameStepDistance));
       simulationRequest.append("rapid_frame_step_scale", String(SIMULATION_RAPID_FRAME_STEP_SCALE));
-      simulationRequest.append("rotate_tool_with_path", String(SIMULATION_ROTATE_TOOL_WITH_PATH));
       await appendFrontendCachedMesh(simulationRequest, meshUrl, meshName);
 
       setGeneratedOperation(operation);
@@ -2077,8 +2134,6 @@ function App() {
       queuedGenerationOperationsRef.current = [];
       setGeneratingOperationId(null);
       setGeneratedOperation(null);
-      setSimulationActiveMeshUrl(null);
-      setSimulationCachedMeshUrl(null);
       resetSimulationPlaybackState();
       setIsSimulationMode(false);
       setRequestState("error");
@@ -2127,8 +2182,6 @@ function App() {
     setSelectedTreeNodeId("setup-1");
     setGeneratedOperation(null);
     setGeneratedOperationsById({});
-    setSimulationActiveMeshUrl(null);
-    setSimulationCachedMeshUrl(null);
     resetSimulationPlaybackState();
     setRequestState("idle");
     setRequestMessage("");
@@ -2217,6 +2270,10 @@ function App() {
             onSimulationDebugUiEnabledChange={setSimulationDebugUiEnabled}
             toolRenderMode={toolRenderMode}
             onToolRenderModeChange={setToolRenderMode}
+            partRenderMode={partRenderMode}
+            onPartRenderModeChange={setPartRenderMode}
+            stockRenderMode={stockRenderMode}
+            onStockRenderModeChange={setStockRenderMode}
           />
         </header>
 
@@ -2258,26 +2315,27 @@ function App() {
                   tertiaryMeshColor={stockMeshColor}
                   tertiaryMeshUseVertexColors
                   tertiaryMeshEdgeColor={null}
-                  meshOpacity={showPartMesh && showStock && (isSimulationMode || isComparisonMode) ? 0.3 : 1}
+                  meshOpacity={showPartMesh && showStock && (isSimulationMode || isComparisonMode || hasCompletedSimulationStock) ? 0.3 : 1}
                   showMesh={showPartMesh}
-                  showSecondaryMesh={showStock && (isSimulationMode || isComparisonMode)}
-                  showTertiaryMesh={showStock && (isSimulationMode || isComparisonMode)}
-                  showSimulationStock={showStock && !isSimulationMode && !isComparisonMode}
+                  showSecondaryMesh={showStock && (isSimulationMode || isComparisonMode || hasCompletedSimulationStock)}
+                  showTertiaryMesh={showStock && (isSimulationMode || isComparisonMode || hasCompletedSimulationStock)}
+                  showSimulationStock={showStock && !isSimulationMode && !isComparisonMode && !hasCompletedSimulationStock}
                   showTool={showTool && isSimulationMode}
                   polylines={showToolpaths ? viewportPolylines : []}
                   faceSelectionMode={faceSelectionMode}
                   selectedMeshFace={null}
                   selectedMeshFaces={highlightedMeshFaces}
-                  simulationTool={generatedOperation?.tool ?? null}
                   simulationSamples={simulationSamples}
-                  simulationStep={isSimulationMode ? simulationFrameIndex : 0}
+                  simulationStep={isSimulationMode ? (displayedSimulationFrameIndex ?? simulationFrameIndex) : 0}
                   simulationToolMeshUrl={simulationToolMeshUrl}
                   simulationToolPosition={simulationToolPosition}
-                  simulationToolRotation={simulationToolRotation}
-                  simulationToolRotationEnabled={simulationRotateToolWithPath}
                   toolRenderMode={toolRenderMode}
+                  partRenderMode={partRenderMode}
+                  stockRenderMode={stockRenderMode}
                   showOriginalMesh={!isSimulationMode}
                   onMeshFaceSelect={handleMeshFaceSelect}
+                  onSecondaryMeshDisplayed={handleSecondaryMeshDisplayed}
+                  onTertiaryMeshDisplayed={handleTertiaryMeshDisplayed}
                   className="h-full min-h-0 flex-1 rounded-none border-0 shadow-none"
                 />
 

@@ -47,6 +47,10 @@ type SettingsDialogProps = {
   onSimulationDebugUiEnabledChange: (enabled: boolean) => void;
   toolRenderMode: ToolRenderMode;
   onToolRenderModeChange: (mode: ToolRenderMode) => void;
+  partRenderMode: ToolRenderMode;
+  onPartRenderModeChange: (mode: ToolRenderMode) => void;
+  stockRenderMode: ToolRenderMode;
+  onStockRenderModeChange: (mode: ToolRenderMode) => void;
 };
 
 const themeModeConfig = {
@@ -139,13 +143,17 @@ function ToolsSettingsTab() {
     setEditorOpen(true);
   }
 
-  function handleEditorSubmit(tool: ToolLibraryToolInput | ToolLibraryTool) {
+  function handleEditorSubmit(tool: ToolLibraryToolInput) {
     setMutationError(null);
     if (editingTool) {
-      updateToolMutation.mutate(tool as ToolLibraryTool);
+      if (!tool.id) {
+        setMutationError("Unable to edit this tool.");
+        return;
+      }
+      updateToolMutation.mutate({ ...tool, id: tool.id });
       return;
     }
-    addToolMutation.mutate(tool as ToolLibraryToolInput);
+    addToolMutation.mutate(tool);
   }
 
   return (
@@ -257,11 +265,34 @@ function ToolsSettingsTab() {
   );
 }
 
+function RenderModeTabs({
+  value,
+  onChange,
+  ariaLabel,
+}: {
+  value: ToolRenderMode;
+  onChange: (mode: ToolRenderMode) => void;
+  ariaLabel: string;
+}) {
+  return (
+    <Tabs aria-label={ariaLabel} value={value} onValueChange={(next) => onChange(next as ToolRenderMode)}>
+      <TabsList>
+        <TabsTrigger value="wireframe">Wireframe</TabsTrigger>
+        <TabsTrigger value="shaded">Shaded</TabsTrigger>
+      </TabsList>
+    </Tabs>
+  );
+}
+
 function GeneralSettingsTab({
   simulationDebugUiEnabled,
   onSimulationDebugUiEnabledChange,
   toolRenderMode,
   onToolRenderModeChange,
+  partRenderMode,
+  onPartRenderModeChange,
+  stockRenderMode,
+  onStockRenderModeChange,
 }: SettingsDialogProps) {
   return (
     <div className="space-y-4">
@@ -278,12 +309,23 @@ function GeneralSettingsTab({
           <div className="text-sm font-medium">Tool render</div>
           <p className="text-xs text-muted-foreground">Switch between wireframe and shaded tool previews.</p>
         </div>
-        <Tabs aria-label="Tool render mode" value={toolRenderMode} onValueChange={(value) => onToolRenderModeChange(value as ToolRenderMode)}>
-          <TabsList>
-            <TabsTrigger value="wireframe">Wireframe</TabsTrigger>
-            <TabsTrigger value="shaded">Shaded</TabsTrigger>
-          </TabsList>
-        </Tabs>
+        <RenderModeTabs value={toolRenderMode} onChange={onToolRenderModeChange} ariaLabel="Tool render mode" />
+      </div>
+
+      <div className="flex items-center justify-between gap-4 rounded-md border p-2">
+        <div>
+          <div className="text-sm font-medium">Part render</div>
+          <p className="text-xs text-muted-foreground">Switch between wireframe and shaded part meshes.</p>
+        </div>
+        <RenderModeTabs value={partRenderMode} onChange={onPartRenderModeChange} ariaLabel="Part render mode" />
+      </div>
+
+      <div className="flex items-center justify-between gap-4 rounded-md border p-2">
+        <div>
+          <div className="text-sm font-medium">Stock render</div>
+          <p className="text-xs text-muted-foreground">Switch between wireframe and shaded stock meshes.</p>
+        </div>
+        <RenderModeTabs value={stockRenderMode} onChange={onStockRenderModeChange} ariaLabel="Stock render mode" />
       </div>
 
       <label className="flex items-center justify-between gap-4 rounded-md border p-2">

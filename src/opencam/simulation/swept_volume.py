@@ -12,9 +12,8 @@ from manifold3d import Error, Manifold, Mesh64, OpType
 
 from opencam._cgal_planar import remesh_planar_patches
 from opencam.schemas.cl_data import OperationRecord3D, PositionRecord3D
-from opencam.schemas.tools import CylindricalTool
+from opencam.services.tool_mesh import build_tool_mesh_glb_from_tool, build_tool_mesh_vertices_faces
 
-TOOL_SEGMENTS = 16
 SIM_STEPDISTANCE = 5
 SIMPLIFY_AFTER_EACH_CHUNK = False
 DEFAULT_MAX_SIM_DISTANCE = 20
@@ -45,7 +44,7 @@ class SimulatedMeshFrame:
 
 @dataclass
 class ChunkClData:
-    tool: CylindricalTool
+    tool_vertices: np.ndarray
     tool_axis: tuple[float, ...]
     clearance_plane_height: float
     points: list[PositionRecord3D]
@@ -128,49 +127,6 @@ def build_box_mesh(bounds_min: np.ndarray, bounds_max: np.ndarray) -> tuple[np.n
         dtype=np.int32,
     )
     return vertices, faces
-
-
-def build_cylinder_mesh(diameter: float, height: float, segments: int) -> tuple[np.ndarray, np.ndarray]:
-    radius = diameter / 2.0
-    angles = np.linspace(0.0, math.tau, segments, endpoint=False, dtype=np.float64)
-
-    bottom_ring = np.column_stack(
-        [
-            radius * np.cos(angles),
-            radius * np.sin(angles),
-            np.zeros(segments, dtype=np.float64),
-        ]
-    )
-    top_ring = bottom_ring.copy()
-    top_ring[:, 2] = height
-
-    vertices = np.vstack(
-        [
-            np.array([[0.0, 0.0, 0.0]], dtype=np.float64),
-            np.array([[0.0, 0.0, height]], dtype=np.float64),
-            bottom_ring,
-            top_ring,
-        ]
-    )
-
-    bottom_center = 0
-    top_center = 1
-    bottom_start = 2
-    top_start = 2 + segments
-
-    faces: list[list[int]] = []
-    for index in range(segments):
-        next_index = (index + 1) % segments
-        bottom_i = bottom_start + index
-        bottom_j = bottom_start + next_index
-        top_i = top_start + index
-        top_j = top_start + next_index
-        faces.append([bottom_center, bottom_j, bottom_i])
-        faces.append([top_center, top_i, top_j])
-        faces.append([bottom_i, bottom_j, top_j])
-        faces.append([bottom_i, top_j, top_i])
-
-    return vertices, np.asarray(faces, dtype=np.int32)
 
 
 def format_manifold_error(status: Error) -> str:
@@ -1047,8 +1003,6 @@ def prepare_simulation_chunks(
     should_cancel: Callable[[], bool] | None = None,
     progress_callback: Callable[[int, int, str], None] | None = None,
 ) -> list[PreparedSimulationChunk]:
-    if not isinstance(operation.tool, CylindricalTool):
-        raise NotImplementedError(f"Tool type {operation.tool.type!r} is not supported for swept simulation.")
     if not math.isfinite(max_sim_distance) or max_sim_distance <= 0:
         raise ValueError("max_sim_distance must be positive.")
     if any(not math.isfinite(padding) or padding < 0 for padding in chunk_padding):
@@ -1056,7 +1010,7 @@ def prepare_simulation_chunks(
     if not math.isfinite(chunk_step_distance) or chunk_step_distance <= 0:
         raise ValueError("chunk_step_distance must be positive.")
 
-    tool = operation.tool
+    tool_vertices, _tool_faces = build_tool_mesh_vertices_faces(operation.tool)
     stock_original_id = Manifold.reserve_ids(1)
     chunk_boundary_original_id = Manifold.reserve_ids(1)
 
@@ -1068,12 +1022,6 @@ def prepare_simulation_chunks(
         context="stock mesh import",
         original_id=stock_original_id,
     )
-    tool_vertices, _tool_faces = build_cylinder_mesh(
-        tool.diameter,
-        tool.cutting_height,
-        TOOL_SEGMENTS,
-    )
-
     original_positions = load_tool_positions(operation)
     contact_position_sequences, _retained_segments, _skipped_segments, _trimmed_segments = filter_contact_position_sequences(
         original_positions,
@@ -1103,7 +1051,7 @@ def prepare_simulation_chunks(
                 focus_mesh=Manifold(),
                 rest_mesh=current_stock,
                 cl_data=ChunkClData(
-                    tool=tool,
+                    tool_vertices=tool_vertices,
                     tool_axis=tuple(float(axis) for axis in operation.tool_axis),
                     clearance_plane_height=float(operation.clearance_plane_height),
                     points=[],
@@ -1147,7 +1095,7 @@ def prepare_simulation_chunks(
             focus_mesh=focus_mesh,
             rest_mesh=rest_mesh,
             cl_data=ChunkClData(
-                tool=tool,
+                tool_vertices=tool_vertices,
                 tool_axis=tuple(float(axis) for axis in operation.tool_axis),
                 clearance_plane_height=float(operation.clearance_plane_height),
                 # ponytail: chunk CL data keeps clipped tool positions only; add original feed/comment metadata if a caller needs exact record provenance.
@@ -1333,11 +1281,7 @@ def simulate_chunk_focus_mesh(
     if point_index == 0:
         return focus_mesh
 
-    tool_vertices, _tool_faces = build_cylinder_mesh(
-        chunk_cl_data.tool.diameter,
-        chunk_cl_data.tool.cutting_height,
-        TOOL_SEGMENTS,
-    )
+    tool_vertices = chunk_cl_data.tool_vertices
     sampled_positions = coalesce_straight_tool_positions(
         [record_to_position(point) for point in sampled_points[: point_index + 1]],
         straight_line_tolerance_degrees,
@@ -1494,9 +1438,8 @@ def simulate_swept_milling_frames(
     progress_callback: Callable[[int, int, str], None] | None = None,
     should_cancel: Callable[[], bool] | None = None,
 ) -> tuple[bytes, list[SimulatedChunk], list[SimulatedMeshFrame]]:
-    if not isinstance(operation.tool, CylindricalTool):
-        raise NotImplementedError(f"Tool type {operation.tool.type!r} is not supported for swept simulation.")
-    tool = operation.tool
+    tool_vertices, tool_faces = build_tool_mesh_vertices_faces(operation.tool)
+    tool_mesh_glb = build_tool_mesh_glb_from_tool(operation.tool)
 
     stock_original_id = Manifold.reserve_ids(1)
     chunk_boundary_original_id = Manifold.reserve_ids(1)
@@ -1510,13 +1453,6 @@ def simulate_swept_milling_frames(
         context="stock mesh import",
         original_id=stock_original_id,
     )
-
-    tool_vertices, tool_faces = build_cylinder_mesh(
-        tool.diameter,
-        tool.cutting_height,
-        TOOL_SEGMENTS,
-    )
-    tool_mesh_bytes = write_glb(tool_vertices, tool_faces)
     original_positions = load_tool_positions(operation)
     (
         contact_position_sequences,
@@ -1561,7 +1497,7 @@ def simulate_swept_milling_frames(
 
     print(f"[simulate/swept] Stock bounds: min={stock_min.tolist()} max={stock_max.tolist()}")
     print(
-        f"[simulate/swept] Tool: diameter={tool.diameter} height={tool.cutting_height} segments={TOOL_SEGMENTS}"
+        f"[simulate/swept] Tool mesh: vertices={len(tool_vertices)} faces={len(tool_faces)}"
     )
     print(f"[simulate/swept] Original positions: {len(original_positions)}")
     print(f"[simulate/swept] Original swept segments: {max(len(original_positions) - 1, 0)}")
@@ -1608,7 +1544,7 @@ def simulate_swept_milling_frames(
             )
         )
         advance_progress("Simulation frames ready.")
-        return tool_mesh_bytes, chunks, frames
+        return tool_mesh_glb, chunks, frames
 
     initial_non_contact_frame: SimulatedMeshFrame | None = None
 
@@ -1799,7 +1735,7 @@ def simulate_swept_milling_frames(
     print(f"[simulate/swept] Total stock subtraction time: {stock_subtraction_seconds:.3f}s")
     print(f"[simulate/swept] Total animation subtraction time: {animation_subtraction_seconds:.3f}s")
     print(f"[simulate/swept] Buffered {len(frames)} simulation frames across {len(chunks)} chunks")
-    return tool_mesh_bytes, chunks, frames
+    return tool_mesh_glb, chunks, frames
 
 
 def simulate_swept_milling_stl(mesh_input: bytes | str, operation: OperationRecord3D) -> bytes:

@@ -3,10 +3,8 @@ import type {
   OperationRecord3D as GeneratedOperationRecord3D,
   RapidPositionRecord3D as GeneratedRapidPositionRecord3D,
 } from "@/generated_schemas/cl_data";
-import type { CylindricalTool } from "@/generated_schemas/tools";
 
 export type FeedType = "rapid" | "feed_rate";
-export type ToolData = Pick<CylindricalTool, "diameter" | "cuttingHeight" | "numFlutes">;
 
 export type PositionRecord3D =
   | (GeneratedRapidPositionRecord3D & { feedType: "rapid" })

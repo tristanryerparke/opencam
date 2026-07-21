@@ -1,4 +1,4 @@
-import { type FeedType, type SimulationSamplePoint, type ToolData } from "@/simulation/toolpath";
+import { type FeedType, type SimulationSamplePoint } from "@/simulation/toolpath";
 
 export type PolylinePoint = readonly [number, number, number];
 
@@ -47,20 +47,21 @@ export type PolylineViewerProps = {
   showSimulationStock?: boolean;
   showTool?: boolean;
   toolRenderMode?: ToolRenderMode;
+  partRenderMode?: ToolRenderMode;
+  stockRenderMode?: ToolRenderMode;
   polylines: ReadonlyArray<PolylineDefinition>;
   className?: string;
   faceSelectionMode?: boolean;
   selectedMeshFace?: MeshFaceSelection | null;
   selectedMeshFaces?: ReadonlyArray<MeshFaceSelection>;
-  simulationTool?: ToolData | null;
   simulationSamples?: ReadonlyArray<SimulationSamplePoint>;
   simulationStep?: number;
   simulationToolMeshUrl?: string | null;
   simulationToolPosition?: PolylinePoint | null;
-  simulationToolRotation?: number | null;
-  simulationToolRotationEnabled?: boolean;
   showOriginalMesh?: boolean;
   onMeshFaceSelect?: (selection: MeshFaceSelection) => void;
+  onSecondaryMeshDisplayed?: (meshUrl: string, elapsedMs: number) => void;
+  onTertiaryMeshDisplayed?: (meshUrl: string, elapsedMs: number) => void;
 };
 
 export type PolylineViewerSceneProps = Omit<PolylineViewerProps, "className">;

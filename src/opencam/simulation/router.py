@@ -14,8 +14,8 @@ import trimesh
 from trimesh.proximity import ProximityQuery
 
 from opencam.schemas.cl_data import OperationRecord3D, PositionRecord3D
-from opencam.schemas.tools import CylindricalTool
 from opencam.services.mesh_cache import get_mesh_cache
+from opencam.services.tool_mesh import build_tool_mesh_glb_from_tool
 from opencam.simulation.models import (
     SweptSimulationComparisonResponse,
     SweptSimulationFrameResponse,
@@ -32,11 +32,9 @@ from opencam.simulation.swept_volume import (
     DEFAULT_RAPID_FRAME_STEP_SCALE,
     DEFAULT_ROTATE_TOOL_WITH_PATH,
     SIM_STEPDISTANCE,
-    TOOL_SEGMENTS,
     PreparedSimulationChunk,
     SimulatedChunk,
     SimulationCancelledError,
-    build_cylinder_mesh,
     manifold_to_simplified_glb,
     map_positions_to_operation_progress,
     positions_match,
@@ -54,6 +52,7 @@ DISPLAY_REMESH_ITERATIONS = 10
 COMPARISON_CLOSE_DISTANCE = 0.1
 COMPARISON_FAR_DISTANCE = 0.25
 COMPARISON_GREEN_RGBA = np.array([0, 255, 0, 255], dtype=np.uint8)
+COMPARISON_TEAL_RGBA = np.array([32, 138, 155, 255], dtype=np.uint8)
 COMPARISON_BLUE_RGBA = np.array([0, 0, 255, 255], dtype=np.uint8)
 
 
@@ -197,12 +196,17 @@ def _comparison_vertex_colors(distances: np.ndarray) -> np.ndarray:
         nan=COMPARISON_FAR_DISTANCE,
         posinf=COMPARISON_FAR_DISTANCE,
     )
-    blend = np.clip(
-        (values - COMPARISON_CLOSE_DISTANCE) / (COMPARISON_FAR_DISTANCE - COMPARISON_CLOSE_DISTANCE),
-        0.0,
-        1.0,
-    ).reshape(-1, 1)
-    colors = (1.0 - blend) * COMPARISON_GREEN_RGBA + blend * COMPARISON_BLUE_RGBA
+    midpoint = (COMPARISON_CLOSE_DISTANCE + COMPARISON_FAR_DISTANCE) / 2.0
+    colors = np.empty((len(values), 4), dtype=np.float64)
+
+    low_mask = values <= midpoint
+    low_blend = np.clip((values[low_mask] - COMPARISON_CLOSE_DISTANCE) / (midpoint - COMPARISON_CLOSE_DISTANCE), 0.0, 1.0).reshape(-1, 1)
+    colors[low_mask] = (1.0 - low_blend) * COMPARISON_GREEN_RGBA + low_blend * COMPARISON_TEAL_RGBA
+
+    high_mask = ~low_mask
+    high_blend = np.clip((values[high_mask] - midpoint) / (COMPARISON_FAR_DISTANCE - midpoint), 0.0, 1.0).reshape(-1, 1)
+    colors[high_mask] = (1.0 - high_blend) * COMPARISON_TEAL_RGBA + high_blend * COMPARISON_BLUE_RGBA
+
     return np.rint(colors).astype(np.uint8)
 
 
@@ -367,13 +371,13 @@ def _frame_response(
     chunk = simulation.prepared_chunks[frame.chunk_index]
     return SweptSimulationFrameResponse(
         active_mesh_url=_frame_active_mesh_url(simulation_id, frame_index),
+        active_mesh_key=frame.mesh_state_index if frame.mesh_state_index is not None else frame_index,
         cached_mesh_url=_chunk_cached_mesh_url(simulation_id, frame.chunk_index),
         chunk_index=frame.chunk_index,
         chunk_step_index=frame.point_index if frame.point_index >= 0 else None,
         chunk_step_count=frame.chunk_step_count,
         chunk_toolpath_points=chunk.cl_data.points,
         tool_position=frame.tool_position,
-        rotate_tool_with_path=simulation.rotate_tool_with_path,
     )
 
 
@@ -528,11 +532,6 @@ def _build_buffered_simulation(
     if not prepared_chunks:
         raise RuntimeError("Simulation produced no chunks.")
 
-    tool_vertices, tool_faces = build_cylinder_mesh(
-        operation.tool.diameter,
-        operation.tool.cutting_height,
-        TOOL_SEGMENTS,
-    )
     chunks: list[SimulatedChunk] = []
 
     for chunk_list_index, prepared_chunk in enumerate(prepared_chunks):
@@ -563,7 +562,7 @@ def _build_buffered_simulation(
             )
 
     return BufferedSimulationResult(
-        tool_mesh_bytes=write_glb(tool_vertices, tool_faces),
+        tool_mesh_bytes=build_tool_mesh_glb_from_tool(operation.tool),
         chunks=chunks,
         prepared_chunks=prepared_chunks,
         operation=operation,
@@ -601,7 +600,8 @@ def _resample_buffered_simulation(
     )
     simulation.frame_step_distance = frame_step_distance
     simulation.rapid_frame_step_scale = next_rapid_frame_step_scale
-    Thread(target=_run_comparison_mesh_build, args=(simulation,), daemon=True).start()
+    # Comparison cache was invalidated above (frames changed); rebuild lazily
+    # via _comparison_meshes when the comparison endpoint is next hit, not here.
 
 
 def _active_mesh_bytes(
@@ -747,6 +747,7 @@ def _run_swept_simulation_task(
         final_chunk = simulation.prepared_chunks[final_frame.chunk_index]
         result = SweptSimulationResponse(
             active_mesh_url=_frame_active_mesh_url(simulation_id, final_frame_index),
+            active_mesh_key=final_frame.mesh_state_index if final_frame.mesh_state_index is not None else final_frame_index,
             cached_mesh_url=_chunk_cached_mesh_url(simulation_id, final_frame.chunk_index),
             simulation_id=simulation_id,
             frame_count=len(simulation.frames),
@@ -757,7 +758,6 @@ def _run_swept_simulation_task(
             chunk_toolpath_points=final_chunk.cl_data.points,
             tool_mesh_url=_tool_mesh_url(simulation_id),
             tool_position=final_frame.tool_position,
-            rotate_tool_with_path=simulation.rotate_tool_with_path,
         )
         _update_simulation_task(
             task_id,
@@ -799,12 +799,6 @@ async def simulate_swept(
         parsed_operation = OperationRecord3D.model_validate_json(operation)
     except ValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    if not isinstance(parsed_operation.tool, CylindricalTool):
-        raise HTTPException(
-            status_code=501,
-            detail=f"Tool type {parsed_operation.tool.type!r} is not supported for swept simulation.",
-        )
 
     mesh_bytes = await mesh.read() if mesh is not None else None
     if mesh is not None and not mesh_bytes:
@@ -875,6 +869,7 @@ def resample_simulation(simulation_id: str, request: SweptSimulationResampleRequ
 
     return SweptSimulationResponse(
         active_mesh_url=_frame_active_mesh_url(simulation_id, final_frame_index),
+        active_mesh_key=final_frame.mesh_state_index if final_frame.mesh_state_index is not None else final_frame_index,
         cached_mesh_url=_chunk_cached_mesh_url(simulation_id, final_frame.chunk_index),
         simulation_id=simulation_id,
         frame_count=len(simulation.frames),
@@ -885,7 +880,6 @@ def resample_simulation(simulation_id: str, request: SweptSimulationResampleRequ
         chunk_toolpath_points=final_chunk.cl_data.points,
         tool_mesh_url=_tool_mesh_url(simulation_id),
         tool_position=final_frame.tool_position,
-        rotate_tool_with_path=simulation.rotate_tool_with_path,
     )
 
 

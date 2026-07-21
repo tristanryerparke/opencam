@@ -6,6 +6,7 @@ from opencam.schemas.cl_data import PositionRecord3D
 
 class SweptSimulationResponse(CamelBaseModel):
     active_mesh_url: str
+    active_mesh_key: int
     cached_mesh_url: str
     simulation_id: str
     frame_count: int
@@ -16,18 +17,17 @@ class SweptSimulationResponse(CamelBaseModel):
     chunk_toolpath_points: list[PositionRecord3D]
     tool_mesh_url: str
     tool_position: PositionRecord3D
-    rotate_tool_with_path: bool
 
 
 class SweptSimulationFrameResponse(CamelBaseModel):
     active_mesh_url: str
+    active_mesh_key: int
     cached_mesh_url: str
     chunk_index: int
     chunk_step_index: int | None
     chunk_step_count: int
     chunk_toolpath_points: list[PositionRecord3D]
     tool_position: PositionRecord3D
-    rotate_tool_with_path: bool
 
 
 class SweptSimulationFramesResponse(CamelBaseModel):

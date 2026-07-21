@@ -1,18 +1,21 @@
 from opencam.schemas.cl_data import FeedRatePositionRecord3D, OperationRecord3D, RapidPositionRecord3D
+from opencam.schemas.tools import CylindricalToolInput
+from opencam.services.tool_mesh import build_tool
 
 
 def test_operation_records_parse_their_feed_type():
     operation = OperationRecord3D.model_validate(
         {
-            "tool": {
-                "id": "tool-1",
-                "name": "2mm flat end mill",
-                "type": "cylinder",
-                "toolNumber": 1,
-                "diameter": 2,
-                "cuttingHeight": 10,
-                "shoulderHeight": 10,
-            },
+            "tool": build_tool(
+                CylindricalToolInput(
+                    id="tool-1",
+                    name="2mm flat end mill",
+                    tool_number=1,
+                    diameter=2,
+                    cutting_height=10,
+                    shoulder_height=10,
+                )
+            ).model_dump(mode="json", by_alias=True),
             "clearancePlaneHeight": 10,
             "records": [
                 {"type": "position_3d", "feedType": "rapid", "x": 0, "y": 0, "z": 10},

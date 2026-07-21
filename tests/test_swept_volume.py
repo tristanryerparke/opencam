@@ -1,7 +1,8 @@
 import numpy as np
 
 from opencam.schemas.cl_data import FeedRatePositionRecord3D, OperationRecord3D, PositionRecord3D, RapidPositionRecord3D
-from opencam.schemas.tools import CylindricalTool
+from opencam.schemas.tools import CylindricalToolInput
+from opencam.services.tool_mesh import build_tool, build_tool_mesh_vertices_faces
 from opencam.simulation.swept_volume import (
     ChunkClData,
     build_position_chunks,
@@ -10,6 +11,18 @@ from opencam.simulation.swept_volume import (
     sample_operation_points_with_progress,
     simulate_chunk_focus_mesh,
 )
+
+
+def cylindrical_tool():
+    return build_tool(
+        CylindricalToolInput(
+            name="Test Tool",
+            tool_number=1,
+            diameter=1.0,
+            cutting_height=1.0,
+            shoulder_height=1.0,
+        )
+    )
 
 
 def test_march_tool_positions_downsamples_dense_straight_runs():
@@ -67,13 +80,7 @@ def test_march_tool_positions_downsamples_dense_curves():
 
 def test_sample_operation_points_with_progress_keeps_segment_endpoints():
     operation = OperationRecord3D(
-        tool=CylindricalTool(
-            name="Test Tool",
-            tool_number=1,
-            diameter=1.0,
-            cutting_height=1.0,
-            shoulder_height=1.0,
-        ),
+        tool=cylindrical_tool(),
         clearance_plane_height=10.0,
         records=[
             FeedRatePositionRecord3D(x=0.0, y=0.0, z=0.0, feedrate=100.0),
@@ -91,13 +98,7 @@ def test_sample_operation_points_with_progress_keeps_segment_endpoints():
 
 def test_sample_operation_points_with_progress_uses_larger_step_for_rapid_moves():
     operation = OperationRecord3D(
-        tool=CylindricalTool(
-            name="Test Tool",
-            tool_number=1,
-            diameter=1.0,
-            cutting_height=1.0,
-            shoulder_height=1.0,
-        ),
+        tool=cylindrical_tool(),
         clearance_plane_height=10.0,
         records=[
             RapidPositionRecord3D(x=0.0, y=0.0, z=0.0),
@@ -127,13 +128,7 @@ def test_coalesce_straight_tool_positions_merges_straight_runs():
 
 
 def test_simulate_chunk_focus_mesh_adds_rotational_sweep_for_turns(monkeypatch):
-    tool = CylindricalTool(
-        name="Test Tool",
-        tool_number=1,
-        diameter=1.0,
-        cutting_height=1.0,
-        shoulder_height=1.0,
-    )
+    tool = cylindrical_tool()
     contexts: list[str] = []
 
     def record_sweep(_start, *, end_verts, context):
@@ -152,7 +147,7 @@ def test_simulate_chunk_focus_mesh_adds_rotational_sweep_for_turns(monkeypatch):
     result = simulate_chunk_focus_mesh(
         "focus",
         ChunkClData(
-            tool=tool,
+            tool_vertices=build_tool_mesh_vertices_faces(tool)[0],
             tool_axis=(0.0, 0.0, 1.0),
             clearance_plane_height=1.0,
             points=[],
@@ -174,13 +169,7 @@ def test_simulate_chunk_focus_mesh_adds_rotational_sweep_for_turns(monkeypatch):
 
 
 def test_simulate_chunk_focus_mesh_skips_rotational_sweep_when_rotation_disabled(monkeypatch):
-    tool = CylindricalTool(
-        name="Test Tool",
-        tool_number=1,
-        diameter=1.0,
-        cutting_height=1.0,
-        shoulder_height=1.0,
-    )
+    tool = cylindrical_tool()
     contexts: list[str] = []
 
     def record_sweep(_start, *, end_verts, context):
@@ -199,7 +188,7 @@ def test_simulate_chunk_focus_mesh_skips_rotational_sweep_when_rotation_disabled
     simulate_chunk_focus_mesh(
         "focus",
         ChunkClData(
-            tool=tool,
+            tool_vertices=build_tool_mesh_vertices_faces(tool)[0],
             tool_axis=(0.0, 0.0, 1.0),
             clearance_plane_height=1.0,
             points=[],

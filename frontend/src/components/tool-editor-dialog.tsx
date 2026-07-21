@@ -27,21 +27,19 @@ type ToolFormState = {
   numFlutes: number | undefined;
   toolNumber: number | undefined;
   manualChange: boolean;
-  tipAngle: number | undefined;
 };
 
 function toolToFormState(tool?: ToolLibraryTool | null): ToolFormState {
   return {
     id: tool?.id ?? "",
     name: tool?.name ?? "",
-    type: tool?.type ?? "cylinder",
+    type: tool?.type === "ball" ? "ball" : "cylinder",
     diameter: tool?.diameter,
     cuttingHeight: tool?.cuttingHeight,
     shoulderHeight: tool?.shoulderHeight,
     numFlutes: tool?.numFlutes ?? 2,
     toolNumber: tool?.toolNumber ?? 1,
     manualChange: tool?.manualChange ?? false,
-    tipAngle: tool?.type === "v" ? tool.tipAngle : undefined,
   };
 }
 
@@ -59,7 +57,7 @@ function parseToolNumber(value: number | undefined) {
   return value;
 }
 
-function parseToolFormState(form: ToolFormState, mode: "add" | "edit"): ToolLibraryToolInput | ToolLibraryTool {
+function parseToolFormState(form: ToolFormState, mode: "add" | "edit"): ToolLibraryToolInput {
   const name = form.name.trim();
   if (!name) {
     throw new Error("Tool name is required.");
@@ -75,16 +73,14 @@ function parseToolFormState(form: ToolFormState, mode: "add" | "edit"): ToolLibr
     toolNumber: parseToolNumber(form.toolNumber),
     manualChange: form.manualChange,
   };
-  const parsed = form.type === "v"
-    ? { ...common, type: "v" as const, tipAngle: parsePositiveNumber(form.tipAngle, "Tip angle") }
-    : { ...common, type: form.type as "cylinder" | "ball" };
+  const parsed = { ...common, type: form.type as "cylinder" | "ball" };
 
   const id = form.id.trim();
   if (mode === "edit") {
     if (!id) {
       throw new Error("Unable to edit this tool.");
     }
-    return { id, ...parsed } as ToolLibraryTool;
+    return { id, ...parsed } as ToolLibraryToolInput;
   }
 
   return id ? { id, ...parsed } as ToolLibraryToolInput : parsed as ToolLibraryToolInput;
@@ -96,7 +92,7 @@ export type ToolEditorDialogProps = {
   tool: ToolLibraryTool | null;
   isPending: boolean;
   onOpenChange: (open: boolean) => void;
-  onSubmit: (tool: ToolLibraryToolInput | ToolLibraryTool) => void;
+  onSubmit: (tool: ToolLibraryToolInput) => void;
 };
 
 export function ToolEditorDialog({
@@ -157,7 +153,7 @@ export function ToolEditorDialog({
               onValueChange={(value) => updateField("type", value as ToolType)}
               className="flex gap-4"
             >
-              {(["cylinder", "ball", "v"] as const).map((type) => (
+              {(["cylinder", "ball"] as const).map((type) => (
                 <div key={type} className="flex items-center gap-2">
                   <RadioGroupItem id={`tool-type-${type}`} value={type} />
                   <Label htmlFor={`tool-type-${type}`} className="capitalize">{type}</Label>
@@ -190,12 +186,6 @@ export function ToolEditorDialog({
               <Label>Tool number</Label>
               <IntegerInput value={form.toolNumber} min={1} step={1} allowNegative={false} onValueChange={(value) => updateField("toolNumber", value)} />
             </div>
-            {form.type === "v" ? (
-              <div className="space-y-1">
-                <Label>Tip angle</Label>
-                <NumberInput value={form.tipAngle} min={0} allowNegative={false} decimalScale={3} onValueChange={(value) => updateField("tipAngle", value)} />
-              </div>
-            ) : null}
           </div>
 
           <label className="flex items-center gap-2 text-sm">

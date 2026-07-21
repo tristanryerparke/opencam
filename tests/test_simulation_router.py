@@ -1,7 +1,8 @@
 import numpy as np
 
 from opencam.schemas.cl_data import OperationRecord3D, PositionRecord3D, RapidPositionRecord3D
-from opencam.schemas.tools import CylindricalTool
+from opencam.schemas.tools import CylindricalToolInput
+from opencam.services.tool_mesh import build_tool, build_tool_mesh_vertices_faces
 from opencam.simulation import router
 from opencam.simulation.swept_volume import (
     ChunkClData,
@@ -11,13 +12,16 @@ from opencam.simulation.swept_volume import (
 )
 
 
-TOOL = CylindricalTool(
-    name="Test Tool",
-    tool_number=1,
-    diameter=1.0,
-    cutting_height=1.0,
-    shoulder_height=1.0,
+TOOL = build_tool(
+    CylindricalToolInput(
+        name="Test Tool",
+        tool_number=1,
+        diameter=1.0,
+        cutting_height=1.0,
+        shoulder_height=1.0,
+    )
 )
+TOOL_VERTICES = build_tool_mesh_vertices_faces(TOOL)[0]
 
 
 def build_operation(*points: tuple[float, float, float]) -> OperationRecord3D:
@@ -34,7 +38,7 @@ def prepared_chunk() -> PreparedSimulationChunk:
         focus_mesh=object(),
         rest_mesh=object(),
         cl_data=ChunkClData(
-            tool=TOOL,
+            tool_vertices=TOOL_VERTICES,
             tool_axis=(0.0, 0.0, 1.0),
             clearance_plane_height=10.0,
             points=[],
@@ -203,14 +207,7 @@ def test_comparison_vertex_colors_follow_requested_thresholds():
 def test_simulation_generation_keeps_raw_display_meshes(monkeypatch):
     chunk = prepared_chunk()
     monkeypatch.setattr(router, "prepare_simulation_chunks", lambda *_args, **_kwargs: [chunk])
-    monkeypatch.setattr(
-        router,
-        "build_cylinder_mesh",
-        lambda *_args, **_kwargs: (
-            np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]),
-            np.array([[0, 1, 2]]),
-        ),
-    )
+    monkeypatch.setattr(router, "build_tool_mesh_glb_from_tool", lambda *_args, **_kwargs: b"tool")
     monkeypatch.setattr(router, "manifold_to_simplified_glb", lambda *_args, **_kwargs: b"chunk")
     monkeypatch.setattr(router, "_build_contact_frames", lambda *_args, **_kwargs: [])
     monkeypatch.setattr(router, "_build_animation_frames", lambda frames, *_args, **_kwargs: frames)

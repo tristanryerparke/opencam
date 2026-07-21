@@ -5,9 +5,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from opencam.schemas.cam import GenerateToolpathRequest
 from opencam.schemas.cl_data import OperationRecord3D
 from opencam.schemas.operations.base import Material
-from opencam.schemas.tools import Tool
+from opencam.schemas.tools import Tool, ToolInput
 from opencam.services.cam_engine import cam_engine
 from opencam.services.mesh_cache import CachedMeshMetadata, get_mesh_cache
+from opencam.services.tool_mesh import build_tool
 from opencam.simulation.router import router as simulation_router
 from opencam.services.tool_library import ToolLibrary, get_tool_library
 
@@ -40,11 +41,13 @@ def list_tools(tool_library: ToolLibrary = Depends(get_tool_library)):
 
 
 @app.post("/cam/tools", response_model=Tool, status_code=status.HTTP_201_CREATED)
-def add_tool(tool: Tool, tool_library: ToolLibrary = Depends(get_tool_library)):
+def add_tool(tool: ToolInput, tool_library: ToolLibrary = Depends(get_tool_library)):
     try:
-        return tool_library.add_tool(tool)
+        return tool_library.add_tool(build_tool(tool))
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except NotImplementedError as exc:
+        raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail=str(exc)) from exc
 
 
 @app.get("/cam/tools/{tool_id}", response_model=Tool)
@@ -56,11 +59,14 @@ def get_tool(tool_id: str, tool_library: ToolLibrary = Depends(get_tool_library)
 
 
 @app.put("/cam/tools/{tool_id}", response_model=Tool)
-def update_tool(tool_id: str, tool: Tool, tool_library: ToolLibrary = Depends(get_tool_library)):
+def update_tool(tool_id: str, tool: ToolInput, tool_library: ToolLibrary = Depends(get_tool_library)):
     if tool.id != tool_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Tool ID cannot be changed.")
 
-    updated_tool = tool_library.update_tool(tool_id, tool)
+    try:
+        updated_tool = tool_library.update_tool(tool_id, build_tool(tool, tool_id=tool_id))
+    except NotImplementedError as exc:
+        raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail=str(exc)) from exc
     if updated_tool is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tool not found.")
     return updated_tool

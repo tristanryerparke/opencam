@@ -17,9 +17,9 @@ export type CylindricalTool = PersistedTool<GeneratedCylindricalTool>;
 export type BallTool = PersistedTool<GeneratedBallTool>;
 export type VTool = PersistedTool<GeneratedVTool>;
 export type ToolLibraryTool = CylindricalTool | BallTool | VTool;
-export type ToolType = ToolLibraryTool["type"];
-type NewTool<T extends ToolLibraryTool> = Omit<T, "id"> & { id?: string };
-export type ToolLibraryToolInput = NewTool<CylindricalTool> | NewTool<BallTool> | NewTool<VTool>;
+export type ToolType = CylindricalTool["type"] | BallTool["type"];
+type EditableTool<T extends ToolLibraryTool> = Omit<T, "id"> & { id?: string };
+export type ToolLibraryToolInput = EditableTool<CylindricalTool> | EditableTool<BallTool>;
 
 async function readJsonResponse<T>(response: Response, fallbackMessage: string): Promise<T> {
   if (response.ok) {
@@ -53,7 +53,7 @@ export async function addTool(tool: ToolLibraryToolInput): Promise<ToolLibraryTo
   return readJsonResponse<ToolLibraryTool>(response, "Failed to add tool.");
 }
 
-export async function updateTool(tool: ToolLibraryTool): Promise<ToolLibraryTool> {
+export async function updateTool(tool: ToolLibraryToolInput & { id: string }): Promise<ToolLibraryTool> {
   const response = await fetch(`${getBackendUrl()}/cam/tools/${encodeURIComponent(tool.id)}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },

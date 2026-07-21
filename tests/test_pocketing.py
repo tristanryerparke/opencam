@@ -12,8 +12,9 @@ from opencam.schemas.geometry_2_5d import ClosedPolyline25D
 from opencam.schemas.geometry_2d import Point2D
 from opencam.schemas.operations.base import AbsoluteClearance, CAMLevels, FeedsAndSpeeds
 from opencam.schemas.operations.pocketing import Pocketing2dOp, PocketingCutSettings, PocketingDriveGeometry, StepoverMode
-from opencam.schemas.tools import CylindricalTool
+from opencam.schemas.tools import CylindricalToolInput
 from opencam.services.cam_engine import _PocketingContext, cam_engine
+from opencam.services.tool_mesh import build_tool
 
 
 def rectangle_vertices() -> list[Point2D]:
@@ -27,13 +28,15 @@ def rectangle_vertices() -> list[Point2D]:
 
 
 def generate_pocket(*, tmp_path, depth_of_cut: float):
-    tool = CylindricalTool(
-        id="tool-1",
-        name="2mm flat end mill",
-        tool_number=1,
-        diameter=2.0,
-        cutting_height=10.0,
-        shoulder_height=10.0,
+    tool = build_tool(
+        CylindricalToolInput(
+            id="tool-1",
+            name="2mm flat end mill",
+            tool_number=1,
+            diameter=2.0,
+            cutting_height=10.0,
+            shoulder_height=10.0,
+        )
     )
     operation = Pocketing2dOp(
         tool=tool,
@@ -112,13 +115,15 @@ def test_pocketing_preserves_branch_seam_trajectory_between_rings():
         )
     )
     context = _PocketingContext(
-        tool=CylindricalTool(
-            id="tool-1",
-            name="1/4in flat end mill",
-            tool_number=1,
-            diameter=6.35,
-            cutting_height=20.0,
-            shoulder_height=10.0,
+        tool=build_tool(
+            CylindricalToolInput(
+                id="tool-1",
+                name="1/4in flat end mill",
+                tool_number=1,
+                diameter=6.35,
+                cutting_height=20.0,
+                shoulder_height=10.0,
+            )
         ),
         stepover=25.0,
         stock_to_leave=0.0,

@@ -46,10 +46,7 @@ import {
   getSceneBounds,
   updateCameraDepthRange,
 } from "./scene-utils";
-import {
-  createBaseSimulationCylinderGeometry,
-  createSimulationStockMesh,
-} from "./simulation";
+import { createSimulationStockMesh } from "./simulation";
 import type { MeshFaceSelection, PolylinePoint, PolylineViewerSceneProps, ToolRenderMode } from "./types";
 
 type LoadedDisplayMesh = {
@@ -112,6 +109,24 @@ function applyStockVertexColor(geometry: THREE.BufferGeometry, stockColor: numbe
   geometry.setAttribute("color", new THREE.BufferAttribute(nextColors, 3));
 }
 
+function setObjectWireframe(object: THREE.Object3D | null, enabled: boolean) {
+  if (!object) {
+    return;
+  }
+  object.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) {
+      return;
+    }
+    const materials = Array.isArray(child.material) ? child.material : [child.material];
+    for (const material of materials) {
+      if (material instanceof THREE.MeshStandardMaterial) {
+        material.wireframe = enabled;
+        material.needsUpdate = true;
+      }
+    }
+  });
+}
+
 export function usePolylineViewerScene(
   containerRef: RefObject<HTMLDivElement | null>,
   {
@@ -139,16 +154,17 @@ export function usePolylineViewerScene(
     faceSelectionMode = false,
     selectedMeshFace = null,
     selectedMeshFaces = [],
-    simulationTool = null,
     simulationSamples = [],
     simulationStep = 0,
     simulationToolMeshUrl = null,
     simulationToolPosition = null,
-    simulationToolRotation = null,
-    simulationToolRotationEnabled = true,
     toolRenderMode = "wireframe",
+    partRenderMode = "shaded",
+    stockRenderMode = "shaded",
     showOriginalMesh = true,
     onMeshFaceSelect,
+    onSecondaryMeshDisplayed,
+    onTertiaryMeshDisplayed,
   }: PolylineViewerSceneProps,
 ) {
   const currentPolylinesRef = useRef(polylines);
@@ -174,24 +190,23 @@ export function usePolylineViewerScene(
   const scsRendererRef = useRef<SCSRenderer | null>(null);
   const simulationDummyMeshRef = useRef<THREE.Mesh | null>(null);
   const simulationToolPreviewMeshRef = useRef<THREE.Mesh | null>(null);
-  const simulationToolPreviewBaseGeometryRef = useRef<THREE.BufferGeometry | null>(null);
-  const simulationToolPreviewLoadedGeometryRef = useRef<THREE.BufferGeometry | null>(null);
+  const simulationToolPlaceholderGeometryRef = useRef<THREE.BufferGeometry | null>(null);
+  const simulationToolGeometryRef = useRef<THREE.BufferGeometry | null>(null);
   const simulationStockMeshRef = useRef<THREE.Mesh | null>(null);
-  const simulationCutterGeometryRef = useRef<THREE.BufferGeometry | null>(null);
   const simulationCutterMaterialRef = useRef<THREE.MeshBasicMaterial | null>(null);
   const simulationCuttersRef = useRef<THREE.Mesh[]>([]);
   const simulationPreparedStepRef = useRef(0);
-  const simulationToolRotationRef = useRef(0);
   const faceSelectionModeRef = useRef(faceSelectionMode);
   const onMeshFaceSelectRef = useRef(onMeshFaceSelect);
   const selectedMeshFacesRef = useRef<ReadonlyArray<MeshFaceSelection>>(selectedMeshFaces.length > 0 ? selectedMeshFaces : selectedMeshFace ? [selectedMeshFace] : []);
-  const simulationToolRef = useRef(simulationTool);
   const simulationSamplesRef = useRef(simulationSamples);
   const simulationStepRef = useRef(simulationStep);
   const simulationToolPositionRef = useRef<PolylinePoint | null>(simulationToolPosition);
-  const simulationToolRotationPropRef = useRef<number | null>(simulationToolRotation);
-  const simulationToolRotationEnabledRef = useRef(simulationToolRotationEnabled);
+  const onSecondaryMeshDisplayedRef = useRef(onSecondaryMeshDisplayed);
+  const onTertiaryMeshDisplayedRef = useRef(onTertiaryMeshDisplayed);
   const toolRenderModeRef = useRef<ToolRenderMode>(toolRenderMode);
+  const partRenderModeRef = useRef<ToolRenderMode>(partRenderMode);
+  const stockRenderModeRef = useRef<ToolRenderMode>(stockRenderMode);
   const showOriginalMeshRef = useRef(showOriginalMesh);
   const showMeshRef = useRef(showMesh);
   const showSecondaryMeshRef = useRef(showSecondaryMesh);
@@ -230,12 +245,12 @@ export function usePolylineViewerScene(
   }, [simulationToolPosition]);
 
   useEffect(() => {
-    simulationToolRotationPropRef.current = simulationToolRotation;
-  }, [simulationToolRotation]);
+    onSecondaryMeshDisplayedRef.current = onSecondaryMeshDisplayed;
+  }, [onSecondaryMeshDisplayed]);
 
   useEffect(() => {
-    simulationToolRotationEnabledRef.current = simulationToolRotationEnabled;
-  }, [simulationToolRotationEnabled]);
+    onTertiaryMeshDisplayedRef.current = onTertiaryMeshDisplayed;
+  }, [onTertiaryMeshDisplayed]);
 
   useEffect(() => {
     toolRenderModeRef.current = toolRenderMode;
@@ -250,6 +265,19 @@ export function usePolylineViewerScene(
       material.needsUpdate = true;
     }
   }, [toolRenderMode]);
+
+  useEffect(() => {
+    partRenderModeRef.current = partRenderMode;
+    setObjectWireframe(meshRef.current, partRenderMode === "wireframe");
+  }, [partRenderMode]);
+
+  useEffect(() => {
+    stockRenderModeRef.current = stockRenderMode;
+    const enabled = stockRenderMode === "wireframe";
+    setObjectWireframe(secondaryMeshGroupRef.current, enabled);
+    setObjectWireframe(tertiaryMeshGroupRef.current, enabled);
+    setObjectWireframe(simulationStockMeshRef.current, enabled);
+  }, [stockRenderMode]);
 
   useEffect(() => {
     showOriginalMeshRef.current = showOriginalMesh;
@@ -351,6 +379,7 @@ export function usePolylineViewerScene(
       renderer: THREE.WebGLRenderer,
       enableSelection: boolean,
       cancelled: () => boolean,
+      wireframe = false,
     ) => {
       const targetGroup = new THREE.Group();
       const sourceGeometry = await loadMeshGeometry(sourceUrl);
@@ -376,6 +405,7 @@ export function usePolylineViewerScene(
             polygonOffset: true,
             polygonOffsetFactor: 1,
             polygonOffsetUnits: 1,
+            wireframe,
           }),
         );
         mesh.userData.stepFaceRanges = stepFaceRanges;
@@ -433,6 +463,7 @@ export function usePolylineViewerScene(
         opacity: clampedOpacity,
         depthWrite: clampedOpacity >= 1,
         depthFunc: THREE.LessEqualDepth,
+        wireframe,
       });
       const mesh = new THREE.Mesh(renderGeometry, meshMaterial);
       mesh.renderOrder = clampedOpacity < 1 ? 3 : 1;
@@ -520,117 +551,37 @@ export function usePolylineViewerScene(
 
   const updateToolPreview = useCallback(() => {
     const previewMesh = simulationToolPreviewMeshRef.current;
-    const tool = simulationToolRef.current;
+    const geometry = simulationToolGeometryRef.current;
     const samples = simulationSamplesRef.current;
     const step = simulationStepRef.current;
     const toolPosition = simulationToolPositionRef.current;
-    const hasLoadedToolMesh = simulationToolPreviewLoadedGeometryRef.current != null;
-    const explicitToolRotation = simulationToolRotationPropRef.current;
-    const toolRotationEnabled = simulationToolRotationEnabledRef.current;
 
-    const updateToolRotation = (
-      currentPosition: PolylinePoint,
-      previousPosition: PolylinePoint | null,
-      nextPosition: PolylinePoint | null,
-    ) => {
-      const candidateVectors: PolylinePoint[] = [];
-
-      if (previousPosition) {
-        candidateVectors.push([
-          currentPosition[0] - previousPosition[0],
-          currentPosition[1] - previousPosition[1],
-          currentPosition[2] - previousPosition[2],
-        ]);
-      }
-
-      if (nextPosition) {
-        candidateVectors.push([
-          nextPosition[0] - currentPosition[0],
-          nextPosition[1] - currentPosition[1],
-          nextPosition[2] - currentPosition[2],
-        ]);
-      }
-
-      for (const [dx, dy] of candidateVectors) {
-        if (Math.hypot(dx, dy) <= 1e-6) {
-          continue;
-        }
-        simulationToolRotationRef.current = Math.atan2(dy, dx);
-        break;
-      }
-
-      if (previewMesh) {
-        previewMesh.rotation.set(0, 0, simulationToolRotationRef.current);
-      }
-    };
-
-    if (!previewMesh || !showToolRef.current) {
+    if (!previewMesh || !showToolRef.current || !geometry) {
       if (previewMesh) {
         previewMesh.visible = false;
       }
       return;
     }
 
+    previewMesh.scale.set(1, 1, 1);
+
     if (toolPosition) {
-      const previousSample = step > 0 && step - 1 < samples.length
-        ? samples[Math.max(step - 1, 0)]
-        : null;
-      const nextSample = step < samples.length ? samples[step] : null;
-
-      if (hasLoadedToolMesh) {
-        previewMesh.scale.set(1, 1, 1);
-        previewMesh.position.set(toolPosition[0], toolPosition[1], toolPosition[2]);
-      } else if (tool) {
-        previewMesh.scale.set(tool.diameter, tool.diameter, tool.cuttingHeight);
-        previewMesh.position.set(
-          toolPosition[0],
-          toolPosition[1],
-          toolPosition[2] + tool.cuttingHeight / 2,
-        );
-      } else {
-        previewMesh.visible = false;
-        return;
-      }
-
-      if (!toolRotationEnabled) {
-        simulationToolRotationRef.current = 0;
-        previewMesh.rotation.set(0, 0, 0);
-      } else if (explicitToolRotation != null) {
-        simulationToolRotationRef.current = explicitToolRotation;
-        previewMesh.rotation.set(0, 0, simulationToolRotationRef.current);
-      } else {
-        updateToolRotation(
-          toolPosition,
-          previousSample ? [previousSample.x, previousSample.y, previousSample.z] : null,
-          nextSample ? [nextSample.x, nextSample.y, nextSample.z] : null,
-        );
-      }
+      previewMesh.position.set(toolPosition[0], toolPosition[1], toolPosition[2]);
+      previewMesh.rotation.set(0, 0, 0);
       previewMesh.visible = true;
       previewMesh.updateMatrixWorld(true);
       return;
     }
 
-    if (!tool || step <= 0 || samples.length === 0) {
+    if (step <= 0 || samples.length === 0) {
       previewMesh.visible = false;
       return;
     }
 
     const sampleIndex = Math.min(step, samples.length) - 1;
     const sample = samples[sampleIndex];
-    const previousSample = sampleIndex > 0 ? samples[sampleIndex - 1] : null;
-    const nextSample = sampleIndex + 1 < samples.length ? samples[sampleIndex + 1] : null;
-    previewMesh.scale.set(tool.diameter, tool.diameter, tool.cuttingHeight);
-    previewMesh.position.set(sample.x, sample.y, sample.z + tool.cuttingHeight / 2);
-    if (!toolRotationEnabled) {
-      simulationToolRotationRef.current = 0;
-      previewMesh.rotation.set(0, 0, 0);
-    } else {
-      updateToolRotation(
-        [sample.x, sample.y, sample.z],
-        previousSample ? [previousSample.x, previousSample.y, previousSample.z] : null,
-        nextSample ? [nextSample.x, nextSample.y, nextSample.z] : null,
-      );
-    }
+    previewMesh.position.set(sample.x, sample.y, sample.z);
+    previewMesh.rotation.set(0, 0, 0);
     previewMesh.visible = true;
     previewMesh.updateMatrixWorld(true);
   }, []);
@@ -641,13 +592,11 @@ export function usePolylineViewerScene(
   }, [showTool, updateToolPreview]);
 
   const prepareSimulationCutters = useCallback((targetStep: number) => {
-    const tool = simulationToolRef.current;
+    const geometry = simulationToolGeometryRef.current;
     const samples = simulationSamplesRef.current;
-    const baseGeometry = simulationCutterGeometryRef.current;
     const cutterMaterial = simulationCutterMaterialRef.current;
-    const toolRotationEnabled = simulationToolRotationEnabledRef.current;
 
-    if (!tool || !baseGeometry || !cutterMaterial) {
+    if (!geometry || !cutterMaterial) {
       return;
     }
 
@@ -658,31 +607,9 @@ export function usePolylineViewerScene(
       index += 1
     ) {
       const sample = samples[index];
-      const previousSample = index > 0 ? samples[index - 1] : null;
-      const nextSample = index + 1 < samples.length ? samples[index + 1] : null;
-      const cutter = new THREE.Mesh(baseGeometry, cutterMaterial);
-      cutter.scale.set(tool.diameter, tool.diameter, tool.cuttingHeight);
-      cutter.position.set(sample.x, sample.y, sample.z + tool.cuttingHeight / 2);
-
-      if (toolRotationEnabled) {
-        const candidateVectors: Array<readonly [number, number]> = [];
-        if (previousSample) {
-          candidateVectors.push([sample.x - previousSample.x, sample.y - previousSample.y]);
-        }
-        if (nextSample) {
-          candidateVectors.push([nextSample.x - sample.x, nextSample.y - sample.y]);
-        }
-        for (const [dx, dy] of candidateVectors) {
-          if (Math.hypot(dx, dy) <= 1e-6) {
-            continue;
-          }
-          cutter.rotation.set(0, 0, Math.atan2(dy, dx));
-          break;
-        }
-      } else {
-        cutter.rotation.set(0, 0, 0);
-      }
-
+      const cutter = new THREE.Mesh(geometry, cutterMaterial);
+      cutter.position.set(sample.x, sample.y, sample.z);
+      cutter.rotation.set(0, 0, 0);
       cutter.updateMatrixWorld(true);
       simulationCuttersRef.current.push(cutter);
     }
@@ -696,7 +623,7 @@ export function usePolylineViewerScene(
   const rebuildSimulationResources = useCallback(() => {
     clearSimulationResources();
 
-    const tool = simulationToolRef.current;
+    const geometry = simulationToolGeometryRef.current;
     const samples = simulationSamplesRef.current;
     const bounds = meshBoundsRef.current;
 
@@ -706,14 +633,11 @@ export function usePolylineViewerScene(
     }
 
     simulationStockMeshRef.current = createSimulationStockMesh(bounds);
+    setObjectWireframe(simulationStockMeshRef.current, stockRenderModeRef.current === "wireframe");
 
-    if (!tool || samples.length === 0) {
+    if (!geometry || samples.length === 0) {
       updateToolPreview();
       return;
-    }
-
-    if (!simulationCutterGeometryRef.current) {
-      simulationCutterGeometryRef.current = createBaseSimulationCylinderGeometry();
     }
 
     if (!simulationCutterMaterialRef.current) {
@@ -727,28 +651,32 @@ export function usePolylineViewerScene(
   }, [clearSimulationResources, prepareSimulationCutters, updateToolPreview]);
 
   useEffect(() => {
-    simulationToolRef.current = simulationTool;
     simulationSamplesRef.current = simulationSamples;
-    simulationToolRotationEnabledRef.current = simulationToolRotationEnabled;
     rebuildSimulationResources();
-  }, [rebuildSimulationResources, simulationSamples, simulationTool, simulationToolRotationEnabled]);
+  }, [rebuildSimulationResources, simulationSamples]);
 
   useEffect(() => {
     const previewMesh = simulationToolPreviewMeshRef.current;
-    const baseGeometry = simulationToolPreviewBaseGeometryRef.current;
+    const placeholderGeometry = simulationToolPlaceholderGeometryRef.current;
 
-    if (!previewMesh || !baseGeometry) {
+    if (!previewMesh || !placeholderGeometry) {
       return undefined;
     }
 
     let cancelled = false;
 
-    if (!simulationToolMeshUrl) {
-      if (simulationToolPreviewLoadedGeometryRef.current) {
-        previewMesh.geometry = baseGeometry;
-        simulationToolPreviewLoadedGeometryRef.current.dispose();
-        simulationToolPreviewLoadedGeometryRef.current = null;
+    const clearLoadedToolGeometry = () => {
+      if (!simulationToolGeometryRef.current) {
+        return;
       }
+      previewMesh.geometry = placeholderGeometry;
+      simulationToolGeometryRef.current.dispose();
+      simulationToolGeometryRef.current = null;
+    };
+
+    if (!simulationToolMeshUrl) {
+      clearLoadedToolGeometry();
+      rebuildSimulationResources();
       updateToolPreview();
       return undefined;
     }
@@ -778,16 +706,17 @@ export function usePolylineViewerScene(
           return;
         }
 
-        if (simulationToolPreviewLoadedGeometryRef.current) {
-          simulationToolPreviewLoadedGeometryRef.current.dispose();
-        }
-
+        clearLoadedToolGeometry();
         previewMesh.geometry = renderGeometry;
-        simulationToolPreviewLoadedGeometryRef.current = renderGeometry;
+        simulationToolGeometryRef.current = renderGeometry;
+        rebuildSimulationResources();
         updateToolPreview();
       } catch (error) {
         if (!cancelled) {
           console.error("Failed to load tool mesh", error);
+          clearLoadedToolGeometry();
+          rebuildSimulationResources();
+          updateToolPreview();
         }
       }
     };
@@ -797,7 +726,7 @@ export function usePolylineViewerScene(
     return () => {
       cancelled = true;
     };
-  }, [simulationToolMeshUrl, updateToolPreview]);
+  }, [rebuildSimulationResources, simulationToolMeshUrl, updateToolPreview]);
 
   useEffect(() => {
     simulationStepRef.current = simulationStep;
@@ -807,7 +736,7 @@ export function usePolylineViewerScene(
 
   useEffect(() => {
     updateToolPreview();
-  }, [simulationToolPosition, simulationToolRotation, simulationToolRotationEnabled, showOriginalMesh, updateToolPreview]);
+  }, [simulationToolPosition, showOriginalMesh, updateToolPreview]);
 
   const showEdgeLoopPreview = useCallback((loop: StepEdgeLoop) => {
     if (hoveredEdgeLoopRef.current?.id === loop.id) {
@@ -1011,10 +940,10 @@ export function usePolylineViewerScene(
     scene.add(tertiaryMeshGroup);
     tertiaryMeshGroupRef.current = tertiaryMeshGroup;
 
-    const simulationToolPreviewGeometry = createBaseSimulationCylinderGeometry();
-    simulationToolPreviewBaseGeometryRef.current = simulationToolPreviewGeometry;
+    const simulationToolPlaceholderGeometry = new THREE.BufferGeometry();
+    simulationToolPlaceholderGeometryRef.current = simulationToolPlaceholderGeometry;
     const simulationToolPreviewMesh = new THREE.Mesh(
-      simulationToolPreviewGeometry,
+      simulationToolPlaceholderGeometry,
       new THREE.MeshStandardMaterial({
         color: TOOL_PREVIEW_COLOR,
         transparent: true,
@@ -1187,15 +1116,10 @@ export function usePolylineViewerScene(
       renderer.domElement.removeEventListener("pointerdown", handlePointerDown);
       controls.dispose();
       clearSimulationResources();
-      simulationCutterGeometryRef.current?.dispose();
+      simulationToolGeometryRef.current?.dispose();
+      simulationToolPlaceholderGeometryRef.current?.dispose();
       simulationCutterMaterialRef.current?.dispose();
       scsRendererRef.current?.dispose();
-
-      const previewMesh = simulationToolPreviewMeshRef.current;
-      const previewBaseGeometry = simulationToolPreviewBaseGeometryRef.current;
-      if (previewMesh && previewBaseGeometry && previewMesh.geometry !== previewBaseGeometry) {
-        previewBaseGeometry.dispose();
-      }
 
       disposeObject(scene);
       renderer.dispose();
@@ -1226,10 +1150,9 @@ export function usePolylineViewerScene(
       scsRendererRef.current = null;
       simulationDummyMeshRef.current = null;
       simulationToolPreviewMeshRef.current = null;
-      simulationToolPreviewBaseGeometryRef.current = null;
-      simulationToolPreviewLoadedGeometryRef.current = null;
+      simulationToolPlaceholderGeometryRef.current = null;
+      simulationToolGeometryRef.current = null;
       simulationStockMeshRef.current = null;
-      simulationCutterGeometryRef.current = null;
       simulationCutterMaterialRef.current = null;
       simulationCuttersRef.current = [];
       simulationPreparedStepRef.current = 0;
@@ -1271,6 +1194,7 @@ export function usePolylineViewerScene(
           renderer,
           true,
           () => cancelled,
+          partRenderModeRef.current === "wireframe",
         );
 
         if (!result || cancelled) {
@@ -1333,6 +1257,8 @@ export function usePolylineViewerScene(
     let cancelled = false;
 
     const loadSecondaryMesh = async () => {
+      const startedAt = performance.now();
+
       try {
         const result = await loadDisplayMeshIntoGroup(
           secondaryMeshUrl,
@@ -1343,6 +1269,7 @@ export function usePolylineViewerScene(
           renderer,
           false,
           () => cancelled,
+          stockRenderModeRef.current === "wireframe",
         );
 
         if (!result || cancelled) {
@@ -1353,6 +1280,7 @@ export function usePolylineViewerScene(
         }
 
         swapGroupContents(secondaryMeshGroup, result.group);
+        onSecondaryMeshDisplayedRef.current?.(secondaryMeshUrl, performance.now() - startedAt);
       } catch (error) {
         if (!cancelled) {
           console.error("Failed to load secondary mesh", error);
@@ -1391,6 +1319,8 @@ export function usePolylineViewerScene(
     let cancelled = false;
 
     const loadTertiaryMesh = async () => {
+      const startedAt = performance.now();
+
       try {
         const result = await loadDisplayMeshIntoGroup(
           tertiaryMeshUrl,
@@ -1401,6 +1331,7 @@ export function usePolylineViewerScene(
           renderer,
           false,
           () => cancelled,
+          stockRenderModeRef.current === "wireframe",
         );
 
         if (!result || cancelled) {
@@ -1409,6 +1340,7 @@ export function usePolylineViewerScene(
         }
 
         swapGroupContents(tertiaryMeshGroup, result.group);
+        onTertiaryMeshDisplayedRef.current?.(tertiaryMeshUrl, performance.now() - startedAt);
       } catch (error) {
         if (!cancelled) console.error("Failed to load tertiary mesh", error);
       }

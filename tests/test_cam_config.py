@@ -4,7 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from opencam.schemas.cam import GenerateToolpathRequest
-from opencam.schemas.tools import BallToolInput, CylindricalToolInput
+from opencam.schemas.tools import BallTool, CylindricalTool
 from opencam.services.tool_mesh import build_tool
 from server.main import app
 
@@ -15,7 +15,7 @@ client = TestClient(app)
 @pytest.fixture
 def pocket_request_payload() -> dict:
     tool = build_tool(
-        CylindricalToolInput(
+        CylindricalTool(
             id="tool-2mm",
             name="2mm flat end mill",
             tool_number=1,
@@ -155,7 +155,7 @@ def test_absolute_stepover_is_converted_for_the_pocket_engine(pocket_request_pay
 def test_ball_tools_are_supported(pocket_request_payload: dict):
     payload = deepcopy(pocket_request_payload)
     payload["operation"]["tool"] = build_tool(
-        BallToolInput(
+        BallTool(
             id="tool-2mm-ball",
             name="2mm ball end mill",
             tool_number=1,

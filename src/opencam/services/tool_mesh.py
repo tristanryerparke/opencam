@@ -1,19 +1,11 @@
 from __future__ import annotations
 
 import math
-from uuid import uuid4
 
 import numpy as np
 import trimesh
 
-from opencam.schemas.tools import (
-    BallTool,
-    BallToolInput,
-    CylindricalTool,
-    CylindricalToolInput,
-    Tool,
-    ToolInput,
-)
+from opencam.schemas.tools import BallTool, CylindricalTool, Tool
 
 TOOL_SEGMENTS = 16
 
@@ -30,7 +22,7 @@ def _ring(radius: float, z: float, segments: int) -> np.ndarray:
 
 
 def build_cylindrical_tool(
-    tool: CylindricalToolInput | CylindricalTool,
+    tool: CylindricalTool,
     segments: int = TOOL_SEGMENTS,
 ) -> tuple[np.ndarray, np.ndarray]:
     radius = tool.diameter / 2.0
@@ -68,7 +60,7 @@ def build_cylindrical_tool(
 
 
 def build_ball_tool(
-    tool: BallToolInput | BallTool,
+    tool: BallTool,
     segments: int = TOOL_SEGMENTS,
 ) -> tuple[np.ndarray, np.ndarray]:
     radius = tool.diameter / 2.0
@@ -121,10 +113,10 @@ def build_ball_tool(
     return np.asarray(vertices, dtype=np.float64), np.asarray(faces, dtype=np.int32)
 
 
-def build_tool_mesh_vertices_faces(tool: ToolInput | Tool) -> tuple[np.ndarray, np.ndarray]:
-    if isinstance(tool, (CylindricalToolInput, CylindricalTool)):
+def build_tool_mesh_vertices_faces(tool: Tool) -> tuple[np.ndarray, np.ndarray]:
+    if isinstance(tool, CylindricalTool):
         return build_cylindrical_tool(tool)
-    if isinstance(tool, (BallToolInput, BallTool)):
+    if isinstance(tool, BallTool):
         return build_ball_tool(tool)
     raise NotImplementedError(f"Tool type {tool.type!r} is not supported.")
 
@@ -135,19 +127,10 @@ def build_tool_mesh_glb(vertices: np.ndarray, faces: np.ndarray) -> bytes:
     return mesh.export(file_type="glb")
 
 
-def build_tool(tool: ToolInput, *, tool_id: str | None = None) -> Tool:
-    common = tool.model_dump(mode="python", exclude={"id", "type"})
-    resolved_id = tool_id or tool.id or str(uuid4())
-
-    if isinstance(tool, CylindricalToolInput):
-        return CylindricalTool(id=resolved_id, **common)
-    if isinstance(tool, BallToolInput):
-        return BallTool(id=resolved_id, **common)
-    raise NotImplementedError(f"Tool type {tool.type!r} is not supported.")
+def build_tool(tool: Tool, *, tool_id: str | None = None) -> Tool:
+    return tool if tool_id is None else tool.model_copy(update={"id": tool_id})
 
 
-def build_tool_mesh_glb_from_tool(tool: ToolInput | Tool) -> bytes:
+def build_tool_mesh_glb_from_tool(tool: Tool) -> bytes:
     vertices, faces = build_tool_mesh_vertices_faces(tool)
     return build_tool_mesh_glb(vertices, faces)
-
-

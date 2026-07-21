@@ -16,27 +16,6 @@ export interface BallTool {
   numFlutes?: number;
   type?: "ball";
 }
-export interface BallToolInput {
-  id?: string | null;
-  name: string;
-  toolNumber: number;
-  manualChange?: boolean;
-  diameter: number;
-  cuttingHeight: number;
-  shoulderHeight: number;
-  numFlutes?: number;
-  type?: "ball";
-}
-export interface BaseToolInput {
-  id?: string | null;
-  name: string;
-  toolNumber: number;
-  manualChange?: boolean;
-  diameter: number;
-  cuttingHeight: number;
-  shoulderHeight: number;
-  numFlutes?: number;
-}
 export interface CylindricalTool {
   id?: string;
   name: string;
@@ -48,31 +27,8 @@ export interface CylindricalTool {
   numFlutes?: number;
   type?: "cylinder";
 }
-export interface CylindricalToolInput {
-  id?: string | null;
-  name: string;
-  toolNumber: number;
-  manualChange?: boolean;
-  diameter: number;
-  cuttingHeight: number;
-  shoulderHeight: number;
-  numFlutes?: number;
-  type?: "cylinder";
-}
 export interface VTool {
   id?: string;
-  name: string;
-  toolNumber: number;
-  manualChange?: boolean;
-  diameter: number;
-  cuttingHeight: number;
-  shoulderHeight: number;
-  numFlutes?: number;
-  type?: "v";
-  tipAngle: number;
-}
-export interface VToolInput {
-  id?: string | null;
   name: string;
   toolNumber: number;
   manualChange?: boolean;

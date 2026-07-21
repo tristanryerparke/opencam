@@ -18,11 +18,6 @@ class PocketTreeNode:
 
 
 @dataclass
-class PocketPathTemplate:
-    coordinates: np.ndarray
-
-
-@dataclass
 class StraightRunCandidate:
     start_index: int
     end_index: int

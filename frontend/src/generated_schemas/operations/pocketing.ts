@@ -5,6 +5,17 @@
 /* Do not modify it by hand - just update the pydantic models and then re-run the script
 */
 
+export interface BallTool {
+  id?: string;
+  name: string;
+  toolNumber: number;
+  manualChange?: boolean;
+  diameter: number;
+  cuttingHeight: number;
+  shoulderHeight: number;
+  numFlutes?: number;
+  type?: "ball";
+}
 export interface ClosedPolyline25D {
   kind?: "closed_polyline";
   vertices: Point2D[];
@@ -14,6 +25,17 @@ export interface Point2D {
   x: number;
   y: number;
   [k: string]: unknown;
+}
+export interface CylindricalTool {
+  id?: string;
+  name: string;
+  toolNumber: number;
+  manualChange?: boolean;
+  diameter: number;
+  cuttingHeight: number;
+  shoulderHeight: number;
+  numFlutes?: number;
+  type?: "cylinder";
 }
 export interface Pocketing2DOp {
   type?: "pocketing_2d";
@@ -26,30 +48,6 @@ export interface Pocketing2DOp {
   advanced?: CAMAdvancedParameters;
   driveGeometry: PocketingDriveGeometry;
   cutParameters?: PocketingCutSettings;
-}
-export interface CylindricalTool {
-  id?: string;
-  name: string;
-  toolNumber: number;
-  manualChange?: boolean;
-  diameter: number;
-  cuttingHeight: number;
-  shoulderHeight: number;
-  numFlutes?: number;
-  type?: "cylinder";
-  [k: string]: unknown;
-}
-export interface BallTool {
-  id?: string;
-  name: string;
-  toolNumber: number;
-  manualChange?: boolean;
-  diameter: number;
-  cuttingHeight: number;
-  shoulderHeight: number;
-  numFlutes?: number;
-  type?: "ball";
-  [k: string]: unknown;
 }
 export interface VTool {
   id?: string;

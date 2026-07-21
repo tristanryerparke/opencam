@@ -1,5 +1,5 @@
 from opencam.schemas.cl_data import FeedRatePositionRecord3D, OperationRecord3D, RapidPositionRecord3D
-from opencam.schemas.tools import CylindricalToolInput
+from opencam.schemas.tools import CylindricalTool
 from opencam.services.tool_mesh import build_tool
 
 
@@ -7,7 +7,7 @@ def test_operation_records_parse_their_feed_type():
     operation = OperationRecord3D.model_validate(
         {
             "tool": build_tool(
-                CylindricalToolInput(
+                CylindricalTool(
                     id="tool-1",
                     name="2mm flat end mill",
                     tool_number=1,

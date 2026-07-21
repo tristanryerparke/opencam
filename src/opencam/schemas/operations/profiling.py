@@ -4,9 +4,18 @@ from typing import Literal
 
 from pydantic import ConfigDict, Field
 
+from opencam.engine.levels.heights import compute_layer_heights
+from opencam.engine.levels.layers import (
+    build_cut_record_sequence,
+    duplicate_layers_at_heights,
+    stitch_geometry_records,
+)
+from opencam.engine.profiling.layer import build_profile_layers
 from opencam.schemas.base import CamelBaseModel
+from opencam.schemas.cl_data import PositionRecord
 from opencam.schemas.geometry_2_5d import ClosedPolyline25D, Polyline25D
 from opencam.schemas.operations.base import BaseCAMOperation, ui_metadata
+from opencam.schemas.tools import BallTool, CylindricalTool
 
 
 class ProfilingDriveGeometry(CamelBaseModel):
@@ -29,3 +38,36 @@ class Profiling2dOp(BaseCAMOperation):
 
     def max_cut_z(self) -> float:
         return self.levels.max_cut_z(profile.z for profile in self.drive_geometry.profiles)
+
+    def build_records(self, *, clearance_plane_height: float) -> list[PositionRecord]:
+        if not isinstance(self.tool, (CylindricalTool, BallTool)):
+            raise NotImplementedError(f"Tool type {self.tool.type!r} is not supported for operation generation.")
+
+        record_groups: list[list[PositionRecord]] = []
+        for geometry in self.drive_geometry.profiles:
+            layers = build_profile_layers(
+                geometry,
+                tool_diameter=self.tool.diameter,
+                stock_to_leave=self.cut_parameters.stock_to_leave,
+                side=self.cut_parameters.side,
+                chord_tolerance=self.advanced.chordal_tolerance,
+            )
+            if not layers:
+                raise ValueError("Profiling geometry is too small for the selected tool diameter and stock to leave.")
+
+            cut_layers = duplicate_layers_at_heights(
+                layers,
+                compute_layer_heights(
+                    self.levels.z_bounds(geometry.z),
+                    self.levels.max_stepdown,
+                ),
+                feedrate=self.feeds_and_speeds.cut_feedrate,
+            )
+            record_groups.append(
+                build_cut_record_sequence(
+                    cut_layers,
+                    clearance_plane_height=clearance_plane_height,
+                )
+            )
+
+        return stitch_geometry_records(record_groups)

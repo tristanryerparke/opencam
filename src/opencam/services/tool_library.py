@@ -9,7 +9,6 @@ from pydantic import TypeAdapter
 from tinydb import Query, TinyDB
 from tinydb.table import Table
 
-from opencam.schemas.operations.base import Material
 from opencam.schemas.tools import Tool
 
 TOOL_ADAPTER = TypeAdapter(Tool)
@@ -19,7 +18,7 @@ TOOL_LIBRARY_PATH_ENV = "OPENCAM_TINYDB_PATH"
 
 
 class ToolLibrary:
-    """TinyDB-backed store for tool-library records."""
+    """TinyDB-backed store for tool records."""
 
     def __init__(self, path: str | os.PathLike[str] | None = None, *, db: TinyDB | None = None):
         self._owns_db = db is None
@@ -31,7 +30,6 @@ class ToolLibrary:
         self._db = db
         self._lock = Lock()
         self._tools = self._db.table("tools")
-        self._materials = self._db.table("materials")
 
     def close(self) -> None:
         if self._owns_db:
@@ -64,20 +62,6 @@ class ToolLibrary:
             record = Query()
             deleted_ids = self._tools.remove(record.id == tool_id)
             return len(deleted_ids) > 0
-
-    def list_materials(self) -> list[Material]:
-        with self._lock:
-            return [Material.model_validate(row) for row in self._materials.all()]
-
-    def get_material(self, material_id: str) -> Material | None:
-        with self._lock:
-            row = self._get_by_id(self._materials, material_id)
-            return Material.model_validate(row) if row is not None else None
-
-    def add_material(self, material: Material) -> Material:
-        with self._lock:
-            self._insert_unique_id(self._materials, material.model_dump(mode="json", by_alias=True))
-            return material
 
     @staticmethod
     def _parse_tool_row(row: dict[str, Any]) -> Tool:

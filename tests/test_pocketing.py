@@ -5,15 +5,26 @@ import numpy as np
 import pytest
 from shapely.geometry import Polygon
 
+from opencam.engine.closed_polyline.seam_shift import seam_shift
 from opencam.engine.closed_polyline.validation import validate_closed_polyline
+from opencam.engine.pocketing.geometry import polygon_center
+from opencam.engine.pocketing.layer import (
+    append_coordinates,
+    can_connect_directly,
+    compute_branch_side_vector,
+    last_coordinate,
+    node_to_layer_polyline,
+)
+from opencam.engine.pocketing.seams import longest_straight_edge_midpoint_length_near_initial_seam
+from opencam.engine.pocketing.tree import build_ordered_pocket_nodes
 from opencam.schemas.cam import CAMSetup
 from opencam.schemas.cl_data import FeedRatePositionRecord3D, RapidPositionRecord3D
 from opencam.schemas.geometry_2_5d import ClosedPolyline25D
 from opencam.schemas.geometry_2d import Point2D
 from opencam.schemas.operations.base import AbsoluteClearance, CAMLevels, FeedsAndSpeeds
 from opencam.schemas.operations.pocketing import Pocketing2dOp, PocketingCutSettings, PocketingDriveGeometry, StepoverMode
-from opencam.schemas.tools import CylindricalToolInput
-from opencam.services.cam_engine import _PocketingContext, cam_engine
+from opencam.schemas.tools import CylindricalTool
+from opencam.services.cam_engine import cam_engine
 from opencam.services.tool_mesh import build_tool
 
 
@@ -29,7 +40,7 @@ def rectangle_vertices() -> list[Point2D]:
 
 def generate_pocket(*, tmp_path, depth_of_cut: float):
     tool = build_tool(
-        CylindricalToolInput(
+        CylindricalTool(
             id="tool-1",
             name="2mm flat end mill",
             tool_number=1,
@@ -114,24 +125,28 @@ def test_pocketing_preserves_branch_seam_trajectory_between_rings():
             dtype=float,
         )
     )
-    context = _PocketingContext(
-        tool=build_tool(
-            CylindricalToolInput(
-                id="tool-1",
-                name="1/4in flat end mill",
-                tool_number=1,
-                diameter=6.35,
-                cutting_height=20.0,
-                shoulder_height=10.0,
-            )
-        ),
-        stepover=25.0,
+    tool = build_tool(
+        CylindricalTool(
+            id="tool-1",
+            name="1/4in flat end mill",
+            tool_number=1,
+            diameter=6.35,
+            cutting_height=20.0,
+            shoulder_height=10.0,
+        )
+    )
+    base_polyline = seam_shift(
+        polyline,
+        longest_straight_edge_midpoint_length_near_initial_seam(polyline),
+    )
+    pocket_center = polygon_center(Polygon(base_polyline))
+    ordered_nodes = build_ordered_pocket_nodes(
+        base_polyline,
+        tool_diameter=tool.diameter,
+        stepover_percent=25.0,
         stock_to_leave=0.0,
         chord_tolerance=0.01,
     )
-    base_polyline = context.shift_seam_to_longest_straight_edge_near_initial_seam(polyline)
-    pocket_center = context.polygon_center(Polygon(base_polyline))
-    ordered_nodes = context.build_ordered_pocket_nodes(base_polyline)
     branch_starts: list[list[tuple[float, float]]] = []
     current_coordinates: np.ndarray | None = None
     current_node = None
@@ -140,7 +155,7 @@ def test_pocketing_preserves_branch_seam_trajectory_between_rings():
     current_branch_starts: list[tuple[float, float]] = []
 
     for node in ordered_nodes:
-        connects_directly = current_node is not None and context.can_connect_directly(
+        connects_directly = current_node is not None and can_connect_directly(
             current_node,
             node,
         )
@@ -153,14 +168,14 @@ def test_pocketing_preserves_branch_seam_trajectory_between_rings():
             current_branch_starts = []
 
         if current_coordinates is None:
-            current_branch_side_vector = context.compute_branch_side_vector(
+            current_branch_side_vector = compute_branch_side_vector(
                 node,
                 pocket_center,
             )
 
-        ring_coordinates = context.node_to_path_polyline(
+        ring_coordinates = node_to_layer_polyline(
             node,
-            start_reference=context.last_coordinate(current_coordinates),
+            start_reference=last_coordinate(current_coordinates),
             is_branch_start=current_coordinates is None,
             branch_side_vector=current_branch_side_vector,
             pocket_center=pocket_center,
@@ -171,12 +186,12 @@ def test_pocketing_preserves_branch_seam_trajectory_between_rings():
         )
 
         if current_coordinates is None:
-            current_branch_seam_guide = context.last_coordinate(ring_coordinates)
+            current_branch_seam_guide = last_coordinate(ring_coordinates)
             current_coordinates = ring_coordinates
             current_node = node
             continue
 
-        current_coordinates = context.append_coordinates(
+        current_coordinates = append_coordinates(
             current_coordinates,
             ring_coordinates,
         )

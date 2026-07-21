@@ -1,7 +1,7 @@
 import numpy as np
 
 from opencam.schemas.cl_data import OperationRecord3D, PositionRecord3D, RapidPositionRecord3D
-from opencam.schemas.tools import CylindricalToolInput
+from opencam.schemas.tools import CylindricalTool
 from opencam.services.tool_mesh import build_tool, build_tool_mesh_vertices_faces
 from opencam.simulation import router
 from opencam.simulation.swept_volume import (
@@ -13,7 +13,7 @@ from opencam.simulation.swept_volume import (
 
 
 TOOL = build_tool(
-    CylindricalToolInput(
+    CylindricalTool(
         name="Test Tool",
         tool_number=1,
         diameter=1.0,

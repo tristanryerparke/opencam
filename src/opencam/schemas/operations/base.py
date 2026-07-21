@@ -32,13 +32,6 @@ class FeedsAndSpeeds(CamelBaseModel):
     departure_feedrate: float = Field(default=500.0, gt=0, title="Departure feedrate", json_schema_extra=ui_metadata(unit="mm/min"))
 
 
-class Material(CamelBaseModel):
-    """DB-backed material record."""
-
-    id: str = Field(default_factory=lambda: str(uuid4()))
-    name: str = Field(min_length=1)
-
-
 class StockMaxZPlusOffsetClearance(CamelBaseModel):
     clearance_height_type: Literal["stock_max_z_plus_offset"] = "stock_max_z_plus_offset"
     offset: float = Field(default=5.0, ge=0, title="Offset", json_schema_extra=ui_metadata(unit="mm"))

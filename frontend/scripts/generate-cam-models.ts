@@ -27,7 +27,6 @@ const typescriptSchemaModules = [
   "operations/pocketing.py",
   "operations/profiling.py",
   "setup.py",
-  "tool_library.py",
   "tools.py",
 ].map((relativePath) => ({
   modulePath: path.join(backendSchemasRoot, relativePath),

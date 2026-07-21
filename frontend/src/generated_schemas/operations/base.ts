@@ -26,13 +26,6 @@ export interface FeedsAndSpeeds {
   leadOutFeedrate?: number;
   departureFeedrate?: number;
 }
-/**
- * DB-backed material record.
- */
-export interface Material {
-  id?: string;
-  name: string;
-}
 export interface PartMaxZPlusOffsetClearance {
   clearanceHeightType?: "part_max_z_plus_offset";
   offset?: number;

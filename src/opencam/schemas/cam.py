@@ -11,31 +11,17 @@ from opencam.schemas.operations.profiling import Profiling2dOp
 from opencam.schemas.setup import CAMSetup
 
 
-MachiningOperation = Annotated[
-    Pocketing2dOp | Profiling2dOp,
-    Field(discriminator="type"),
-]
-
-
 class GenerateToolpathRequest(CamelBaseModel):
     model_config = ConfigDict(title="GenerateToolpathRequest")
 
     setup: CAMSetup = Field(default_factory=CAMSetup, title="Setup")
-    operation: MachiningOperation = Field(title="Operation")
+    operation: Pocketing2dOp | Profiling2dOp = Field(title="Operation", discriminator="type")
 
     @model_validator(mode="after")
     def validate_clearance_height(self) -> "GenerateToolpathRequest":
         if self.setup.clearance_height(self.operation) <= self.operation.max_cut_z():
             raise ValueError("Clearance height must be above the operation top Z.")
         return self
-
-    def to_closed_polylines(self) -> list[ClosedPolyline2D]:
-        if not isinstance(self.operation, Pocketing2dOp):
-            return []
-        return [
-            ClosedPolyline2D(vertices=area.vertices)
-            for area in self.operation.drive_geometry.cut_areas
-        ]
 
 
 def build_frontend_cam_schema_bundle() -> dict[str, dict]:

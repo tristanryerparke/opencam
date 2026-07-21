@@ -41,7 +41,7 @@ export interface Point2D {
 }
 export interface GenerateToolpathRequest {
   setup?: CAMSetup;
-  operation: Pocketing2DOp | Profiling2DOp;
+  operation: Pocketing2DOp | Profiling2DOp | ParallelFinishingOp;
 }
 export interface Pocketing2DOp {
   type?: "pocketing_2d";
@@ -179,6 +179,63 @@ export interface Polyline25D {
 export interface ProfilingCutSettings {
   side?: "outside" | "inside";
   cutDirection?: "climb" | "conventional";
+  stockToLeave?: number;
+  [k: string]: unknown;
+}
+export interface ParallelFinishingOp {
+  type?: "parallel_finishing";
+  id?: string;
+  displayName?: string;
+  tool: CylindricalTool | BallTool | VTool;
+  feedsAndSpeeds?: FeedsAndSpeeds;
+  clearance?: AbsoluteClearance | StockMaxZPlusOffsetClearance | PartMaxZPlusOffsetClearance;
+  levels?: CAMLevels;
+  advanced?: CAMAdvancedParameters;
+  partMesh: Mesh | CachedMesh;
+  driveGeometry: ParallelFinishingDriveGeometry;
+  cutParameters?: ParallelFinishingCutSettings;
+}
+/**
+ * Inline triangle-mesh part data.
+ */
+export interface Mesh {
+  source?: "inline";
+  /**
+   * @minItems 3
+   */
+  vertices: [
+    [unknown, unknown, unknown],
+    [unknown, unknown, unknown],
+    [unknown, unknown, unknown],
+    ...[unknown, unknown, unknown][]
+  ];
+  /**
+   * @minItems 1
+   */
+  faces: [[unknown, unknown, unknown], ...[unknown, unknown, unknown][]];
+  [k: string]: unknown;
+}
+/**
+ * A reference to a mesh cached in the server mesh cache.
+ */
+export interface CachedMesh {
+  source?: "cached";
+  cacheId: string;
+  [k: string]: unknown;
+}
+export interface ParallelFinishingDriveGeometry {
+  /**
+   * @minItems 1
+   */
+  cutAreas: [ClosedPolyline25D, ...ClosedPolyline25D[]];
+  [k: string]: unknown;
+}
+export interface ParallelFinishingCutSettings {
+  /**
+   * Lane travel direction in degrees from +X. Stepover advances 90 degrees CCW.
+   */
+  directionDegrees?: number;
+  stepover?: StepoverMode;
   stockToLeave?: number;
   [k: string]: unknown;
 }

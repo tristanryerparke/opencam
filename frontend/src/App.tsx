@@ -138,6 +138,7 @@ type CachedMeshResponse = {
   name: string;
   meshUrl: string;
   maxZ: number;
+  version: string;
 };
 
 type LocalCachedMeshPayload = {
@@ -520,6 +521,7 @@ function App() {
   const [faceSelectionMode, setFaceSelectionMode] = useState(false);
   const [selectedMeshFace, setSelectedMeshFace] = useState<MeshFaceSelection | null>(null);
   const [meshMaxZ, setMeshMaxZ] = useState<number | null>(null);
+  const [cachedMeshVersion, setCachedMeshVersion] = useState<string | null>(null);
   const [operations, setOperations] = useState<Operation[]>([]);
   const [selectedOperationId, setSelectedOperationId] = useState<string | null>(null);
   const [selectedTreeNodeId, setSelectedTreeNodeId] = useState("setup-1");
@@ -772,8 +774,9 @@ function App() {
         restoreController = new AbortController();
         meshRestoreAbortRef.current = restoreController;
         try {
-          await uploadLocalStorageMeshToBackend(localMesh, restoreController.signal);
+          const restoredMesh = await uploadLocalStorageMeshToBackend(localMesh, restoreController.signal);
           if (!cancelled && meshUploadRequestRef.current === requestId) {
+            setCachedMeshVersion(restoredMesh.version);
             setMeshCacheMessage("Cached in browser localStorage and backend memory.");
           }
         } catch (error: unknown) {
@@ -797,6 +800,7 @@ function App() {
       setMeshName(cachedMesh.name);
       setMeshUrl(resolveBackendAssetUrl(cachedMesh.meshUrl));
       setMeshMaxZ(cachedMesh.maxZ);
+      setCachedMeshVersion(cachedMesh.version);
       setMeshCacheState("ready");
       setMeshCacheMessage("Cached in backend memory.");
     })().catch((error: unknown) => {
@@ -1362,7 +1366,7 @@ function App() {
     setIsOperationTypeDialogOpen(false);
     setOperationDialogMode("create");
     setResumeOperationDialogAfterSelection(false);
-    setOperationDraft(createOperationDraft(operationType, operations.length + 1, null, meshMaxZ));
+    setOperationDraft(createOperationDraft(operationType, operations.length + 1, null, meshMaxZ, undefined, cachedMeshVersion));
     setIsOperationDialogOpen(true);
   }
 
@@ -1378,7 +1382,7 @@ function App() {
     setIsOperationTypeDialogOpen(false);
     setOperationDialogMode("edit");
     setResumeOperationDialogAfterSelection(false);
-    setOperationDraft(createOperationDraft((operation.type ?? "pocketing_2d") as OperationType, operationIndex + 1, null, meshMaxZ, operation));
+    setOperationDraft(createOperationDraft((operation.type ?? "pocketing_2d") as OperationType, operationIndex + 1, null, meshMaxZ, operation, cachedMeshVersion));
     setIsOperationDialogOpen(true);
   }
 
@@ -1803,7 +1807,7 @@ function App() {
     }
 
     try {
-      const requestBody = buildGenerateToolpathRequest(operationToGenerate, meshMaxZ);
+      const requestBody = buildGenerateToolpathRequest(operationToGenerate, meshMaxZ, cachedMeshVersion);
       const nextOperationLabel = operationToGenerate.displayName ?? "2D Pocket";
 
       currentGenerationLabelRef.current = nextOperationLabel;
@@ -1922,6 +1926,7 @@ function App() {
     setMeshCacheState(file ? "saving" : "idle");
     setMeshCacheMessage("");
     setMeshMaxZ(null);
+    setCachedMeshVersion(null);
     setSelectedMeshFace(null);
     setOperations([]);
     setGeneratingOperationId(null);
@@ -1970,6 +1975,7 @@ function App() {
         }
 
         setMeshMaxZ(cachedMesh.maxZ);
+        setCachedMeshVersion(cachedMesh.version);
         setMeshCacheMessage(
           localMesh.saved
             ? "Cached in browser localStorage and backend memory."
@@ -2174,6 +2180,7 @@ function App() {
           onOpenChange={setIsOperationTypeDialogOpen}
           onSelectPocketing={() => handleAddTypedOperation("pocketing_2d")}
           onSelectProfiling={() => handleAddTypedOperation("profiling_2d")}
+          onSelectParallelFinishing={() => handleAddTypedOperation("parallel_finishing")}
         />
 
         <OperationDialog

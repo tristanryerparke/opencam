@@ -14,6 +14,7 @@ class CachedMeshMetadata(CamelBaseModel):
     name: str
     mesh_url: str
     max_z: float
+    version: str
 
 
 @dataclass(frozen=True)
@@ -38,6 +39,7 @@ class MeshCache:
                 name=self._current.name,
                 mesh_url=f"{MESH_FILE_URL}?v={self._current.version}",
                 max_z=self._current.max_z,
+                version=self._current.version,
             )
 
     def get_mesh(self) -> CachedMeshRecord | None:
@@ -61,6 +63,7 @@ class MeshCache:
             name=record.name,
             mesh_url=f"{MESH_FILE_URL}?v={record.version}",
             max_z=record.max_z,
+            version=record.version,
         )
 
 

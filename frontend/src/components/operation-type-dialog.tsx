@@ -14,11 +14,13 @@ export function OperationTypeDialog({
   onOpenChange,
   onSelectPocketing,
   onSelectProfiling,
+  onSelectParallelFinishing,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSelectPocketing: () => void;
   onSelectProfiling: () => void;
+  onSelectParallelFinishing: () => void;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -40,6 +42,12 @@ export function OperationTypeDialog({
           <Button type="button" variant="outline" className="h-auto flex-col gap-3 p-4" onClick={onSelectProfiling}>
             <img src={profilingIconUrl} alt="" className="h-20 w-20 scale-150" />
             <span>2.5D Profiling</span>
+          </Button>
+          <Button type="button" variant="outline" className="h-auto flex-col gap-3 p-4" onClick={onSelectParallelFinishing}>
+            <div className="flex h-20 w-20 items-center justify-center text-[2.5rem] leading-none text-muted-foreground">
+              &#x2261;
+            </div>
+            <span>Parallel Finishing</span>
           </Button>
         </div>
       </DialogContent>

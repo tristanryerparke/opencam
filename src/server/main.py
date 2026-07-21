@@ -1,9 +1,12 @@
+import io
 from datetime import datetime
 
+import trimesh
 from fastapi import Depends, FastAPI, File, HTTPException, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from opencam.schemas.cam import GenerateToolpathRequest
 from opencam.schemas.cl_data import OperationRecord3D
+from opencam.schemas.mesh import Mesh
 from opencam.schemas.tools import Tool
 from opencam.services.cam_engine import cam_engine
 from opencam.services.mesh_cache import CachedMeshMetadata, get_mesh_cache
@@ -112,10 +115,26 @@ def clear_cached_mesh():
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+def server_cached_mesh_loader(cache_id: str) -> Mesh | None:
+    """Resolve a cached-mesh reference to inline mesh data from the mesh cache."""
+    record = get_mesh_cache().get_mesh()
+    if record is None or record.version != cache_id:
+        return None
+    mesh = trimesh.load(io.BytesIO(record.mesh_bytes), file_type="stl", force="mesh")
+    return Mesh(
+        vertices=[[float(coordinate) for coordinate in vertex] for vertex in mesh.vertices],
+        faces=[[int(index) for index in face] for face in mesh.faces],
+    )
+
+
 @app.post("/cam/toolpath", response_model=OperationRecord3D)
 async def generate_cam_toolpath(request: GenerateToolpathRequest):
     try:
-        operation = cam_engine(request.setup, request.operation)
+        operation = cam_engine(
+            request.setup,
+            request.operation,
+            cached_mesh_loader=server_cached_mesh_loader,
+        )
         return operation
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

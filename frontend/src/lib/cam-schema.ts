@@ -46,21 +46,25 @@ export type SchemaSection = {
 
 export const pocketOperationSchema = camSchemaBundle.pocket2dOperation as JsonSchema;
 export const profileOperationSchema = camSchemaBundle.profile2dOperation as JsonSchema;
+export const parallelFinishingOperationSchema = camSchemaBundle.parallelFinishingOperation as JsonSchema;
 
 const operationSchemas: Record<OperationType, JsonSchema> = {
   pocketing_2d: pocketOperationSchema,
   profiling_2d: profileOperationSchema,
+  parallel_finishing: parallelFinishingOperationSchema,
 };
 
 const operationLabels: Record<OperationType, string> = {
   pocketing_2d: "2D Pocket",
   profiling_2d: "2D Profile",
+  parallel_finishing: "Parallel Finishing",
 };
 
-const hiddenOperationFields = new Set(["type", "id", "displayName"]);
+const hiddenOperationFields = new Set(["type", "id", "displayName", "partMesh"]);
 const operationSectionOrder = new Map([
   ["driveGeometry", 0],
   ["cutParameters", 1],
+  ["partMesh", 1],
   ["tool", 2],
   ["feedsAndSpeeds", 3],
   ["levels", 4],
@@ -78,11 +82,13 @@ const operationSectionTitles: Record<string, string> = {
 };
 
 function operationTypeFromValue(value: OperationType | DraftObject | Operation | null | undefined): OperationType {
-  if (value === "profiling_2d" || value === "pocketing_2d") {
+  if (value === "profiling_2d" || value === "pocketing_2d" || value === "parallel_finishing") {
     return value;
   }
   const type = value && typeof value === "object" && !Array.isArray(value) ? value.type : undefined;
-  return type === "profiling_2d" ? "profiling_2d" : "pocketing_2d";
+  if (type === "profiling_2d") return "profiling_2d";
+  if (type === "parallel_finishing") return "parallel_finishing";
+  return "pocketing_2d";
 }
 
 export function getOperationSchema(value: OperationType | DraftObject | Operation | null | undefined): JsonSchema {
@@ -469,6 +475,7 @@ export function createOperationDraft(
   selection: MeshFaceSelection | null,
   _meshMaxZ: number | null,
   existingOperation?: Operation,
+  cachedMeshVersion?: string | null,
 ): DraftObject {
   const rootSchema = getOperationSchema(existingOperation ?? operationType);
   const geometryKey = getGeometryArrayKey(rootSchema);
@@ -491,6 +498,16 @@ export function createOperationDraft(
         }
       : driveGeometry,
   } satisfies DraftObject;
+
+  if (operationType === "parallel_finishing") {
+    // Parallel finishing always runs against the currently cached part mesh;
+    // partMesh is hidden from the form and re-pinned to the live cache version
+    // at generation time (buildGenerateToolpathRequest). The draft only needs a
+    // schema-valid placeholder so the Save button is never blocked by it.
+    (hydratedOperation as DraftObject).partMesh = cachedMeshVersion
+      ? { source: "cached", cacheId: cachedMeshVersion }
+      : { source: "inline", vertices: [[0, 0, 0], [0, 0, 0], [0, 0, 0]], faces: [[0, 1, 2]] };
+  }
 
   return schemaValueToDraft(rootSchema, hydratedOperation, rootSchema) as DraftObject;
 }
@@ -531,7 +548,15 @@ export function parseOperationDraft(draft: DraftObject): Operation {
 export function buildGenerateToolpathRequest(
   operation: Operation,
   meshMaxZ: number | null,
+  cachedMeshVersion?: string | null,
 ): GenerateToolpathRequest {
+  // Parallel finishing always runs against the currently cached part mesh;
+  // partMesh is hidden from the form, so pin it to the live cache version here
+  // in case the mesh was re-uploaded after the operation was created.
+  if (operation.type === "parallel_finishing" && cachedMeshVersion) {
+    operation = { ...operation, partMesh: { source: "cached", cacheId: cachedMeshVersion } };
+  }
+
   return {
     setup: {
       origin: { x: 0, y: 0, z: 0 },

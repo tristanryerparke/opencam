@@ -1,7 +1,11 @@
 import base64
 import io
 import math
+import os
+import shutil
 import struct
+import subprocess
+import tempfile
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -19,13 +23,20 @@ SIMPLIFY_AFTER_EACH_CHUNK = False
 DEFAULT_MAX_SIM_DISTANCE = 20
 DEFAULT_CHUNK_PADDING = (5.0, 5.0, 1.0)
 DEFAULT_CHUNK_STEP_DISTANCE = 0.5
-DEFAULT_RAPID_FRAME_STEP_SCALE = 2.0
+DEFAULT_RAPID_FRAME_STEP_SCALE = 4.0
 DEFAULT_PATH_ANGLE_TOLERANCE_DEGREES = 15
 DEFAULT_STRAIGHT_LINE_TOLERANCE_DEGREES = 2
 DEFAULT_ROTATE_TOOL_WITH_PATH = False
 DEFAULT_INCLUDE_CORNER_ROTATION_SWEEPS = True
 STOCK_FACE_COLOR_RGBA = np.array([251, 146, 60, 255], dtype=np.uint8)
 CUT_FACE_COLOR_RGBA = np.array([156, 163, 175, 255], dtype=np.uint8)
+
+# EXT_meshopt_compression (via gltfpack) for served GLBs. Global flag + size
+# threshold; no-op when disabled, when the mesh is too small, or when gltfpack is
+# not on PATH. The frontend GLTFLoader must register MeshoptDecoder to consume
+# these (enable there before flipping OPENCAM_MESHOPT_COMPRESSION=1).
+MESHOPT_COMPRESSION_ENABLED = os.getenv("OPENCAM_MESHOPT_COMPRESSION", "").lower() in ("1", "true", "yes", "on")
+MESHOPT_COMPRESSION_MIN_BYTES = int(os.getenv("OPENCAM_MESHOPT_MIN_BYTES", str(256 * 1024)))
 
 
 @dataclass
@@ -704,6 +715,39 @@ def write_binary_stl(vertices: np.ndarray, faces: np.ndarray) -> bytes:
     return buffer.getvalue()
 
 
+def maybe_compress_glb(glb_bytes: bytes, *, context: str) -> bytes:
+    # Best-effort EXT_meshopt_compression via gltfpack (-cc). Gated by a global
+    # flag and a size threshold; passes through unchanged when disabled, when
+    # too small to benefit, or when the gltfpack binary is missing. Any failure
+    # falls back to the uncompressed bytes so mesh serving never breaks.
+    if (
+        not MESHOPT_COMPRESSION_ENABLED
+        or len(glb_bytes) < MESHOPT_COMPRESSION_MIN_BYTES
+    ):
+        return glb_bytes
+
+    gltfpack = shutil.which("gltfpack")
+    if not gltfpack:
+        return glb_bytes
+
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            in_path = os.path.join(tmp, "in.glb")
+            out_path = os.path.join(tmp, "out.glb")
+            with open(in_path, "wb") as handle:
+                handle.write(glb_bytes)
+            subprocess.run(
+                [gltfpack, "-i", in_path, "-o", out_path, "-cc"],
+                check=True,
+                capture_output=True,
+            )
+            with open(out_path, "rb") as handle:
+                return handle.read()
+    except Exception as exc:  # compression is best-effort
+        print(f"[meshopt] compression failed for {context} ({len(glb_bytes)} bytes): {exc}")
+        return glb_bytes
+
+
 def write_glb(
     vertices: np.ndarray,
     faces: np.ndarray,
@@ -1002,7 +1046,7 @@ def prepare_simulation_chunks(
     rotate_tool_with_path: bool = DEFAULT_ROTATE_TOOL_WITH_PATH,
     should_cancel: Callable[[], bool] | None = None,
     progress_callback: Callable[[int, int, str], None] | None = None,
-) -> list[PreparedSimulationChunk]:
+) -> tuple[list[PreparedSimulationChunk], Manifold]:
     if not math.isfinite(max_sim_distance) or max_sim_distance <= 0:
         raise ValueError("max_sim_distance must be positive.")
     if any(not math.isfinite(padding) or padding < 0 for padding in chunk_padding):
@@ -1058,7 +1102,7 @@ def prepare_simulation_chunks(
                 ),
                 stock_like_original_ids=stock_like_original_ids,
             )
-        ]
+        ], current_stock
 
     prepared_chunks: list[PreparedSimulationChunk] = []
 
@@ -1144,7 +1188,7 @@ def prepare_simulation_chunks(
                 context=f"recombined stock after chunk {chunk_index}",
             )
 
-    return prepared_chunks
+    return prepared_chunks, current_stock
 
 
 def march_tool_positions(
@@ -1399,7 +1443,7 @@ def manifold_to_simplified_glb(
     if stock_like_original_ids is None:
         vertices, faces = manifold_to_mesh(manifold, context=context)
         reduced_vertices, reduced_faces = simplify_planar_mesh(vertices, faces)
-        return write_glb(reduced_vertices, reduced_faces)
+        return maybe_compress_glb(write_glb(reduced_vertices, reduced_faces), context=context)
 
     vertices, faces, face_original_ids = manifold_to_labeled_mesh(manifold, context=context)
     face_is_cut = ~np.isin(face_original_ids, list(stock_like_original_ids))
@@ -1408,7 +1452,10 @@ def manifold_to_simplified_glb(
         faces,
         face_is_cut,
     )
-    return write_glb(reduced_vertices, reduced_faces, face_is_cut=reduced_face_is_cut)
+    return maybe_compress_glb(
+        write_glb(reduced_vertices, reduced_faces, face_is_cut=reduced_face_is_cut),
+        context=context,
+    )
 
 
 def combine_glb_meshes(mesh_bytes_list: list[bytes]) -> trimesh.Trimesh:

@@ -44,19 +44,23 @@ type ToolPositionResponse = {
   comment?: string | null;
 };
 
-type SweptSimulationResponse = {
-  activeMeshUrl: string;
-  activeMeshKey: number;
+type SimulationChunkFrameResponse = {
+  toolPosition: ToolPositionResponse;
+  activeMeshIndex: number;
+};
+
+type SimulationChunkResponse = {
   cachedMeshUrl: string;
+  frames: SimulationChunkFrameResponse[];
+};
+
+type SweptSimulationResponse = {
   simulationId: string;
   frameCount: number;
   chunkCount: number;
-  chunkIndex: number;
-  chunkStepIndex?: number | null;
-  chunkStepCount?: number;
-  chunkToolpathPoints?: ToolPositionResponse[];
   toolMeshUrl: string;
-  toolPosition: ToolPositionResponse;
+  finalMeshUrl: string;
+  chunks: SimulationChunkResponse[];
 };
 
 type SweptSimulationStartResponse = {
@@ -68,11 +72,6 @@ type SweptSimulationComparisonResponse = {
   activeMeshUrl: string;
 };
 
-type SweptSimulationResampleRequest = {
-  frameStepDistance: number;
-  rapidFrameStepScale?: number;
-};
-
 type SweptSimulationStatusResponse = {
   taskId: string;
   status: "queued" | "running" | "cancelling" | "completed" | "cancelled" | "error";
@@ -82,14 +81,11 @@ type SweptSimulationStatusResponse = {
   result?: SweptSimulationResponse | null;
 };
 
-type SweptSimulationFrameResponse = {
+type SimulationDisplayFrame = {
   activeMeshUrl: string;
-  activeMeshKey: number;
+  activeMeshKey: string;
   cachedMeshUrl: string;
   chunkIndex: number;
-  chunkStepIndex?: number | null;
-  chunkStepCount?: number;
-  chunkToolpathPoints?: ToolPositionResponse[];
   toolPosition: ToolPositionResponse;
 };
 
@@ -122,15 +118,10 @@ function createDisplayPolylines(records: ReadonlyArray<PositionRecord3D>): Polyl
   return polylines;
 }
 
-type SweptSimulationFramesResponse = {
-  startIndex: number;
-  frames: SweptSimulationFrameResponse[];
-};
-
 type PendingSimulationPresentation = {
   simulationId: string;
   frameIndex: number;
-  frame: SweptSimulationFrameResponse;
+  frame: SimulationDisplayFrame;
   activeMeshUrl: string;
   cachedMeshUrl: string;
   waitingForSecondaryUrl: string | null;
@@ -177,20 +168,12 @@ const CHUNK_START_MARKER_COLOR = "#22c55e";
 const CHUNK_END_MARKER_COLOR = "#ef4444";
 const CHUNK_MARKER_SIZE = 2;
 const SIMULATION_PLAYBACK_INTERVAL_MS = 30;
-const SIMULATION_FRAME_STEP_DISTANCE_MIN = 0.5;
-const SIMULATION_FRAME_STEP_DISTANCE_MAX = 10;
-const SIMULATION_FRAME_STEP_DISTANCE_STEP = 0.5;
-const SIMULATION_FRAME_STEP_DISTANCE_DEFAULT = 5;
-const SIMULATION_FRAME_BATCH_SIZE = 10;
-const SIMULATION_RAPID_FRAME_STEP_SCALE = 2;
+const SIMULATION_CONTACT_STEP_DISTANCE = 0.5;
+const SIMULATION_RAPID_FRAME_STEP_SCALE = 4;
+const SIMULATION_STRIDE_OPTIONS = [1, 2, 4, 8, 16] as const;
 const CHUNK_PADDING_X = 5;
 const CHUNK_PADDING_Y = 5;
 const CHUNK_PADDING_Z = 1;
-const SIMULATION_PREFETCH_TRIGGER_FRAME_COUNT = Math.max(
-  1,
-  Math.ceil(SIMULATION_FRAME_BATCH_SIZE / 2),
-);
-const ENABLE_FRONTEND_FRAME_CACHE = false;
 
 function isSidebarSettingsPayload(value: unknown): value is SidebarSettingsPayload {
   if (!value || typeof value !== "object") {
@@ -482,19 +465,48 @@ function draftToMeshFaceSelections(draft: DraftObject | null): MeshFaceSelection
   });
 }
 
-function clampSimulationFrameStepDistance(value: number | undefined) {
-  return Math.max(
-    SIMULATION_FRAME_STEP_DISTANCE_MIN,
-    Math.min(
-      Math.round((value ?? SIMULATION_FRAME_STEP_DISTANCE_DEFAULT) / SIMULATION_FRAME_STEP_DISTANCE_STEP)
-        * SIMULATION_FRAME_STEP_DISTANCE_STEP,
-      SIMULATION_FRAME_STEP_DISTANCE_MAX,
-    ),
+function buildSimulationDisplayFrames(
+  simulationId: string,
+  chunks: ReadonlyArray<SimulationChunkResponse>,
+): SimulationDisplayFrame[] {
+  return chunks.flatMap((chunk, chunkIndex) =>
+    chunk.frames.map((frame) => ({
+      activeMeshUrl: `/simulate/${simulationId}/chunks/${chunkIndex}/active-meshes/${frame.activeMeshIndex}.glb`,
+      activeMeshKey: `${chunkIndex}:${frame.activeMeshIndex}`,
+      cachedMeshUrl: chunk.cachedMeshUrl,
+      chunkIndex,
+      toolPosition: frame.toolPosition,
+    })),
   );
 }
 
-function formatSimulationFrameStepDistance(value: number) {
-  return `${value.toFixed(value % 1 === 0 ? 0 : 1)} mm`;
+function strideSimulationFrames(
+  frames: ReadonlyArray<SimulationDisplayFrame>,
+  stride: number,
+) {
+  if (frames.length === 0) {
+    return [];
+  }
+
+  const strided = frames.filter((_, index) => index % stride === 0);
+  if ((frames.length - 1) % stride !== 0) {
+    strided.push(frames[frames.length - 1]);
+  }
+  return strided;
+}
+
+function simulationStrideFrameCount(totalFrameCount: number, stride: number) {
+  if (totalFrameCount <= 0) {
+    return 0;
+  }
+
+  const baseCount = Math.floor((totalFrameCount - 1) / stride) + 1;
+  return (totalFrameCount - 1) % stride === 0 ? baseCount : baseCount + 1;
+}
+
+function simulationStrideOptionIndex(stride: number) {
+  const index = SIMULATION_STRIDE_OPTIONS.indexOf(stride as (typeof SIMULATION_STRIDE_OPTIONS)[number]);
+  return index >= 0 ? index : 0;
 }
 
 function App() {
@@ -521,6 +533,7 @@ function App() {
   const [generatedOperationsById, setGeneratedOperationsById] = useState<Record<string, GeneratedOperationResponse>>({});
   const [simulationActiveMeshUrl, setSimulationActiveMeshUrl] = useState<string | null>(null);
   const [simulationCachedMeshUrl, setSimulationCachedMeshUrl] = useState<string | null>(null);
+  const [simulationFinalMeshUrl, setSimulationFinalMeshUrl] = useState<string | null>(null);
   const [simulationToolMeshUrl, setSimulationToolMeshUrl] = useState<string | null>(null);
   const [simulationToolPosition, setSimulationToolPosition] = useState<PolylinePoint | null>(null);
   const [simulationId, setSimulationId] = useState<string | null>(null);
@@ -536,10 +549,9 @@ function App() {
   const [simulationFocusMeshRequestMs, setSimulationFocusMeshRequestMs] = useState<number | null>(null);
   const [simulationChunkFetchMs, setSimulationChunkFetchMs] = useState<number | null>(null);
   const [simulationChunkToolpathPoints, setSimulationChunkToolpathPoints] = useState<PolylinePoint[]>([]);
+  const [simulationDisplayFrames, setSimulationDisplayFrames] = useState<SimulationDisplayFrame[]>([]);
   const [simulationFrameIndex, setSimulationFrameIndex] = useState(0);
-  const [simulationFrameStepDistance, setSimulationFrameStepDistance] = useState(
-    SIMULATION_FRAME_STEP_DISTANCE_DEFAULT,
-  );
+  const [simulationStride, setSimulationStride] = useState<number>(SIMULATION_STRIDE_OPTIONS[0]);
   const [displayedSimulationFrameIndex, setDisplayedSimulationFrameIndex] = useState<number | null>(null);
   const [isSimulationPlaying, setIsSimulationPlaying] = useState(false);
   const loadedSimulationFrameRef = useRef<{
@@ -549,26 +561,16 @@ function App() {
     simulationId: null,
     frameIndex: null,
   });
-  const simulationFrameRequestTokenRef = useRef(0);
   const simulationFrameDisplayRequestRef = useRef(0);
   const queuedGenerationOperationsRef = useRef<Operation[]>([]);
   const currentGenerationLabelRef = useRef("2D Pocket");
-  const simulationFrameCacheRef = useRef<Map<number, SweptSimulationFrameResponse>>(new Map());
-  const simulationFrameRequestCacheRef = useRef<Map<string, Promise<void>>>(new Map());
   const simulationActiveMeshUrlRef = useRef<string | null>(null);
   const simulationCachedMeshUrlRef = useRef<string | null>(null);
-  const displayedSimulationActiveMeshKeyRef = useRef<number | null>(null);
+  const displayedSimulationActiveMeshKeyRef = useRef<string | null>(null);
   const displayedSimulationActiveMeshUrlRef = useRef<string | null>(null);
   const displayedSimulationChunkIndexRef = useRef<number | null>(null);
   const displayedSimulationCachedMeshUrlRef = useRef<string | null>(null);
   const pendingSimulationPresentationRef = useRef<PendingSimulationPresentation | null>(null);
-  const simulationFramePrefetchTriggerRef = useRef<{
-    simulationId: string | null;
-    frameIndex: number | null;
-  }>({
-    simulationId: null,
-    frameIndex: null,
-  });
   const [requestState, setRequestState] = useState<RequestState>("idle");
   const [requestMessage, setRequestMessage] = useState<string>("");
   const [isSimulationMode, setIsSimulationMode] = useState(false);
@@ -825,31 +827,20 @@ function App() {
       simulationId: null,
       frameIndex: null,
     };
-    simulationFrameRequestTokenRef.current += 1;
     simulationFrameDisplayRequestRef.current += 1;
-    simulationFrameCacheRef.current.forEach((frame) => {
-      if (frame.activeMeshUrl.startsWith("blob:")) {
-        URL.revokeObjectURL(frame.activeMeshUrl);
-      }
-    });
-    simulationFrameCacheRef.current.clear();
     if (simulationActiveMeshUrlRef.current?.startsWith("blob:")) {
       URL.revokeObjectURL(simulationActiveMeshUrlRef.current);
     }
     if (simulationCachedMeshUrlRef.current?.startsWith("blob:")) {
       URL.revokeObjectURL(simulationCachedMeshUrlRef.current);
     }
-    simulationFrameRequestCacheRef.current.clear();
-    simulationFramePrefetchTriggerRef.current = {
-      simulationId: null,
-      frameIndex: null,
-    };
     displayedSimulationActiveMeshKeyRef.current = null;
     displayedSimulationActiveMeshUrlRef.current = null;
     displayedSimulationChunkIndexRef.current = null;
     displayedSimulationCachedMeshUrlRef.current = null;
     updateSimulationActiveMeshUrl(null);
     updateSimulationCachedMeshUrl(null);
+    setSimulationFinalMeshUrl(null);
     setSimulationToolMeshUrl(null);
     setSimulationToolPosition(null);
     setSimulationId(null);
@@ -864,6 +855,7 @@ function App() {
     setSimulationFocusMeshRequestMs(null);
     setSimulationChunkFetchMs(null);
     setSimulationChunkToolpathPoints([]);
+    setSimulationDisplayFrames([]);
     setSimulationFrameIndex(0);
     setDisplayedSimulationFrameIndex(null);
     setIsSimulationPlaying(false);
@@ -893,18 +885,22 @@ function App() {
   const simulationSamples = useMemo(
     () => sampleOperationRecords(
       generatedRecords,
-      simulationFrameStepDistance,
+      SIMULATION_CONTACT_STEP_DISTANCE,
       SIMULATION_RAPID_FRAME_STEP_SCALE,
     ),
-    [generatedRecords, simulationFrameStepDistance],
+    [generatedRecords],
   );
-  const hasCompletedSimulationStock = Boolean(simulationCachedMeshUrl && simulationActiveMeshUrl);
+  const visibleSimulationFrames = useMemo(
+    () => strideSimulationFrames(simulationDisplayFrames, simulationStride),
+    [simulationDisplayFrames, simulationStride],
+  );
+  const hasCompletedSimulationStock = Boolean(simulationFinalMeshUrl);
   const secondaryMeshUrl = isSimulationMode
     ? simulationCachedMeshUrl
-    : isComparisonMode ? comparisonCachedMeshUrl : hasCompletedSimulationStock ? simulationCachedMeshUrl : null;
+    : isComparisonMode ? comparisonCachedMeshUrl : hasCompletedSimulationStock ? simulationFinalMeshUrl : null;
   const tertiaryMeshUrl = isSimulationMode
     ? simulationActiveMeshUrl
-    : isComparisonMode ? comparisonActiveMeshUrl : hasCompletedSimulationStock ? simulationActiveMeshUrl : null;
+    : isComparisonMode ? comparisonActiveMeshUrl : null;
   const simulationDebugDisplayActive = simulationDebugUiEnabled && isSimulationMode && Boolean(simulationCachedMeshUrl);
   const stockMeshColor = simulationDebugDisplayActive ? DEBUG_REST_MESH_COLOR : MILLED_STOCK_MESH_COLOR;
   const activeMeshColor = simulationDebugDisplayActive ? MILLED_STOCK_MESH_COLOR : ACTIVE_DEBUG_MESH_COLOR;
@@ -933,6 +929,12 @@ function App() {
       ...createPointMarkerPolylines("simulation-current-chunk-end", "Chunk end", endPoint, CHUNK_END_MARKER_COLOR),
     ];
   }, [isSimulationMode, operationPolylines, simulationChunkToolpathPoints, simulationDebugUiEnabled]);
+
+  useEffect(() => {
+    const nextFrameCount = visibleSimulationFrames.length;
+    setSimulationFrameCount(nextFrameCount);
+    setSimulationFrameIndex((current) => Math.min(current, Math.max(nextFrameCount - 1, 0)));
+  }, [visibleSimulationFrames.length]);
 
   const selectedOperation = useMemo(
     () => operations.find((operation) => operation.id === selectedOperationId) ?? null,
@@ -981,7 +983,7 @@ function App() {
     (
       nextSimulationId: string,
       frameIndex: number,
-      frame: SweptSimulationFrameResponse,
+      frame: SimulationDisplayFrame,
       activeMeshUrl: string,
       cachedMeshUrl: string,
       tertiaryElapsedMs: number,
@@ -997,11 +999,11 @@ function App() {
       displayedSimulationCachedMeshUrlRef.current = cachedMeshUrl;
       setDisplayedSimulationFrameIndex(frameIndex);
       setSimulationChunkIndex(frame.chunkIndex);
-      setSimulationChunkStepIndex(frame.chunkStepIndex ?? null);
-      setSimulationChunkStepCount(frame.chunkStepCount ?? 0);
+      setSimulationChunkStepIndex(null);
+      setSimulationChunkStepCount(0);
       setSimulationFocusMeshRequestMs(tertiaryElapsedMs);
       setSimulationChunkFetchMs(secondaryElapsedMs);
-      setSimulationChunkToolpathPoints((frame.chunkToolpathPoints ?? []).map(toolPositionToPoint));
+      setSimulationChunkToolpathPoints([]);
       setSimulationToolPosition(toolPositionToPoint(frame.toolPosition));
     },
     [],
@@ -1066,7 +1068,7 @@ function App() {
     async (
       nextSimulationId: string,
       frameIndex: number,
-      frame: SweptSimulationFrameResponse,
+      frame: SimulationDisplayFrame,
       shouldApply: () => boolean = () => true,
     ) => {
       resolvePendingSimulationPresentation(false);
@@ -1134,237 +1136,16 @@ function App() {
     ],
   );
 
-  const fetchSimulationFrameBatch = useCallback(
-    async (
-      nextSimulationId: string,
-      startFrameIndex: number,
-      count: number,
-      totalFrameCount: number,
-    ) => {
-      if (!ENABLE_FRONTEND_FRAME_CACHE) {
-        return;
-      }
-
-      if (count <= 0 || startFrameIndex < 0 || startFrameIndex >= totalFrameCount) {
-        return;
-      }
-
-      const endFrameIndex = Math.min(startFrameIndex + count - 1, totalFrameCount - 1);
-      let hasMissingFrame = false;
-
-      for (let frameIndex = startFrameIndex; frameIndex <= endFrameIndex; frameIndex += 1) {
-        if (!simulationFrameCacheRef.current.has(frameIndex)) {
-          hasMissingFrame = true;
-          break;
-        }
-      }
-
-      if (!hasMissingFrame) {
-        return;
-      }
-
-      const requestKey = `${startFrameIndex}:${endFrameIndex}`;
-      const cachedRequest = simulationFrameRequestCacheRef.current.get(requestKey);
-      if (cachedRequest) {
-        await cachedRequest;
-        return;
-      }
-
-      const requestToken = simulationFrameRequestTokenRef.current;
-      const request = (async () => {
-        const response = await fetch(
-          `${getBackendUrl()}/simulate/${nextSimulationId}/frames?start_index=${startFrameIndex}&count=${endFrameIndex - startFrameIndex + 1}`,
-        );
-
-        if (!response.ok) {
-          const contentType = response.headers.get("content-type") ?? "";
-          if (contentType.includes("application/json")) {
-            const payload = (await response.json()) as { detail?: string };
-            throw new Error(payload.detail ?? "Failed to load simulation frames.");
-          }
-
-          const detail = await response.text();
-          throw new Error(detail || "Failed to load simulation frames.");
-        }
-
-        const payload = (await response.json()) as SweptSimulationFramesResponse;
-        if (simulationFrameRequestTokenRef.current !== requestToken) {
-          return;
-        }
-
-        payload.frames.forEach((frame, index) => {
-          const frameIndex = payload.startIndex + index;
-          if (simulationFrameCacheRef.current.has(frameIndex)) {
-            return;
-          }
-
-          simulationFrameCacheRef.current.set(frameIndex, frame);
-        });
-      })();
-
-      simulationFrameRequestCacheRef.current.set(requestKey, request);
-
-      try {
-        await request;
-      } finally {
-        simulationFrameRequestCacheRef.current.delete(requestKey);
-      }
-    },
-    [],
-  );
-
-  const updateSimulationPrefetchTrigger = useCallback(
-    (nextSimulationId: string, frameIndex: number | null) => {
-      simulationFramePrefetchTriggerRef.current = {
-        simulationId: nextSimulationId,
-        frameIndex,
-      };
-    },
-    [],
-  );
-
-  const fetchSimulationFrame = useCallback(
-    async (nextSimulationId: string, frameIndex: number, frameCount: number) => {
-      if (!ENABLE_FRONTEND_FRAME_CACHE) {
-        const response = await fetch(
-          `${getBackendUrl()}/simulate/${nextSimulationId}/frames?start_index=${frameIndex}&count=1`,
-          { cache: "no-store" },
-        );
-
-        if (!response.ok) {
-          const contentType = response.headers.get("content-type") ?? "";
-          if (contentType.includes("application/json")) {
-            const payload = (await response.json()) as { detail?: string };
-            throw new Error(payload.detail ?? "Failed to load simulation frame.");
-          }
-
-          const detail = await response.text();
-          throw new Error(detail || "Failed to load simulation frame.");
-        }
-
-        const payload = (await response.json()) as SweptSimulationFramesResponse;
-        return payload.frames[0] ?? null;
-      }
-
-      const cachedFrame = simulationFrameCacheRef.current.get(frameIndex);
-      if (cachedFrame) {
-        return cachedFrame;
-      }
-
-      const batchCount = Math.min(SIMULATION_FRAME_BATCH_SIZE, frameCount - frameIndex);
-      const endFrameIndex = frameIndex + batchCount - 1;
-
-      await fetchSimulationFrameBatch(
-        nextSimulationId,
-        frameIndex,
-        batchCount,
-        frameCount,
-      );
-
-      const frame = simulationFrameCacheRef.current.get(frameIndex) ?? null;
-      if (frame) {
-        updateSimulationPrefetchTrigger(nextSimulationId, endFrameIndex);
-      }
-
-      return frame;
-    },
-    [fetchSimulationFrameBatch, updateSimulationPrefetchTrigger],
-  );
-
-  const prefetchSimulationFrames = useCallback(
-    (nextSimulationId: string, frameIndex: number, frameCount: number) => {
-      if (!ENABLE_FRONTEND_FRAME_CACHE || frameIndex >= frameCount - 1) {
-        return;
-      }
-
-      const prefetchTrigger = simulationFramePrefetchTriggerRef.current;
-      const bufferedUntilFrameIndex =
-        prefetchTrigger.simulationId === nextSimulationId ? prefetchTrigger.frameIndex : null;
-      const remainingBufferedFrameCount =
-        bufferedUntilFrameIndex == null ? 0 : bufferedUntilFrameIndex - frameIndex;
-
-      if (remainingBufferedFrameCount > SIMULATION_PREFETCH_TRIGGER_FRAME_COUNT) {
-        return;
-      }
-
-      const prefetchStartFrameIndex = Math.max(
-        frameIndex + 1,
-        (bufferedUntilFrameIndex ?? frameIndex) + 1,
-      );
-      if (prefetchStartFrameIndex >= frameCount) {
-        return;
-      }
-
-      const prefetchCount = Math.min(
-        SIMULATION_FRAME_BATCH_SIZE,
-        frameCount - prefetchStartFrameIndex,
-      );
-      const nextBufferedUntilFrameIndex = prefetchStartFrameIndex + prefetchCount - 1;
-
-      updateSimulationPrefetchTrigger(nextSimulationId, nextBufferedUntilFrameIndex);
-      void fetchSimulationFrameBatch(
-        nextSimulationId,
-        prefetchStartFrameIndex,
-        prefetchCount,
-        frameCount,
-      ).catch((error: unknown) => {
-        console.error("Failed to prefetch simulation frames", error);
-        updateSimulationPrefetchTrigger(nextSimulationId, bufferedUntilFrameIndex);
-      });
-    },
-    [fetchSimulationFrameBatch, updateSimulationPrefetchTrigger],
-  );
-
-  const loadSimulationFrame = useCallback(
-    async (
-      nextSimulationId: string,
-      frameIndex: number,
-      frameCount: number,
-      requestId: number,
-    ) => {
-      const frame = await fetchSimulationFrame(nextSimulationId, frameIndex, frameCount);
-      if (!frame || simulationFrameDisplayRequestRef.current !== requestId) {
-        return;
-      }
-
-      const applied = await applySimulationFrame(
-        nextSimulationId,
-        frameIndex,
-        frame,
-        () => simulationFrameDisplayRequestRef.current === requestId,
-      );
-      if (applied) {
-        prefetchSimulationFrames(nextSimulationId, frameIndex, frameCount);
-      }
-    },
-    [applySimulationFrame, fetchSimulationFrame, prefetchSimulationFrames],
-  );
-
   const applyCompletedSimulation = useCallback(
     async (simulation: SweptSimulationResponse, nextIsSimulationMode = false) => {
-      const finalFrameIndex = Math.max(simulation.frameCount - 1, 0);
-      const finalFrame: SweptSimulationFrameResponse = {
-        activeMeshUrl: simulation.activeMeshUrl,
-        activeMeshKey: simulation.activeMeshKey,
-        cachedMeshUrl: simulation.cachedMeshUrl,
-        chunkIndex: simulation.chunkIndex,
-        chunkStepIndex: simulation.chunkStepIndex,
-        chunkStepCount: simulation.chunkStepCount,
-        chunkToolpathPoints: simulation.chunkToolpathPoints,
-        toolPosition: simulation.toolPosition,
-      };
+      const nextDisplayFrames = buildSimulationDisplayFrames(simulation.simulationId, simulation.chunks);
+      const nextVisibleFrames = strideSimulationFrames(nextDisplayFrames, simulationStride);
+      const finalFrameIndex = Math.max(nextVisibleFrames.length - 1, 0);
+      const finalFrame = nextVisibleFrames[finalFrameIndex] ?? null;
 
-      if (ENABLE_FRONTEND_FRAME_CACHE) {
-        simulationFrameCacheRef.current.set(finalFrameIndex, finalFrame);
-      }
-
-      // Stage sim identity synchronously, before the mesh-display await, so
-      // callers that swap simulations (e.g. resample) don't hit a null/zero
-      // gap that unmounts the playback bar. resetSimulationPlaybackState()
-      // runs first in that path; these sets collapse with it into one batched
-      // render. The await below is purely for the 3D mesh swap.
+      setSimulationDisplayFrames(nextDisplayFrames);
       setSimulationId(simulation.simulationId);
-      setSimulationFrameCount(simulation.frameCount);
+      setSimulationFrameCount(nextVisibleFrames.length);
       setSimulationChunkCount(simulation.chunkCount);
       setSimulationFrameIndex(finalFrameIndex);
       setIsSimulationMode(nextIsSimulationMode);
@@ -1374,6 +1155,15 @@ function App() {
       };
 
       setSimulationToolMeshUrl(resolveBackendAssetUrl(simulation.toolMeshUrl));
+      setSimulationFinalMeshUrl(resolveBackendAssetUrl(simulation.finalMeshUrl));
+
+      if (!finalFrame) {
+        updateSimulationActiveMeshUrl(null);
+        updateSimulationCachedMeshUrl(null);
+        setIsSimulationPlaying(false);
+        return;
+      }
+
       const applied = await applySimulationFrame(
         simulation.simulationId,
         finalFrameIndex,
@@ -1384,21 +1174,8 @@ function App() {
       }
 
       setIsSimulationPlaying(false);
-      if (ENABLE_FRONTEND_FRAME_CACHE && simulation.frameCount > 0) {
-        const initialPrefetchCount = Math.min(SIMULATION_FRAME_BATCH_SIZE, simulation.frameCount);
-        updateSimulationPrefetchTrigger(simulation.simulationId, initialPrefetchCount - 1);
-        void fetchSimulationFrameBatch(
-          simulation.simulationId,
-          0,
-          initialPrefetchCount,
-          simulation.frameCount,
-        ).catch((error: unknown) => {
-          console.error("Failed to prefetch initial simulation frames", error);
-          updateSimulationPrefetchTrigger(simulation.simulationId, null);
-        });
-      }
     },
-    [applySimulationFrame, fetchSimulationFrameBatch, updateSimulationPrefetchTrigger],
+    [applySimulationFrame, simulationStride, updateSimulationActiveMeshUrl, updateSimulationCachedMeshUrl],
   );
 
   useEffect(() => {
@@ -1414,7 +1191,11 @@ function App() {
       loadedSimulationFrameRef.current.simulationId === simulationId &&
       loadedSimulationFrameRef.current.frameIndex === simulationFrameIndex
     ) {
-      prefetchSimulationFrames(simulationId, simulationFrameIndex, simulationFrameCount);
+      return undefined;
+    }
+
+    const frame = visibleSimulationFrames[simulationFrameIndex];
+    if (!frame) {
       return undefined;
     }
 
@@ -1422,7 +1203,12 @@ function App() {
     const requestId = simulationFrameDisplayRequestRef.current + 1;
     simulationFrameDisplayRequestRef.current = requestId;
 
-    void loadSimulationFrame(simulationId, simulationFrameIndex, simulationFrameCount, requestId).catch((error: unknown) => {
+    void applySimulationFrame(
+      simulationId,
+      simulationFrameIndex,
+      frame,
+      () => !cancelled && simulationFrameDisplayRequestRef.current === requestId,
+    ).catch((error: unknown) => {
       if (cancelled) {
         return;
       }
@@ -1438,7 +1224,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [loadSimulationFrame, prefetchSimulationFrames, simulationFrameCount, simulationFrameIndex, simulationId]);
+  }, [applySimulationFrame, simulationFrameCount, simulationFrameIndex, simulationId, visibleSimulationFrames]);
 
   useEffect(() => {
     if (!isSimulationPlaying || !simulationId || simulationFrameCount <= 1) {
@@ -1459,7 +1245,7 @@ function App() {
       void (async () => {
         try {
           const nextFrameIndex = simulationFrameIndex + 1;
-          const frame = await fetchSimulationFrame(simulationId, nextFrameIndex, simulationFrameCount);
+          const frame = visibleSimulationFrames[nextFrameIndex];
           if (!frame || cancelled) {
             return;
           }
@@ -1475,7 +1261,6 @@ function App() {
           }
 
           setSimulationFrameIndex(nextFrameIndex);
-          prefetchSimulationFrames(simulationId, nextFrameIndex, simulationFrameCount);
         } catch (error) {
           if (cancelled) {
             return;
@@ -1498,12 +1283,11 @@ function App() {
   }, [
     applySimulationFrame,
     displayedSimulationFrameIndex,
-    fetchSimulationFrame,
     isSimulationPlaying,
-    prefetchSimulationFrames,
     simulationFrameCount,
     simulationFrameIndex,
     simulationId,
+    visibleSimulationFrames,
   ]);
 
   function resetGeneratedPreview() {
@@ -1852,70 +1636,35 @@ function App() {
     setIsSimulationPlaying(true);
   }
 
-  function handleSimulationFrameStepDistanceChange(values: number[]) {
-    setSimulationFrameStepDistance(clampSimulationFrameStepDistance(values[0]));
-  }
-
-  async function handleSimulationFrameStepDistanceCommit(values: number[]) {
-    const nextStepDistance = clampSimulationFrameStepDistance(values[0]);
-
-    if (!simulationId || requestState === "submitting") {
+  function handleSimulationStrideChange(values: number[]) {
+    const nextOptionIndex = Math.max(
+      0,
+      Math.min(Math.round(values[0] ?? 0), SIMULATION_STRIDE_OPTIONS.length - 1),
+    );
+    const nextStride = SIMULATION_STRIDE_OPTIONS[nextOptionIndex];
+    if (nextStride === simulationStride) {
       return;
     }
 
-    const currentSimulationId = simulationId;
-    const currentSimulationOperationId = simulationOperationId;
     const currentFrameProgress =
       simulationFrameCount > 1 ? simulationFrameIndex / (simulationFrameCount - 1) : 0;
+    const nextFrameCount = simulationStrideFrameCount(simulationDisplayFrames.length, nextStride);
+    const nextFrameIndex = Math.max(
+      0,
+      Math.min(
+        Math.round(currentFrameProgress * Math.max(nextFrameCount - 1, 0)),
+        Math.max(nextFrameCount - 1, 0),
+      ),
+    );
 
-    try {
-      setIsSimulationPlaying(false);
-      setRequestState("submitting");
-      setRequestMessage(`Updating simulation step to ${formatSimulationFrameStepDistance(nextStepDistance)}...`);
-
-      const response = await fetch(`${getBackendUrl()}/simulate/${currentSimulationId}/resample`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          frameStepDistance: nextStepDistance,
-          rapidFrameStepScale: SIMULATION_RAPID_FRAME_STEP_SCALE,
-        } satisfies SweptSimulationResampleRequest),
-      });
-
-      if (!response.ok) {
-        const contentType = response.headers.get("content-type") ?? "";
-        if (contentType.includes("application/json")) {
-          const payload = (await response.json()) as { detail?: string };
-          throw new Error(payload.detail ?? "Failed to update simulation step.");
-        }
-
-        const detail = await response.text();
-        throw new Error(detail || "Failed to update simulation step.");
-      }
-
-      const simulation = (await response.json()) as SweptSimulationResponse;
-      const nextFrameIndex = Math.max(
-        0,
-        Math.min(
-          Math.round(currentFrameProgress * Math.max(simulation.frameCount - 1, 0)),
-          Math.max(simulation.frameCount - 1, 0),
-        ),
-      );
-
-      resetSimulationPlaybackState();
-      setSimulationOperationId(currentSimulationOperationId);
-      await applyCompletedSimulation(simulation, true);
-      setSimulationFrameIndex(nextFrameIndex);
-      setRequestState("success");
-      setRequestMessage(`Simulation step updated to ${formatSimulationFrameStepDistance(nextStepDistance)}.`);
-    } catch (error) {
-      setRequestState("error");
-      setRequestMessage(
-        error instanceof Error ? error.message : "Failed to update simulation step.",
-      );
-    }
+    loadedSimulationFrameRef.current = {
+      simulationId: null,
+      frameIndex: null,
+    };
+    simulationFrameDisplayRequestRef.current += 1;
+    setSimulationStride(nextStride);
+    setSimulationFrameCount(nextFrameCount);
+    setSimulationFrameIndex(nextFrameIndex);
   }
 
   function handleSimulationPause() {
@@ -2099,9 +1848,7 @@ function App() {
       simulationRequest.append("chunk_padding_x", String(CHUNK_PADDING_X));
       simulationRequest.append("chunk_padding_y", String(CHUNK_PADDING_Y));
       simulationRequest.append("chunk_padding_z", String(CHUNK_PADDING_Z));
-      simulationRequest.append("chunk_step_distance", String(SIMULATION_FRAME_STEP_DISTANCE_MIN));
-      simulationRequest.append("frame_step_distance", String(simulationFrameStepDistance));
-      simulationRequest.append("rapid_frame_step_scale", String(SIMULATION_RAPID_FRAME_STEP_SCALE));
+      simulationRequest.append("chunk_step_distance", String(SIMULATION_CONTACT_STEP_DISTANCE));
       await appendFrontendCachedMesh(simulationRequest, meshUrl, meshName);
 
       setGeneratedOperation(operation);
@@ -2318,7 +2065,7 @@ function App() {
                   meshOpacity={showPartMesh && showStock && (isSimulationMode || isComparisonMode || hasCompletedSimulationStock) ? 0.3 : 1}
                   showMesh={showPartMesh}
                   showSecondaryMesh={showStock && (isSimulationMode || isComparisonMode || hasCompletedSimulationStock)}
-                  showTertiaryMesh={showStock && (isSimulationMode || isComparisonMode || hasCompletedSimulationStock)}
+                  showTertiaryMesh={showStock && (isSimulationMode || isComparisonMode)}
                   showSimulationStock={showStock && !isSimulationMode && !isComparisonMode && !hasCompletedSimulationStock}
                   showTool={showTool && isSimulationMode}
                   polylines={showToolpaths ? viewportPolylines : []}
@@ -2388,21 +2135,14 @@ function App() {
                     className="flex-1"
                   />
 
-                  <div className="flex w-48 items-center gap-2">
-                    <span className="text-xs text-muted-foreground">Step</span>
+                  <div className="w-20">
                     <Slider
-                      min={SIMULATION_FRAME_STEP_DISTANCE_MIN}
-                      max={SIMULATION_FRAME_STEP_DISTANCE_MAX}
-                      step={SIMULATION_FRAME_STEP_DISTANCE_STEP}
-                      value={[simulationFrameStepDistance]}
-                      onValueChange={handleSimulationFrameStepDistanceChange}
-                      onValueCommit={handleSimulationFrameStepDistanceCommit}
-                      disabled={requestState === "submitting"}
-                      className="flex-1"
+                      min={0}
+                      max={SIMULATION_STRIDE_OPTIONS.length - 1}
+                      step={1}
+                      value={[simulationStrideOptionIndex(simulationStride)]}
+                      onValueChange={handleSimulationStrideChange}
                     />
-                    <span className="w-14 text-right text-xs tabular-nums text-muted-foreground">
-                      {formatSimulationFrameStepDistance(simulationFrameStepDistance)}
-                    </span>
                   </div>
 
                   <div className="shrink-0 whitespace-nowrap text-right text-xs tabular-nums text-muted-foreground">

@@ -4,35 +4,23 @@ from opencam.schemas.base import CamelBaseModel
 from opencam.schemas.cl_data import PositionRecord3D
 
 
-class SweptSimulationResponse(CamelBaseModel):
-    active_mesh_url: str
-    active_mesh_key: int
+class SimulationFrameMapping(CamelBaseModel):
+    tool_position: PositionRecord3D
+    active_mesh_index: int
+
+
+class SimulationChunkMapping(CamelBaseModel):
     cached_mesh_url: str
+    frames: list[SimulationFrameMapping]
+
+
+class SweptSimulationResponse(CamelBaseModel):
     simulation_id: str
     frame_count: int
     chunk_count: int
-    chunk_index: int
-    chunk_step_index: int | None
-    chunk_step_count: int
-    chunk_toolpath_points: list[PositionRecord3D]
     tool_mesh_url: str
-    tool_position: PositionRecord3D
-
-
-class SweptSimulationFrameResponse(CamelBaseModel):
-    active_mesh_url: str
-    active_mesh_key: int
-    cached_mesh_url: str
-    chunk_index: int
-    chunk_step_index: int | None
-    chunk_step_count: int
-    chunk_toolpath_points: list[PositionRecord3D]
-    tool_position: PositionRecord3D
-
-
-class SweptSimulationFramesResponse(CamelBaseModel):
-    start_index: int
-    frames: list[SweptSimulationFrameResponse]
+    final_mesh_url: str
+    chunks: list[SimulationChunkMapping]
 
 
 class SweptSimulationStartResponse(CamelBaseModel):
@@ -42,11 +30,6 @@ class SweptSimulationStartResponse(CamelBaseModel):
 class SweptSimulationComparisonResponse(CamelBaseModel):
     cached_mesh_url: str
     active_mesh_url: str
-
-
-class SweptSimulationResampleRequest(CamelBaseModel):
-    frame_step_distance: float
-    rapid_frame_step_scale: float | None = None
 
 
 class SweptSimulationStatusResponse(CamelBaseModel):

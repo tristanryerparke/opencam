@@ -26,7 +26,6 @@ class CachedMeshRecord:
 
 
 class MeshCache:
-    # ponytail: single global mesh cache; key by session/client if concurrent users matter.
     def __init__(self) -> None:
         self._lock = Lock()
         self._current: CachedMeshRecord | None = None

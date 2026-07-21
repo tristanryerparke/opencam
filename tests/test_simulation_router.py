@@ -47,32 +47,6 @@ def prepared_chunk() -> PreparedSimulationChunk:
     )
 
 
-def test_resample_buffered_simulation_rebuilds_frames_and_clears_display_caches(monkeypatch):
-    simulation = router.BufferedSimulationResult(
-        tool_mesh_bytes=b"",
-        chunks=[],
-        prepared_chunks=[prepared_chunk()],
-        operation=build_operation((0.0, 0.0, 10.0), (0.0, 0.0, 0.0), (4.0, 0.0, 0.0), (4.0, 0.0, 10.0)),
-        frames=[],
-        frame_step_distance=5.0,
-        active_mesh_cache={0: b"cached"},
-        comparison_meshes=(b"comparison-cached", b"comparison-active"),
-    )
-    points = [
-        PositionRecord3D(x=0.0, y=0.0, z=0.0),
-        PositionRecord3D(x=4.0, y=0.0, z=0.0),
-    ]
-    monkeypatch.setattr(router, "resample_chunk_cl_data", lambda *_args, **_kwargs: points)
-    monkeypatch.setattr(router, "_run_comparison_mesh_build", lambda *_args: None)
-
-    router._resample_buffered_simulation(simulation, 2.5)
-
-    assert simulation.frame_step_distance == 2.5
-    assert [frame.point_index for frame in simulation.frames] == [-1, -1, -1, -1, 0, 0, 1, 1, 1, 1, 1, 1]
-    assert simulation.active_mesh_cache == {}
-    assert simulation.comparison_meshes is None
-
-
 def test_build_animation_frames_samples_operation_by_step_distance():
     operation = build_operation(
         (0.0, 0.0, 0.0),
@@ -112,8 +86,8 @@ def test_build_animation_frames_reaches_retract_endpoint_with_scaled_rapid_sampl
 
     assert (frames[-1].tool_position.x, frames[-1].tool_position.y, frames[-1].tool_position.z) == (4.0, 0.0, 10.0)
     assert frames[-1].point_index == 1
-    assert frames[-1].mesh_state_index == 1
-    assert frames[0].mesh_state_index == -1
+    assert frames[-1].active_mesh_index == 1
+    assert frames[0].active_mesh_index == -1
 
 
 def test_map_positions_to_operation_progress_tolerates_orphan_positions():
@@ -163,16 +137,13 @@ def test_build_animation_frames_guarantees_travel_start_and_end_tool_positions()
     assert len(frames) > len(mesh_frames)  # travel frames produced, not contact-only fallback
 
 
-def test_active_frame_mesh_uses_rotation_flags_and_reuses_mesh_state_cache(monkeypatch):
+def test_active_mesh_bytes_reuses_cache_for_shared_active_mesh_index(monkeypatch):
     simulation = router.BufferedSimulationResult(
         tool_mesh_bytes=b"",
         chunks=[],
         prepared_chunks=[prepared_chunk()],
         operation=build_operation((0.0, 0.0, 0.0), (1.0, 1.0, 0.0)),
-        frames=[
-            router.PreparedSimulationFrame(0, 1, PositionRecord3D(x=1.0, y=1.0, z=0.0), mesh_state_index=7),
-            router.PreparedSimulationFrame(0, 1, PositionRecord3D(x=1.0, y=1.0, z=5.0), mesh_state_index=7),
-        ],
+        frames=[],
         frame_step_distance=5.0,
         include_corner_rotation_sweeps=False,
     )
@@ -189,8 +160,8 @@ def test_active_frame_mesh_uses_rotation_flags_and_reuses_mesh_state_cache(monke
     monkeypatch.setattr(router, "simulate_chunk_focus_mesh", simulate)
     monkeypatch.setattr(router, "manifold_to_simplified_glb", lambda *_args, **_kwargs: b"frame")
 
-    assert router._active_mesh_bytes(simulation, 0) == b"frame"
-    assert router._active_mesh_bytes(simulation, 1) == b"frame"
+    assert router._active_mesh_bytes(simulation, 0, 7) == b"frame"
+    assert router._active_mesh_bytes(simulation, 0, 7) == b"frame"
     assert calls == 1
 
 
@@ -206,7 +177,7 @@ def test_comparison_vertex_colors_follow_requested_thresholds():
 
 def test_simulation_generation_keeps_raw_display_meshes(monkeypatch):
     chunk = prepared_chunk()
-    monkeypatch.setattr(router, "prepare_simulation_chunks", lambda *_args, **_kwargs: [chunk])
+    monkeypatch.setattr(router, "prepare_simulation_chunks", lambda *_args, **_kwargs: ([chunk], object()))
     monkeypatch.setattr(router, "build_tool_mesh_glb_from_tool", lambda *_args, **_kwargs: b"tool")
     monkeypatch.setattr(router, "manifold_to_simplified_glb", lambda *_args, **_kwargs: b"chunk")
     monkeypatch.setattr(router, "_build_contact_frames", lambda *_args, **_kwargs: [])
@@ -218,8 +189,6 @@ def test_simulation_generation_keeps_raw_display_meshes(monkeypatch):
         build_operation((0.0, 0.0, 0.0), (1.0, 0.0, 0.0)),
         chunk_padding=(0.0, 0.0, 0.0),
         chunk_step_distance=1.0,
-        frame_step_distance=1.0,
-        rapid_frame_step_scale=1.0,
         rotate_tool_with_path=False,
         include_corner_rotation_sweeps=False,
         should_cancel=None,
@@ -324,5 +293,5 @@ def test_comparison_endpoint_reports_final_mesh_urls(monkeypatch):
     finally:
         router.SIMULATION_FRAME_BUFFER.pop(simulation_id, None)
 
-    assert response.cached_mesh_url == f"/simulate/{simulation_id}/comparison/cached-mesh.glb"
-    assert response.active_mesh_url == f"/simulate/{simulation_id}/comparison/active-mesh.glb"
+    assert response.cached_mesh_url == f"/simulate/{simulation_id}/comparison/cached-mesh.glb?v=0"
+    assert response.active_mesh_url == f"/simulate/{simulation_id}/comparison/active-mesh.glb?v=0"

@@ -24,7 +24,10 @@ export interface Pocketing2DOp {
   clearance?: AutomaticClearance | AbsoluteClearance | StockMaxZPlusOffsetClearance | PartMaxZPlusOffsetClearance;
   levels?: CAMLevels;
   advanced?: CAMAdvancedParameters;
-  driveGeometry: PocketingDriveGeometry;
+  /**
+   * @minItems 1
+   */
+  driveGeometry: [ClosedPolyline25D, ...ClosedPolyline25D[]];
   cutParameters?: PocketingCutSettings;
 }
 export interface CylindricalTool {
@@ -102,12 +105,6 @@ export interface CAMAdvancedParameters {
   operationsSorting?: "selection" | "shortest_distance";
   chordalTolerance?: number;
   [k: string]: unknown;
-}
-export interface PocketingDriveGeometry {
-  /**
-   * @minItems 1
-   */
-  cutAreas: [ClosedPolyline25D, ...ClosedPolyline25D[]];
 }
 export interface PocketingCutSettings {
   cutDirection?: "climb" | "conventional";

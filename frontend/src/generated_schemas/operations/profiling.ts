@@ -29,7 +29,10 @@ export interface Profiling2DOp {
   clearance?: AutomaticClearance | AbsoluteClearance | StockMaxZPlusOffsetClearance | PartMaxZPlusOffsetClearance;
   levels?: CAMLevels;
   advanced?: CAMAdvancedParameters;
-  driveGeometry: ProfilingDriveGeometry;
+  /**
+   * @minItems 1
+   */
+  driveGeometry: [ClosedPolyline25D | Polyline25D, ...(ClosedPolyline25D | Polyline25D)[]];
   cutParameters?: ProfilingCutSettings;
 }
 export interface CylindricalTool {
@@ -107,12 +110,6 @@ export interface CAMAdvancedParameters {
   operationsSorting?: "selection" | "shortest_distance";
   chordalTolerance?: number;
   [k: string]: unknown;
-}
-export interface ProfilingDriveGeometry {
-  /**
-   * @minItems 1
-   */
-  profiles: [ClosedPolyline25D | Polyline25D, ...(ClosedPolyline25D | Polyline25D)[]];
 }
 export interface ProfilingCutSettings {
   side?: "outside" | "inside";

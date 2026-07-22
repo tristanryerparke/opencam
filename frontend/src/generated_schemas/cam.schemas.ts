@@ -430,6 +430,21 @@ export const camSchemaBundle = {
             "minItems": 1,
             "title": "Faces",
             "type": "array"
+          },
+          "sourceFaceIds": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Source face IDs"
           }
         },
         "required": [
@@ -448,7 +463,7 @@ export const camSchemaBundle = {
               "conventional",
               "mixed"
             ],
-            "title": "Climb/Conventional/Mixed",
+            "title": "Cut Style",
             "type": "string"
           },
           "directionDegrees": {
@@ -456,7 +471,7 @@ export const camSchemaBundle = {
             "description": "Lane travel direction in degrees from +X. Stepover advances 90 degrees CCW.",
             "exclusiveMaximum": 180,
             "minimum": 0,
-            "title": "Direction",
+            "title": "Slice Direction",
             "type": "number",
             "x-opencam": {
               "unit": "degrees"
@@ -477,23 +492,6 @@ export const camSchemaBundle = {
           }
         },
         "title": "ParallelFinishingCutSettings",
-        "type": "object"
-      },
-      "ParallelFinishingDriveGeometry": {
-        "properties": {
-          "cutAreas": {
-            "items": {
-              "$ref": "#/$defs/ClosedPolyline2D"
-            },
-            "minItems": 1,
-            "title": "Cut areas",
-            "type": "array"
-          }
-        },
-        "required": [
-          "cutAreas"
-        ],
-        "title": "ParallelFinishingDriveGeometry",
         "type": "object"
       },
       "ParallelFinishingOp": {
@@ -574,8 +572,12 @@ export const camSchemaBundle = {
             "title": "Advanced"
           },
           "driveGeometry": {
-            "$ref": "#/$defs/ParallelFinishingDriveGeometry",
-            "title": "Drive geometry"
+            "items": {
+              "$ref": "#/$defs/ClosedPolyline2D"
+            },
+            "minItems": 1,
+            "title": "Drive geometry",
+            "type": "array"
           },
           "cutParameters": {
             "$ref": "#/$defs/ParallelFinishingCutSettings",
@@ -688,8 +690,12 @@ export const camSchemaBundle = {
             "title": "Advanced"
           },
           "driveGeometry": {
-            "$ref": "#/$defs/PocketingDriveGeometry",
-            "title": "Drive geometry"
+            "items": {
+              "$ref": "#/$defs/ClosedPolyline25D"
+            },
+            "minItems": 1,
+            "title": "Drive geometry",
+            "type": "array"
           },
           "cutParameters": {
             "$ref": "#/$defs/PocketingCutSettings",
@@ -729,23 +735,6 @@ export const camSchemaBundle = {
           }
         },
         "title": "PocketingCutSettings",
-        "type": "object"
-      },
-      "PocketingDriveGeometry": {
-        "properties": {
-          "cutAreas": {
-            "items": {
-              "$ref": "#/$defs/ClosedPolyline25D"
-            },
-            "minItems": 1,
-            "title": "Cut areas",
-            "type": "array"
-          }
-        },
-        "required": [
-          "cutAreas"
-        ],
-        "title": "PocketingDriveGeometry",
         "type": "object"
       },
       "Point2D": {
@@ -871,8 +860,19 @@ export const camSchemaBundle = {
             "title": "Advanced"
           },
           "driveGeometry": {
-            "$ref": "#/$defs/ProfilingDriveGeometry",
-            "title": "Drive geometry"
+            "items": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/ClosedPolyline25D"
+                },
+                {
+                  "$ref": "#/$defs/Polyline25D"
+                }
+              ]
+            },
+            "minItems": 1,
+            "title": "Drive geometry",
+            "type": "array"
           },
           "cutParameters": {
             "$ref": "#/$defs/ProfilingCutSettings",
@@ -917,30 +917,6 @@ export const camSchemaBundle = {
           }
         },
         "title": "ProfilingCutSettings",
-        "type": "object"
-      },
-      "ProfilingDriveGeometry": {
-        "properties": {
-          "profiles": {
-            "items": {
-              "anyOf": [
-                {
-                  "$ref": "#/$defs/ClosedPolyline25D"
-                },
-                {
-                  "$ref": "#/$defs/Polyline25D"
-                }
-              ]
-            },
-            "minItems": 1,
-            "title": "Profiles",
-            "type": "array"
-          }
-        },
-        "required": [
-          "profiles"
-        ],
-        "title": "ProfilingDriveGeometry",
         "type": "object"
       },
       "SetupOrientation": {
@@ -1469,23 +1445,6 @@ export const camSchemaBundle = {
         "title": "PocketingCutSettings",
         "type": "object"
       },
-      "PocketingDriveGeometry": {
-        "properties": {
-          "cutAreas": {
-            "items": {
-              "$ref": "#/$defs/ClosedPolyline25D"
-            },
-            "minItems": 1,
-            "title": "Cut areas",
-            "type": "array"
-          }
-        },
-        "required": [
-          "cutAreas"
-        ],
-        "title": "PocketingDriveGeometry",
-        "type": "object"
-      },
       "Point2D": {
         "properties": {
           "x": {
@@ -1685,8 +1644,12 @@ export const camSchemaBundle = {
         "title": "Advanced"
       },
       "driveGeometry": {
-        "$ref": "#/$defs/PocketingDriveGeometry",
-        "title": "Drive geometry"
+        "items": {
+          "$ref": "#/$defs/ClosedPolyline25D"
+        },
+        "minItems": 1,
+        "title": "Drive geometry",
+        "type": "array"
       },
       "cutParameters": {
         "$ref": "#/$defs/PocketingCutSettings",
@@ -2080,30 +2043,6 @@ export const camSchemaBundle = {
         "title": "ProfilingCutSettings",
         "type": "object"
       },
-      "ProfilingDriveGeometry": {
-        "properties": {
-          "profiles": {
-            "items": {
-              "anyOf": [
-                {
-                  "$ref": "#/$defs/ClosedPolyline25D"
-                },
-                {
-                  "$ref": "#/$defs/Polyline25D"
-                }
-              ]
-            },
-            "minItems": 1,
-            "title": "Profiles",
-            "type": "array"
-          }
-        },
-        "required": [
-          "profiles"
-        ],
-        "title": "ProfilingDriveGeometry",
-        "type": "object"
-      },
       "StockMaxZPlusOffsetClearance": {
         "properties": {
           "clearanceHeightType": {
@@ -2261,8 +2200,19 @@ export const camSchemaBundle = {
         "title": "Advanced"
       },
       "driveGeometry": {
-        "$ref": "#/$defs/ProfilingDriveGeometry",
-        "title": "Drive geometry"
+        "items": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ClosedPolyline25D"
+            },
+            {
+              "$ref": "#/$defs/Polyline25D"
+            }
+          ]
+        },
+        "minItems": 1,
+        "title": "Drive geometry",
+        "type": "array"
       },
       "cutParameters": {
         "$ref": "#/$defs/ProfilingCutSettings",
@@ -2561,7 +2511,7 @@ export const camSchemaBundle = {
               "conventional",
               "mixed"
             ],
-            "title": "Climb/Conventional/Mixed",
+            "title": "Cut Style",
             "type": "string"
           },
           "directionDegrees": {
@@ -2569,7 +2519,7 @@ export const camSchemaBundle = {
             "description": "Lane travel direction in degrees from +X. Stepover advances 90 degrees CCW.",
             "exclusiveMaximum": 180,
             "minimum": 0,
-            "title": "Direction",
+            "title": "Slice Direction",
             "type": "number",
             "x-opencam": {
               "unit": "degrees"
@@ -2590,23 +2540,6 @@ export const camSchemaBundle = {
           }
         },
         "title": "ParallelFinishingCutSettings",
-        "type": "object"
-      },
-      "ParallelFinishingDriveGeometry": {
-        "properties": {
-          "cutAreas": {
-            "items": {
-              "$ref": "#/$defs/ClosedPolyline2D"
-            },
-            "minItems": 1,
-            "title": "Cut areas",
-            "type": "array"
-          }
-        },
-        "required": [
-          "cutAreas"
-        ],
-        "title": "ParallelFinishingDriveGeometry",
         "type": "object"
       },
       "PartMaxZPlusOffsetClearance": {
@@ -2829,8 +2762,12 @@ export const camSchemaBundle = {
         "title": "Advanced"
       },
       "driveGeometry": {
-        "$ref": "#/$defs/ParallelFinishingDriveGeometry",
-        "title": "Drive geometry"
+        "items": {
+          "$ref": "#/$defs/ClosedPolyline2D"
+        },
+        "minItems": 1,
+        "title": "Drive geometry",
+        "type": "array"
       },
       "cutParameters": {
         "$ref": "#/$defs/ParallelFinishingCutSettings",

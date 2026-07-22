@@ -14,7 +14,7 @@ from opencam.schemas.cam import CAMSetup
 from opencam.schemas.geometry_2_5d import ClosedPolyline25D
 from opencam.schemas.geometry_2d import Point2D
 from opencam.schemas.operations.base import AbsoluteClearance, CAMLevels, FeedsAndSpeeds
-from opencam.schemas.operations.pocketing import Pocketing2dOp, PocketingCutSettings, PocketingDriveGeometry, StepoverMode
+from opencam.schemas.operations.pocketing import Pocketing2dOp, PocketingCutSettings, StepoverMode
 from opencam.schemas.tools import CylindricalTool
 from opencam.services.cam_engine import cam_engine
 from rhino_renderer.file_client import FileClient
@@ -101,14 +101,12 @@ def build_operation(points: list[tuple[float, float, float]]):
             depth_of_cut=CUT_DEPTH,
             max_stepdown=Z_STEP_HEIGHT,
         ),
-        drive_geometry=PocketingDriveGeometry(
-            cut_areas=[
-                ClosedPolyline25D(
-                    z=bottom_z,
-                    vertices=[Point2D(x=float(x), y=float(y)) for x, y, _ in points[:-1]],
-                )
-            ]
-        ),
+        drive_geometry=[
+            ClosedPolyline25D(
+                z=bottom_z,
+                vertices=[Point2D(x=float(x), y=float(y)) for x, y, _ in points[:-1]],
+            )
+        ],
         cut_parameters=PocketingCutSettings(
             stepover=StepoverMode(mode="percentage_of_tool_diameter", value=STEPOVER),
             stock_to_leave=STOCK_TO_LEAVE,

@@ -13,7 +13,7 @@ from opencam.schemas.tools import BallTool, CylindricalTool
 
 
 def pocketing_max_cut_z(operation: Pocketing2dOp) -> float:
-    return operation.levels.max_cut_z(area.z for area in operation.drive_geometry.cut_areas)
+    return operation.levels.max_cut_z(area.z for area in operation.drive_geometry)
 
 
 def build_pocketing_records(
@@ -32,7 +32,7 @@ def build_pocketing_records(
         stepover_percent = stepover.value / operation.tool.diameter * 100
 
     record_groups: list[list[PositionRecord]] = []
-    for geometry in operation.drive_geometry.cut_areas:
+    for geometry in operation.drive_geometry:
         layers = build_pocket_layers(
             geometry.to_numpy(),
             tool_diameter=operation.tool.diameter,

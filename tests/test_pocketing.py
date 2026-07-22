@@ -22,7 +22,7 @@ from opencam.schemas.cl_data import FeedRatePositionRecord3D, RapidPositionRecor
 from opencam.schemas.geometry_2_5d import ClosedPolyline25D
 from opencam.schemas.geometry_2d import Point2D
 from opencam.schemas.operations.base import AbsoluteClearance, CAMLevels, FeedsAndSpeeds
-from opencam.schemas.operations.pocketing import Pocketing2dOp, PocketingCutSettings, PocketingDriveGeometry, StepoverMode
+from opencam.schemas.operations.pocketing import Pocketing2dOp, PocketingCutSettings, StepoverMode
 from opencam.schemas.tools import CylindricalTool
 from opencam.services.cam_engine import cam_engine
 from opencam.services.tool_mesh import build_tool
@@ -54,9 +54,7 @@ def generate_pocket(*, tmp_path, depth_of_cut: float):
         feeds_and_speeds=FeedsAndSpeeds(cut_feedrate=100.0, spindle_rpm=1000),
         clearance=AbsoluteClearance(absolute_height=25.4),
         levels=CAMLevels(drive_geometry_position="at_top", depth_of_cut=depth_of_cut, max_stepdown=1.0),
-        drive_geometry=PocketingDriveGeometry(
-            cut_areas=[ClosedPolyline25D(z=0.0, vertices=rectangle_vertices())]
-        ),
+        drive_geometry=[ClosedPolyline25D(z=0.0, vertices=rectangle_vertices())],
         cut_parameters=PocketingCutSettings(
             stepover=StepoverMode(mode="percentage_of_tool_diameter", value=50.0),
         ),

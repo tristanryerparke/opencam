@@ -350,19 +350,17 @@ def test_endpoint_generates_parallel_finishing_from_inline_mesh():
             "tool": tool,
             "clearance": {"clearanceHeightType": "absolute", "absoluteHeight": 5.0},
             "advanced": {"chordalTolerance": 0.01},
-            "driveGeometry": {
-                "cutAreas": [
-                    {
-                        "vertices": [
-                            {"x": 0.0, "y": 0.0},
-                            {"x": 10.0, "y": 0.0},
-                            {"x": 10.0, "y": 10.0},
-                            {"x": 0.0, "y": 10.0},
-                            {"x": 0.0, "y": 0.0},
-                        ],
-                    }
-                ]
-            },
+            "driveGeometry": [
+                {
+                    "vertices": [
+                        {"x": 0.0, "y": 0.0},
+                        {"x": 10.0, "y": 0.0},
+                        {"x": 10.0, "y": 10.0},
+                        {"x": 0.0, "y": 10.0},
+                        {"x": 0.0, "y": 0.0},
+                    ],
+                }
+            ],
             "cutParameters": {
                 "directionDegrees": 0.0,
                 "stepover": {"mode": "percentage_of_tool_diameter", "value": 100.0},

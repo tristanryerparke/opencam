@@ -1,8 +1,8 @@
-import io
 import logging
 from datetime import datetime
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
-import trimesh
 from fastapi import Depends, FastAPI, File, HTTPException, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from opencam.schemas.cam import GenerateToolpathRequest
@@ -14,6 +14,7 @@ from opencam.services.mesh_cache import CachedMeshMetadata, get_mesh_cache
 from opencam.services.tool_mesh import build_tool
 from opencam.simulation.router import router as simulation_router
 from opencam.services.tool_library import ToolLibrary, get_tool_library
+from opencam.utilities.loader import step_to_mesh
 
 logger = logging.getLogger(__name__)
 app = FastAPI(title="OpenCAM API", version="0.2.0")
@@ -91,15 +92,20 @@ def get_cached_mesh_metadata():
 
 
 @app.post("/cam/mesh", response_model=CachedMeshMetadata, status_code=status.HTTP_201_CREATED)
-async def cache_mesh(mesh: UploadFile = File(...)):
-    mesh_bytes = await mesh.read()
+async def cache_mesh(step: UploadFile = File(...)):
+    step_bytes = await step.read()
+    suffix = Path(step.filename or "part.step").suffix.lower()
+    if suffix not in {".step", ".stp"}:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A STEP file is required.")
+
     try:
-        return get_mesh_cache().set_mesh(
-            mesh.filename or "mesh.stl",
-            mesh_bytes,
-            content_type=mesh.content_type,
-        )
-    except ValueError as exc:
+        with TemporaryDirectory() as directory:
+            step_path = Path(directory) / f"part{suffix}"
+            step_path.write_bytes(step_bytes)
+            mesh = step_to_mesh(step_path)
+        return get_mesh_cache().set_step(step.filename or "mesh.step", step_bytes, mesh)
+    except (OSError, RuntimeError, ValueError) as exc:
+        logger.exception("STEP mesh conversion failed")
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
 
@@ -108,7 +114,10 @@ def get_cached_mesh_file():
     cached_mesh = get_mesh_cache().get_mesh()
     if cached_mesh is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mesh not found.")
-    return Response(content=cached_mesh.mesh_bytes, media_type=cached_mesh.content_type)
+    return Response(
+        content=cached_mesh.mesh.model_dump_json(by_alias=True),
+        media_type="application/json",
+    )
 
 
 @app.delete("/cam/mesh", status_code=status.HTTP_204_NO_CONTENT)
@@ -122,11 +131,7 @@ def server_cached_mesh_loader(cache_id: str) -> Mesh | None:
     record = get_mesh_cache().get_mesh()
     if record is None or record.version != cache_id:
         return None
-    mesh = trimesh.load(io.BytesIO(record.mesh_bytes), file_type="stl", force="mesh")
-    return Mesh(
-        vertices=[[float(coordinate) for coordinate in vertex] for vertex in mesh.vertices],
-        faces=[[int(index) for index in face] for face in mesh.faces],
-    )
+    return record.mesh
 
 
 @app.post("/cam/toolpath", response_model=OperationRecord3D)

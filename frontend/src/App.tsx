@@ -1,8 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { AppSidebar, type RequestState } from "@/components/app-sidebar";
-import { meshBlobForBackend } from "@/components/polyline-viewer/mesh-export";
-import { loadMeshGeometry } from "@/components/polyline-viewer/mesh-loader";
 import { SettingsDialog } from "@/components/settings-dialog";
 import { OperationDialog } from "@/components/operation-dialog";
 import { OperationTypeDialog } from "@/components/operation-type-dialog";
@@ -24,7 +22,6 @@ import {
   applySelectionToOperationDraft,
   buildGenerateToolpathRequest,
   createOperationDraft,
-  getGeometryArrayKey,
   getOperationSchema,
   parseOperationDraft,
 } from "@/lib/cam-schema";
@@ -314,27 +311,11 @@ function readFileAsDataUrl(file: File) {
   });
 }
 
-async function getMeshMaxZ(meshUrl: string) {
-  const geometry = await loadMeshGeometry(meshUrl);
-  try {
-    geometry.computeBoundingBox();
-    const maxZ = geometry.boundingBox?.max.z;
-    if (typeof maxZ !== "number" || !Number.isFinite(maxZ)) {
-      throw new Error("Unable to determine STEP bounds.");
-    }
-
-    return maxZ;
-  } finally {
-    geometry.dispose();
-  }
-}
-
 async function saveMeshToLocalStorage(file: File, shouldSave: () => boolean = () => true) {
   const dataUrl = await readFileAsDataUrl(file);
   const payload = {
     name: file.name,
     dataUrl,
-    maxZ: await getMeshMaxZ(dataUrl),
   } satisfies LocalCachedMeshPayload;
 
   if (typeof window === "undefined" || !shouldSave()) {
@@ -352,10 +333,9 @@ async function saveMeshToLocalStorage(file: File, shouldSave: () => boolean = ()
   }
 }
 
-async function uploadMeshToBackend(mesh: Blob, name: string, signal?: AbortSignal) {
-  const backendMesh = await meshBlobForBackend(mesh, name);
+async function uploadStepToBackend(step: Blob, name: string, signal?: AbortSignal) {
   const upload = new FormData();
-  upload.append("mesh", backendMesh.blob, backendMesh.name);
+  upload.append("step", step, name);
 
   const response = await fetch(`${getBackendUrl()}/cam/mesh`, {
     method: "POST",
@@ -363,24 +343,13 @@ async function uploadMeshToBackend(mesh: Blob, name: string, signal?: AbortSigna
     signal,
   });
 
-  return readCachedMeshResponse(response, "Failed to cache mesh in backend.");
+  return readCachedMeshResponse(response, "Failed to process STEP in backend.");
 }
 
 async function uploadLocalStorageMeshToBackend(cachedMesh: LocalCachedMeshPayload, signal?: AbortSignal) {
-  const meshResponse = await fetch(cachedMesh.dataUrl, { signal });
-  const meshBlob = await meshResponse.blob();
-  return uploadMeshToBackend(meshBlob, cachedMesh.name, signal);
-}
-
-async function appendFrontendCachedMesh(formData: FormData, currentMeshUrl: string | null, currentMeshName: string | null) {
-  const cachedMesh = readCachedMeshFromLocalStorage();
-  const meshDataUrl = cachedMesh?.dataUrl ?? (currentMeshUrl?.startsWith("data:") ? currentMeshUrl : null);
-  if (!meshDataUrl) {
-    return;
-  }
-
-  const backendMesh = await meshBlobForBackend(meshDataUrl, cachedMesh?.name ?? currentMeshName ?? "mesh.stl");
-  formData.append("mesh", backendMesh.blob, backendMesh.name);
+  const stepResponse = await fetch(cachedMesh.dataUrl, { signal });
+  const stepBlob = await stepResponse.blob();
+  return uploadStepToBackend(stepBlob, cachedMesh.name, signal);
 }
 
 function toolPositionToPoint(position: ToolPositionResponse): PolylinePoint {
@@ -423,27 +392,18 @@ function geometryToMeshFaceSelection(geometry: ClosedPolyline, index: number, fa
   };
 }
 
-function asList<T>(value: T | T[] | undefined): T[] {
-  if (Array.isArray(value)) {
-    return value;
-  }
-  return value ? [value] : [];
-}
-
 function operationToMeshFaceSelections(operation: Operation | null, fallbackZ: number): MeshFaceSelection[] {
   if (!operation) {
     return [];
   }
-  const geometryKey = getGeometryArrayKey(getOperationSchema(operation));
-  const driveGeometry = operation.driveGeometry as Record<string, ClosedPolyline | ClosedPolyline[] | undefined>;
-  return asList(geometryKey ? driveGeometry[geometryKey] : undefined).map((geometry, index) =>
+  const geometries = operation.driveGeometry as unknown as ClosedPolyline[];
+  return geometries.map((geometry, index) =>
     geometryToMeshFaceSelection(geometry, index, fallbackZ),
   );
 }
 
 function draftToMeshFaceSelections(draft: DraftObject | null, fallbackZ: number): MeshFaceSelection[] {
-  const geometryKey = draft ? getGeometryArrayKey(getOperationSchema(draft)) : null;
-  const geometries = asList(geometryKey ? (draft?.driveGeometry as DraftObject | undefined)?.[geometryKey] : undefined);
+  const geometries = Array.isArray(draft?.driveGeometry) ? draft.driveGeometry : [];
 
   return geometries.flatMap((geometry, index) => {
     if (!geometry || typeof geometry !== "object" || Array.isArray(geometry)) {
@@ -798,24 +758,26 @@ function App() {
     void (async () => {
       const localMesh = readCachedMeshFromLocalStorage();
       if (localMesh) {
-        const maxZ = localMesh.maxZ ?? (await getMeshMaxZ(localMesh.dataUrl));
         if (cancelled || meshUploadRequestRef.current !== requestId) {
           return;
         }
 
         setMeshName(localMesh.name);
-        setMeshUrl(localMesh.dataUrl);
-        setMeshMaxZ(maxZ);
-        setMeshCacheState("ready");
-        setMeshCacheMessage("Cached in browser localStorage. Restoring backend memory...");
+        setMeshUrl(null);
+        setMeshMaxZ(null);
+        setMeshCacheState("saving");
+        setMeshCacheMessage("Restoring STEP in backend memory...");
 
         restoreController = new AbortController();
         meshRestoreAbortRef.current = restoreController;
         try {
           const restoredMesh = await uploadLocalStorageMeshToBackend(localMesh, restoreController.signal);
           if (!cancelled && meshUploadRequestRef.current === requestId) {
+            setMeshUrl(resolveBackendAssetUrl(restoredMesh.meshUrl));
+            setMeshMaxZ(restoredMesh.maxZ);
             setCachedMeshVersion(restoredMesh.version);
-            setMeshCacheMessage("Cached in browser localStorage and backend memory.");
+            setMeshCacheState("ready");
+            setMeshCacheMessage("STEP and mesh cached in backend memory.");
           }
         } catch (error: unknown) {
           if (!cancelled && meshUploadRequestRef.current === requestId) {
@@ -1346,7 +1308,7 @@ function App() {
     setFaceSelectionMode(false);
 
     if (resumeOperationDialogAfterSelection && operationDraft) {
-      setOperationDraft(applySelectionToOperationDraft(operationDraft, selection, meshMaxZ));
+      setOperationDraft(applySelectionToOperationDraft(operationDraft, selection));
       setIsOperationDialogOpen(true);
       setResumeOperationDialogAfterSelection(false);
     }
@@ -1856,9 +1818,9 @@ function App() {
       return;
     }
 
-    if (operationToGenerate.type === "parallel_finishing" && !cachedMeshVersion) {
+    if (!cachedMeshVersion) {
       setRequestState("error");
-      setRequestMessage("Wait for the part mesh to finish caching before generating parallel finishing.");
+      setRequestMessage("Wait for the part mesh to finish processing before generating a toolpath.");
       return;
     }
 
@@ -1918,8 +1880,6 @@ function App() {
       simulationRequest.append("chunk_padding_y", String(CHUNK_PADDING_Y));
       simulationRequest.append("chunk_padding_z", String(CHUNK_PADDING_Z));
       simulationRequest.append("chunk_step_distance", String(SIMULATION_CONTACT_STEP_DISTANCE));
-      await appendFrontendCachedMesh(simulationRequest, meshUrl, meshName);
-
       setGeneratedOperation(operation);
       if (operationToGenerate.id) {
         setGeneratedOperationsById((current) => ({ ...current, [operationToGenerate.id!]: operation }));
@@ -2024,27 +1984,29 @@ function App() {
       }
 
       setMeshName(localMesh.payload.name);
-      setMeshUrl(localMesh.payload.dataUrl);
-      setMeshMaxZ(localMesh.payload.maxZ ?? null);
-      setMeshCacheState("ready");
+      setMeshUrl(null);
+      setMeshMaxZ(null);
+      setMeshCacheState("saving");
       setMeshCacheMessage(
         localMesh.saved
-          ? "Cached in browser localStorage. Caching backend memory..."
-          : "Loaded in browser. Browser localStorage cache unavailable.",
+          ? "Cached in browser localStorage. Processing STEP in backend..."
+          : "Processing STEP in backend...",
       );
 
       try {
-        const cachedMesh = await uploadMeshToBackend(file, file.name);
+        const cachedMesh = await uploadStepToBackend(file, file.name);
         if (meshUploadRequestRef.current !== requestId) {
           return;
         }
 
+        setMeshUrl(resolveBackendAssetUrl(cachedMesh.meshUrl));
         setMeshMaxZ(cachedMesh.maxZ);
         setCachedMeshVersion(cachedMesh.version);
+        setMeshCacheState("ready");
         setMeshCacheMessage(
           localMesh.saved
-            ? "Cached in browser localStorage and backend memory."
-            : "Loaded in browser and cached in backend memory.",
+            ? "STEP and mesh cached in browser and backend memory."
+            : "STEP and mesh cached in backend memory.",
         );
       } catch (error: unknown) {
         if (meshUploadRequestRef.current !== requestId) {
@@ -2052,11 +2014,8 @@ function App() {
         }
 
         console.error("Failed to cache STEP in backend", error);
-        setMeshCacheMessage(
-          localMesh.saved
-            ? "Cached in browser localStorage. Backend cache unavailable."
-            : "Loaded in browser. Backend cache unavailable.",
-        );
+        setMeshCacheState("error");
+        setMeshCacheMessage("Backend STEP processing unavailable.");
       }
     } catch (error) {
       if (meshUploadRequestRef.current !== requestId) {

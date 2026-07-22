@@ -443,12 +443,6 @@ export function setDraftValueAtPath(draft: DraftObject, path: readonly string[],
   };
 }
 
-export function getGeometryArrayKey(rootSchema: JsonSchema): string | null {
-  const driveGeometrySchema = rootSchema.properties?.driveGeometry;
-  const driveGeometry = driveGeometrySchema ? resolveSchema(driveGeometrySchema, rootSchema) : undefined;
-  return Object.entries(driveGeometry?.properties ?? {}).find(([, schema]) => resolveSchema(schema, rootSchema).type === "array")?.[0] ?? null;
-}
-
 export function createDriveGeometryFromSelection(selection: MeshFaceSelection) {
   if (!selection.boundaryLoop || selection.planeZ == null) {
     return null;
@@ -461,13 +455,6 @@ export function createDriveGeometryFromSelection(selection: MeshFaceSelection) {
   } satisfies DraftObject;
 }
 
-function asList(value: DraftValue | undefined): DraftValue[] {
-  if (Array.isArray(value)) {
-    return value;
-  }
-  return value ? [value] : [];
-}
-
 export function createOperationDraft(
   operationType: OperationType,
   operationIndex: number,
@@ -476,7 +463,6 @@ export function createOperationDraft(
   existingOperation?: Operation,
 ): DraftObject {
   const rootSchema = getOperationSchema(existingOperation ?? operationType);
-  const geometryKey = getGeometryArrayKey(rootSchema);
   const actualOperation =
     existingOperation ??
     ({
@@ -486,15 +472,10 @@ export function createOperationDraft(
       displayName: `${getOperationLabel(operationType)} ${operationIndex}`,
     } satisfies DraftObject);
   const geometry = selection ? createDriveGeometryFromSelection(selection) : null;
-  const driveGeometry = ((actualOperation as DraftObject).driveGeometry as DraftObject | undefined) ?? {};
+  const actualDriveGeometry = (actualOperation as DraftObject).driveGeometry;
   const hydratedOperation = {
     ...(actualOperation as DraftObject),
-    driveGeometry: geometryKey
-      ? {
-          ...driveGeometry,
-          [geometryKey]: geometry ? [geometry] : driveGeometry[geometryKey],
-        }
-      : driveGeometry,
+    driveGeometry: geometry ? [geometry] : actualDriveGeometry,
   } satisfies DraftObject;
 
   return schemaValueToDraft(rootSchema, hydratedOperation, rootSchema) as DraftObject;
@@ -503,27 +484,21 @@ export function createOperationDraft(
 export function applySelectionToOperationDraft(
   draft: DraftObject,
   selection: MeshFaceSelection,
-  _meshMaxZ: number | null,
 ): DraftObject {
   const rootSchema = getOperationSchema(draft);
-  const geometryKey = getGeometryArrayKey(rootSchema);
   const geometry = createDriveGeometryFromSelection(selection);
-  if (!geometryKey || !geometry) {
+  if (!geometry) {
     return draft;
   }
 
-  const driveGeometry = (draft.driveGeometry as DraftObject | undefined) ?? {};
-  const geometries = [...asList(driveGeometry[geometryKey]), geometry];
+  const geometries = [
+    ...(Array.isArray(draft.driveGeometry) ? draft.driveGeometry : []),
+    geometry,
+  ];
 
   return schemaValueToDraft(
     rootSchema,
-    {
-      ...draft,
-      driveGeometry: {
-        ...driveGeometry,
-        [geometryKey]: geometries,
-      },
-    },
+    { ...draft, driveGeometry: geometries },
     rootSchema,
   ) as DraftObject;
 }

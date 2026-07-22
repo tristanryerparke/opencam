@@ -14,6 +14,7 @@ class Mesh(CamelBaseModel):
     source: Literal["inline"] = Field(default="inline", frozen=True)
     vertices: list[tuple[float, float, float]] = Field(min_length=3, title="Vertices")
     faces: list[tuple[int, int, int]] = Field(min_length=1, title="Faces")
+    source_face_ids: list[int] | None = Field(default=None, title="Source face IDs")
 
     @model_validator(mode="after")
     def validate_face_indices(self) -> "Mesh":
@@ -24,6 +25,8 @@ class Mesh(CamelBaseModel):
                     raise ValueError(
                         f"Mesh face index {index} is out of range for {vertex_count} vertices."
                     )
+        if self.source_face_ids is not None and len(self.source_face_ids) != len(self.faces):
+            raise ValueError("Mesh source face IDs must contain one ID per face.")
         return self
 
 

@@ -14,10 +14,6 @@ class StepoverMode(CamelBaseModel):
     value: float = Field(default=25.0, gt=0, title="Value", json_schema_extra=ui_metadata(unit="%"))
 
 
-class PocketingDriveGeometry(CamelBaseModel):
-    cut_areas: list[ClosedPolyline25D] = Field(min_length=1, title="Cut areas")
-
-
 class PocketingCutSettings(CamelBaseModel):
     cut_direction: Literal["climb", "conventional"] = Field(default="climb", title="Climb/Conventional")
     stepover: StepoverMode = Field(default_factory=StepoverMode, title="Stepover")
@@ -28,5 +24,5 @@ class Pocketing2dOp(BaseCAMOperation):
     model_config = ConfigDict(title="Pocketing2dOp")
 
     type: Literal["pocketing_2d"] = Field(default="pocketing_2d", frozen=True)
-    drive_geometry: PocketingDriveGeometry = Field(title="Drive geometry")
+    drive_geometry: list[ClosedPolyline25D] = Field(min_length=1, title="Drive geometry")
     cut_parameters: PocketingCutSettings = Field(default_factory=PocketingCutSettings, title="Cut parameters")

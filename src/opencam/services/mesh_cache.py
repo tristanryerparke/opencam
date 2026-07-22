@@ -4,8 +4,9 @@ from dataclasses import dataclass
 from threading import Lock
 from uuid import uuid4
 
+import trimesh
 from opencam.schemas.base import CamelBaseModel
-from opencam.simulation.swept_volume import load_stl_bounds
+from opencam.schemas.mesh import Mesh
 
 MESH_FILE_URL = "/cam/mesh/file"
 
@@ -20,7 +21,8 @@ class CachedMeshMetadata(CamelBaseModel):
 @dataclass(frozen=True)
 class CachedMeshRecord:
     name: str
-    content_type: str
+    step_bytes: bytes
+    mesh: Mesh
     mesh_bytes: bytes
     max_z: float
     version: str
@@ -46,16 +48,21 @@ class MeshCache:
         with self._lock:
             return self._current
 
-    def set_mesh(self, name: str, mesh_bytes: bytes, *, content_type: str | None = None) -> CachedMeshMetadata:
-        if not mesh_bytes:
-            raise ValueError("Mesh upload is empty.")
+    def set_step(self, name: str, step_bytes: bytes, mesh: Mesh) -> CachedMeshMetadata:
+        if not step_bytes:
+            raise ValueError("STEP upload is empty.")
 
-        _bounds_min, bounds_max = load_stl_bounds(mesh_bytes)
+        mesh_bytes = trimesh.Trimesh(
+            vertices=mesh.vertices,
+            faces=mesh.faces,
+            process=False,
+        ).export(file_type="stl")
         record = CachedMeshRecord(
-            name=name or "mesh.stl",
-            content_type=content_type or "model/stl",
+            name=name or "mesh.step",
+            step_bytes=step_bytes,
+            mesh=mesh,
             mesh_bytes=mesh_bytes,
-            max_z=float(bounds_max[2]),
+            max_z=max(vertex[2] for vertex in mesh.vertices),
             version=uuid4().hex,
         )
 
@@ -65,7 +72,6 @@ class MeshCache:
             max_z=record.max_z,
             version=record.version,
         )
-
 
         with self._lock:
             self._current = record

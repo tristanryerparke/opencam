@@ -30,4 +30,5 @@ export interface Mesh {
    * @minItems 1
    */
   faces: [[unknown, unknown, unknown], ...[unknown, unknown, unknown][]];
+  sourceFaceIds?: number[] | null;
 }

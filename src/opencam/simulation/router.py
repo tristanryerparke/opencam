@@ -795,7 +795,7 @@ async def simulate_swept(
     if mesh_bytes is None:
         cached_mesh = get_mesh_cache().get_mesh()
         if cached_mesh is None:
-            raise HTTPException(status_code=400, detail="Upload an STL before running simulation.")
+            raise HTTPException(status_code=400, detail="Upload a STEP file before running simulation.")
         mesh_bytes = cached_mesh.mesh_bytes
 
     if any(not np.isfinite(padding) or padding < 0 for padding in (chunk_padding_x, chunk_padding_y, chunk_padding_z)):

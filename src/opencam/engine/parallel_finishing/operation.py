@@ -26,7 +26,7 @@ def build_parallel_finishing_operation_records(
 
     return build_parallel_finishing_records(
         mesh,
-        cut_areas=[area.to_numpy() for area in operation.drive_geometry.cut_areas],
+        cut_areas=[area.to_numpy() for area in operation.drive_geometry],
         tool=operation.tool,
         cut_direction=operation.cut_parameters.cut_direction,
         direction_degrees=operation.cut_parameters.direction_degrees,

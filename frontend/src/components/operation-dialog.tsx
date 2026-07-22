@@ -44,7 +44,6 @@ import {
   type DraftValue,
   type JsonSchema,
   getDiscriminatedUnionOptions,
-  getGeometryArrayKey,
   getOperationLabel,
   getSchemaTitle,
   getUiMetadata,
@@ -67,13 +66,8 @@ function formatReadOnlyValue(value: DraftValue | undefined) {
   return "—";
 }
 
-function getControlGeometryRows(value: DraftValue | undefined, geometryKey: string | null): DraftObject[] {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return [];
-  }
-
-  const rawGeometries = geometryKey ? (value as DraftObject)[geometryKey] : undefined;
-  const geometries = Array.isArray(rawGeometries) ? rawGeometries : rawGeometries ? [rawGeometries] : [];
+function getControlGeometryRows(value: DraftValue | undefined): DraftObject[] {
+  const geometries = Array.isArray(value) ? value : [];
 
   return geometries.filter((geometry): geometry is DraftObject => {
     if (!geometry || typeof geometry !== "object" || Array.isArray(geometry)) {
@@ -127,20 +121,17 @@ function needsValues(rootSchema: JsonSchema, schema: JsonSchema, value: DraftVal
 }
 
 type ControlGeometryPanelProps = {
-  rootSchema: JsonSchema;
   value: DraftValue | undefined;
   onStartGeometrySelection: () => void;
-  onDeleteGeometry: (index: number, geometryKey: string) => void;
+  onDeleteGeometry: (index: number) => void;
 };
 
 function ControlGeometryPanel({
-  rootSchema,
   value,
   onStartGeometrySelection,
   onDeleteGeometry,
 }: ControlGeometryPanelProps) {
-  const geometryKey = getGeometryArrayKey(rootSchema);
-  const rows = getControlGeometryRows(value, geometryKey);
+  const rows = getControlGeometryRows(value);
 
   return (
     <div className="space-y-3">
@@ -164,7 +155,7 @@ function ControlGeometryPanel({
                   <TableCell className="font-medium">Edge loop {index + 1}</TableCell>
                   <TableCell>{formatGeometryZ(geometry.z)}</TableCell>
                   <TableCell className="text-right">
-                    <Button type="button" variant="destructive" onClick={() => geometryKey && onDeleteGeometry(index, geometryKey)}>
+                    <Button type="button" variant="destructive" onClick={() => onDeleteGeometry(index)}>
                       Delete
                     </Button>
                   </TableCell>
@@ -365,21 +356,20 @@ function SchemaFields({ rootSchema, schema, value, path, onChange, onStartGeomet
     );
   }
 
-  if (resolved.properties) {
-    if (path.length === 1 && path[0] === "driveGeometry" && onStartGeometrySelection) {
-      return (
-        <ControlGeometryPanel
-          rootSchema={rootSchema}
-          value={value}
-          onStartGeometrySelection={onStartGeometrySelection}
-          onDeleteGeometry={(index, geometryKey) => {
-            const rows = getControlGeometryRows(value, geometryKey);
-            onChange([...path, geometryKey], rows.filter((_, rowIndex) => rowIndex !== index));
-          }}
-        />
-      );
-    }
+  if (path.length === 1 && path[0] === "driveGeometry" && resolved.type === "array" && onStartGeometrySelection) {
+    return (
+      <ControlGeometryPanel
+        value={value}
+        onStartGeometrySelection={onStartGeometrySelection}
+        onDeleteGeometry={(index) => {
+          const rows = getControlGeometryRows(value);
+          onChange(path, rows.filter((_, rowIndex) => rowIndex !== index));
+        }}
+      />
+    );
+  }
 
+  if (resolved.properties) {
     return (
       <div className="space-y-4">
         {Object.entries(resolved.properties).map(([key, childSchema]) => (

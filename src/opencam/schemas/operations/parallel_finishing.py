@@ -10,20 +10,16 @@ from opencam.schemas.operations.base import BaseCAMOperation, ui_metadata
 from opencam.schemas.operations.pocketing import StepoverMode
 
 
-class ParallelFinishingDriveGeometry(CamelBaseModel):
-    cut_areas: list[ClosedPolyline2D] = Field(min_length=1, title="Cut areas")
-
-
 class ParallelFinishingCutSettings(CamelBaseModel):
     cut_direction: Literal["climb", "conventional", "mixed"] = Field(
         default="mixed",
-        title="Climb/Conventional/Mixed",
+        title="Cut Style",
     )
     direction_degrees: float = Field(
         default=0.0,
         ge=0.0,
         lt=180.0,
-        title="Direction",
+        title="Slice Direction",
         description="Lane travel direction in degrees from +X. Stepover advances 90 degrees CCW.",
         json_schema_extra=ui_metadata(unit="degrees"),
     )
@@ -42,7 +38,7 @@ class ParallelFinishingOp(BaseCAMOperation):
     type: Literal["parallel_finishing"] = Field(default="parallel_finishing", frozen=True)
     display_name: str = Field(default="Parallel Finishing", title="Operation name")
 
-    drive_geometry: ParallelFinishingDriveGeometry = Field(title="Drive geometry")
+    drive_geometry: list[ClosedPolyline2D] = Field(min_length=1, title="Drive geometry")
     cut_parameters: ParallelFinishingCutSettings = Field(
         default_factory=ParallelFinishingCutSettings,
         title="Cut parameters",

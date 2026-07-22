@@ -5,7 +5,7 @@ from opencam.schemas.cam import CAMSetup
 from opencam.schemas.cl_data import FeedRatePositionRecord3D
 from opencam.schemas.geometry_2_5d import ClosedPolyline25D
 from opencam.schemas.operations.base import CAMLevels, FeedsAndSpeeds
-from opencam.schemas.operations.pocketing import Pocketing2dOp, PocketingCutSettings, PocketingDriveGeometry, StepoverMode
+from opencam.schemas.operations.pocketing import Pocketing2dOp, PocketingCutSettings, StepoverMode
 from opencam.schemas.geometry_2d import Point2D
 from opencam.schemas.tools import CylindricalTool
 from opencam.services.cam_engine import cam_engine
@@ -26,14 +26,12 @@ operation = Pocketing2dOp(
     tool=tool,
     feeds_and_speeds=FeedsAndSpeeds(cut_feedrate=800.0, spindle_rpm=18_000),
     levels=CAMLevels(depth_of_cut=6.0, max_stepdown=6),
-    drive_geometry=PocketingDriveGeometry(
-        cut_areas=[
-            ClosedPolyline25D(
-                z=drive_curve[0][2],
-                vertices=[Point2D(x=x, y=y) for x, y, _ in drive_curve],
-            )
-        ]
-    ),
+    drive_geometry=[
+        ClosedPolyline25D(
+            z=drive_curve[0][2],
+            vertices=[Point2D(x=x, y=y) for x, y, _ in drive_curve],
+        )
+    ],
     cut_parameters=PocketingCutSettings(
         stepover=StepoverMode(mode="percentage_of_tool_diameter", value=15),
     ),

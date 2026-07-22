@@ -1,13 +1,5 @@
 import * as THREE from "three";
-import type { OcctReadResult } from "occt-import-js";
 import type { MeshFaceSelection, PolylinePoint } from "./types";
-
-export const STEP_READ_PARAMS = {
-  linearUnit: "millimeter" as const,
-  linearDeflectionType: "bounding_box_ratio" as const,
-  linearDeflection: 0.001,
-  angularDeflection: 0.5,
-};
 
 export type StepFaceRange = {
   meshIndex: number;
@@ -33,66 +25,6 @@ function pointKey(point: THREE.Vector3) {
 function getPointFromKey(key: string): PolylinePoint {
   const [x = 0, y = 0, z = 0] = key.split(",").map(Number);
   return [x, y, z] as const;
-}
-
-export function isStepFileName(name: string | null | undefined) {
-  return /\.st(?:ep|p)(?:$|[?#])/i.test(name ?? "");
-}
-
-export function isStepBuffer(buffer: ArrayBuffer) {
-  const header = new TextDecoder().decode(buffer.slice(0, 256)).toUpperCase();
-  return header.includes("ISO-10303-21") || header.includes("STEP");
-}
-
-export function buildStepGeometry(result: OcctReadResult) {
-  const positions: number[] = [];
-  const normals: number[] = [];
-  const indices: number[] = [];
-  const faceRanges: StepFaceRange[] = [];
-
-  for (const [meshIndex, mesh] of (result.meshes ?? []).entries()) {
-    const meshPositions = mesh.attributes?.position?.array;
-    const meshIndices = mesh.index?.array;
-    if (!meshPositions?.length || !meshIndices?.length) {
-      continue;
-    }
-
-    const vertexOffset = positions.length / 3;
-    const triangleOffset = indices.length / 3;
-    positions.push(...meshPositions);
-    indices.push(...meshIndices.map((index) => index + vertexOffset));
-
-    const meshNormals = mesh.attributes?.normal?.array;
-    if (meshNormals?.length === meshPositions.length) {
-      normals.push(...meshNormals);
-    }
-
-    const triangleCount = Math.floor(meshIndices.length / 3);
-    for (const [faceIndex, face] of (mesh.brep_faces ?? []).entries()) {
-      const firstTriangle = triangleOffset + Math.max(0, Math.min(face.first, triangleCount));
-      const lastTriangleExclusive = triangleOffset + Math.max(0, Math.min(face.last + 1, triangleCount));
-      if (lastTriangleExclusive > firstTriangle) {
-        faceRanges.push({ meshIndex, faceIndex, firstTriangle, lastTriangleExclusive });
-      }
-    }
-  }
-
-  if (positions.length === 0 || indices.length === 0) {
-    throw new Error("STEP file loaded, but no mesh triangles were returned.");
-  }
-
-  const geometry = new THREE.BufferGeometry();
-  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
-  geometry.setIndex(new THREE.BufferAttribute(Uint32Array.from(indices), 1));
-  if (normals.length === positions.length) {
-    geometry.setAttribute("normal", new THREE.Float32BufferAttribute(normals, 3));
-  } else {
-    geometry.computeVertexNormals();
-  }
-  geometry.computeBoundingBox();
-  geometry.computeBoundingSphere();
-  geometry.userData.stepFaceRanges = faceRanges;
-  return geometry;
 }
 
 export function buildStepEdgeLines(

@@ -30,6 +30,7 @@ export interface Mesh {
    * @minItems 1
    */
   faces: [[unknown, unknown, unknown], ...[unknown, unknown, unknown][]];
+  sourceFaceIds?: number[] | null;
 }
 /**
  * A reference to a mesh cached in the server mesh cache.

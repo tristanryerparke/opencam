@@ -39,7 +39,7 @@ def profile_payload(*, side="outside", kind="polyline", stock_to_leave=0.0):
             "clearance": {"clearanceHeightType": "absolute", "absoluteHeight": 5.0},
             "levels": {"driveGeometryPosition": "at_top", "depthOfCut": 2.0, "maxStepdown": 1.0},
             "advanced": {"chordalTolerance": 0.01},
-            "driveGeometry": {"profiles": [{"kind": kind, "z": 0.0, "vertices": vertices}]},
+            "driveGeometry": [{"kind": kind, "z": 0.0, "vertices": vertices}],
             "cutParameters": {"side": side, "stockToLeave": stock_to_leave},
         },
     }

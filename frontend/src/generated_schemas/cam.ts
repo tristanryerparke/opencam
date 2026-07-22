@@ -30,6 +30,7 @@ export interface Mesh {
    * @minItems 1
    */
   faces: [[unknown, unknown, unknown], ...[unknown, unknown, unknown][]];
+  sourceFaceIds?: number[] | null;
   [k: string]: unknown;
 }
 /**
@@ -73,7 +74,10 @@ export interface Pocketing2DOp {
   clearance?: AutomaticClearance | AbsoluteClearance | StockMaxZPlusOffsetClearance | PartMaxZPlusOffsetClearance;
   levels?: CAMLevels;
   advanced?: CAMAdvancedParameters;
-  driveGeometry: PocketingDriveGeometry;
+  /**
+   * @minItems 1
+   */
+  driveGeometry: [ClosedPolyline25D, ...ClosedPolyline25D[]];
   cutParameters?: PocketingCutSettings;
 }
 export interface CylindricalTool {
@@ -152,13 +156,6 @@ export interface CAMAdvancedParameters {
   chordalTolerance?: number;
   [k: string]: unknown;
 }
-export interface PocketingDriveGeometry {
-  /**
-   * @minItems 1
-   */
-  cutAreas: [ClosedPolyline25D, ...ClosedPolyline25D[]];
-  [k: string]: unknown;
-}
 export interface ClosedPolyline25D {
   kind?: "closed_polyline";
   vertices: Point2D[];
@@ -190,15 +187,11 @@ export interface Profiling2DOp {
   clearance?: AutomaticClearance | AbsoluteClearance | StockMaxZPlusOffsetClearance | PartMaxZPlusOffsetClearance;
   levels?: CAMLevels;
   advanced?: CAMAdvancedParameters;
-  driveGeometry: ProfilingDriveGeometry;
-  cutParameters?: ProfilingCutSettings;
-}
-export interface ProfilingDriveGeometry {
   /**
    * @minItems 1
    */
-  profiles: [ClosedPolyline25D | Polyline25D, ...(ClosedPolyline25D | Polyline25D)[]];
-  [k: string]: unknown;
+  driveGeometry: [ClosedPolyline25D | Polyline25D, ...(ClosedPolyline25D | Polyline25D)[]];
+  cutParameters?: ProfilingCutSettings;
 }
 export interface Polyline25D {
   kind?: "polyline";
@@ -221,15 +214,11 @@ export interface ParallelFinishingOp {
   clearance?: AutomaticClearance | AbsoluteClearance | StockMaxZPlusOffsetClearance | PartMaxZPlusOffsetClearance;
   levels?: CAMLevels;
   advanced?: CAMAdvancedParameters;
-  driveGeometry: ParallelFinishingDriveGeometry;
-  cutParameters?: ParallelFinishingCutSettings;
-}
-export interface ParallelFinishingDriveGeometry {
   /**
    * @minItems 1
    */
-  cutAreas: [ClosedPolyline2D, ...ClosedPolyline2D[]];
-  [k: string]: unknown;
+  driveGeometry: [ClosedPolyline2D, ...ClosedPolyline2D[]];
+  cutParameters?: ParallelFinishingCutSettings;
 }
 export interface ClosedPolyline2D {
   kind?: "closed_polyline";

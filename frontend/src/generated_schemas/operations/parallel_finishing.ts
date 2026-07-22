@@ -27,12 +27,6 @@ export interface StepoverMode {
   mode?: "percentage_of_tool_diameter" | "absolute";
   value?: number;
 }
-export interface ParallelFinishingDriveGeometry {
-  /**
-   * @minItems 1
-   */
-  cutAreas: [ClosedPolyline2D, ...ClosedPolyline2D[]];
-}
 export interface ParallelFinishingOp {
   type?: "parallel_finishing";
   id?: string;
@@ -42,7 +36,10 @@ export interface ParallelFinishingOp {
   clearance?: AutomaticClearance | AbsoluteClearance | StockMaxZPlusOffsetClearance | PartMaxZPlusOffsetClearance;
   levels?: CAMLevels;
   advanced?: CAMAdvancedParameters;
-  driveGeometry: ParallelFinishingDriveGeometry;
+  /**
+   * @minItems 1
+   */
+  driveGeometry: [ClosedPolyline2D, ...ClosedPolyline2D[]];
   cutParameters?: ParallelFinishingCutSettings;
 }
 export interface CylindricalTool {

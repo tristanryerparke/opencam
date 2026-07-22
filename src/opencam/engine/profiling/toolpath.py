@@ -13,7 +13,7 @@ from opencam.schemas.tools import BallTool, CylindricalTool
 
 
 def profiling_max_cut_z(operation: Profiling2dOp) -> float:
-    return operation.levels.max_cut_z(profile.z for profile in operation.drive_geometry.profiles)
+    return operation.levels.max_cut_z(profile.z for profile in operation.drive_geometry)
 
 
 def build_profiling_records(
@@ -27,7 +27,7 @@ def build_profiling_records(
         )
 
     record_groups: list[list[PositionRecord]] = []
-    for geometry in operation.drive_geometry.profiles:
+    for geometry in operation.drive_geometry:
         layers = build_profile_layers(
             geometry,
             tool_diameter=operation.tool.diameter,

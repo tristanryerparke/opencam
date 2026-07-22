@@ -207,11 +207,11 @@ def test_comparison_meshes_are_remeshed_colored_and_cached(monkeypatch):
         frames=[router.PreparedSimulationFrame(0, 0, PositionRecord3D(x=0.0, y=0.0, z=0.0))],
         frame_step_distance=1.0,
         stock_mesh_bytes=b"stock",
+        final_mesh_bytes=b"final",
     )
     remesh_calls: list[bytes] = []
     color_calls: list[tuple[bytes, bytes]] = []
 
-    monkeypatch.setattr(router, "_active_mesh_bytes", lambda *_args: b"active")
     monkeypatch.setattr(router, "_remesh_visualization_mesh", lambda mesh: remesh_calls.append(mesh) or mesh + b":remeshed")
     monkeypatch.setattr(
         router,
@@ -220,15 +220,15 @@ def test_comparison_meshes_are_remeshed_colored_and_cached(monkeypatch):
     )
 
     assert router._comparison_meshes(simulation) == (
-        b"cached:remeshed:colored",
-        b"active:remeshed:colored",
+        b"final:remeshed:colored",
+        b"final:remeshed:colored",
     )
     assert router._comparison_meshes(simulation) == (
-        b"cached:remeshed:colored",
-        b"active:remeshed:colored",
+        b"final:remeshed:colored",
+        b"final:remeshed:colored",
     )
-    assert remesh_calls == [b"cached", b"active"]
-    assert color_calls == [(b"cached:remeshed", b"stock"), (b"active:remeshed", b"stock")]
+    assert remesh_calls == [b"final"]
+    assert color_calls == [(b"final:remeshed", b"stock")]
 
 
 def test_comparison_background_build_warms_cache_skips_warm_and_discards_stale(monkeypatch):
@@ -240,8 +240,8 @@ def test_comparison_background_build_warms_cache_skips_warm_and_discards_stale(m
         frames=[router.PreparedSimulationFrame(0, 0, PositionRecord3D(x=0.0, y=0.0, z=0.0))],
         frame_step_distance=1.0,
         stock_mesh_bytes=b"stock",
+        final_mesh_bytes=b"final",
     )
-    monkeypatch.setattr(router, "_active_mesh_bytes", lambda *_args: b"active")
     monkeypatch.setattr(router, "_remesh_visualization_mesh", lambda mesh: mesh + b":remeshed")
     monkeypatch.setattr(
         router,
@@ -251,21 +251,21 @@ def test_comparison_background_build_warms_cache_skips_warm_and_discards_stale(m
 
     # cold cache -> builds and stores
     router._run_comparison_mesh_build(simulation)
-    assert simulation.comparison_meshes == (b"cached:remeshed:colored", b"active:remeshed:colored")
+    assert simulation.comparison_meshes == (b"final:remeshed:colored", b"final:remeshed:colored")
 
     # warm cache -> skips rebuild
-    build_calls: list[tuple[bytes, bytes, bytes]] = []
+    build_calls: list[tuple[bytes, bytes]] = []
     monkeypatch.setattr(
         router,
         "_build_comparison_mesh_bytes",
-        lambda cached, active, stock: build_calls.append((cached, active, stock)) or (b"should-not-store", b""),
+        lambda simulation_mesh, reference_mesh: build_calls.append((simulation_mesh, reference_mesh)) or (b"should-not-store", b""),
     )
     router._run_comparison_mesh_build(simulation)
     assert build_calls == []
-    assert simulation.comparison_meshes == (b"cached:remeshed:colored", b"active:remeshed:colored")
+    assert simulation.comparison_meshes == (b"final:remeshed:colored", b"final:remeshed:colored")
 
     # generation bumped mid-build (concurrent resample) -> result discarded
-    def build_and_invalidate(cached: bytes, active: bytes, stock: bytes):
+    def build_and_invalidate(simulation_mesh: bytes, reference_mesh: bytes):
         simulation.comparison_mesh_generation += 1
         return (b"stale", b"stale")
 

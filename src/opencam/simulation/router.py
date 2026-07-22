@@ -47,7 +47,7 @@ from opencam.simulation.swept_volume import (
 
 router = APIRouter()
 
-DISPLAY_REMESH_TARGET_EDGE_LENGTH = 0.1
+DISPLAY_REMESH_TARGET_EDGE_LENGTH = 0.5
 DISPLAY_REMESH_ITERATIONS = 10
 COMPARISON_CLOSE_DISTANCE = 0.1
 COMPARISON_FAR_DISTANCE = 0.25
@@ -243,48 +243,41 @@ def _apply_comparison_distance_colors(mesh_bytes: bytes, stock_mesh_bytes: bytes
 
 
 def _build_comparison_mesh_bytes(
-    cached_mesh: bytes,
-    active_mesh: bytes,
-    stock_mesh: bytes,
+    simulation_mesh: bytes,
+    reference_mesh: bytes,
 ) -> tuple[bytes, bytes]:
-    return (
-        _apply_comparison_distance_colors(_remesh_visualization_mesh(cached_mesh), stock_mesh),
-        _apply_comparison_distance_colors(_remesh_visualization_mesh(active_mesh), stock_mesh),
-    )
+    # Colors the final simulation mesh by deviation from the uploaded part mesh.
+    # Returned as a pair so both comparison endpoints can serve it without a
+    # schema/frontend change; the two are identical until the UI collapses to a
+    # single comparison layer.
+    colored = _apply_comparison_distance_colors(_remesh_visualization_mesh(simulation_mesh), reference_mesh)
+    return (colored, colored)
 
 
 def _comparison_meshes(simulation: BufferedSimulationResult) -> tuple[bytes, bytes]:
-    # Synchronous fallback called by the comparison endpoints, which already hold
-    # SIMULATION_FRAME_BUFFER_LOCK, so resample cannot mutate frames concurrently.
+    # Called by the comparison endpoints, which already hold
+    # SIMULATION_FRAME_BUFFER_LOCK. The comparison is static (final sim vs part),
+    # so it no longer depends on frames.
     started_at = time.perf_counter()
     with simulation.comparison_mesh_lock:
         if simulation.comparison_meshes is not None:
             _comparison_debug(
                 "build-cache-hit",
                 started_at,
-                cached_bytes=len(simulation.comparison_meshes[0]),
-                active_bytes=len(simulation.comparison_meshes[1]),
+                output_bytes=len(simulation.comparison_meshes[0]),
             )
             return simulation.comparison_meshes
 
-    final_frame_index = len(simulation.frames) - 1
-    final_frame = _get_buffered_frame(simulation, final_frame_index)
-    cached_mesh = simulation.chunks[final_frame.chunk_index].cached_mesh_bytes
-    active_mesh = _active_mesh_bytes(
-        simulation,
-        final_frame.chunk_index,
-        final_frame.active_mesh_index if final_frame.active_mesh_index is not None else final_frame.point_index,
+    comparison_meshes = _build_comparison_mesh_bytes(
+        simulation.final_mesh_bytes,
+        simulation.stock_mesh_bytes,
     )
-    comparison_meshes = _build_comparison_mesh_bytes(cached_mesh, active_mesh, simulation.stock_mesh_bytes)
     with simulation.comparison_mesh_lock:
         simulation.comparison_meshes = comparison_meshes
     _comparison_debug(
         "build-cache-miss",
         started_at,
-        cached_source_bytes=len(cached_mesh),
-        active_source_bytes=len(active_mesh),
-        cached_output_bytes=len(comparison_meshes[0]),
-        active_output_bytes=len(comparison_meshes[1]),
+        output_bytes=len(comparison_meshes[0]),
     )
     return comparison_meshes
 
@@ -300,17 +293,10 @@ def _run_comparison_mesh_build(simulation: BufferedSimulationResult) -> None:
             if simulation.comparison_meshes is not None:
                 _comparison_debug("build-skipped-warm", started_at)
                 return
-            final_frame_index = len(simulation.frames) - 1
-            final_frame = _get_buffered_frame(simulation, final_frame_index)
-            cached_mesh = simulation.chunks[final_frame.chunk_index].cached_mesh_bytes
-            stock_mesh = simulation.stock_mesh_bytes
+            simulation_mesh = simulation.final_mesh_bytes
+            reference_mesh = simulation.stock_mesh_bytes
 
-        active_mesh = _active_mesh_bytes(
-            simulation,
-            final_frame.chunk_index,
-            final_frame.active_mesh_index if final_frame.active_mesh_index is not None else final_frame.point_index,
-        )
-        comparison_meshes = _build_comparison_mesh_bytes(cached_mesh, active_mesh, stock_mesh)
+        comparison_meshes = _build_comparison_mesh_bytes(simulation_mesh, reference_mesh)
 
         with simulation.comparison_mesh_lock:
             if simulation.comparison_mesh_generation != generation:
@@ -320,8 +306,7 @@ def _run_comparison_mesh_build(simulation: BufferedSimulationResult) -> None:
         _comparison_debug(
             "build-background",
             started_at,
-            cached_output_bytes=len(comparison_meshes[0]),
-            active_output_bytes=len(comparison_meshes[1]),
+            output_bytes=len(comparison_meshes[0]),
         )
     except Exception as exc:  # background warming is best-effort; endpoints rebuild on demand
         print(f"[simulate/comparison] background build failed after {time.perf_counter() - started_at:.3f}s: {exc}")
@@ -429,15 +414,6 @@ def _get_buffered_simulation(simulation_id: str) -> BufferedSimulationResult:
     if simulation is None:
         raise HTTPException(status_code=404, detail="Simulation result not found.")
     return simulation
-
-
-def _get_buffered_frame(
-    simulation: BufferedSimulationResult,
-    frame_index: int,
-) -> PreparedSimulationFrame:
-    if frame_index < 0 or frame_index >= len(simulation.frames):
-        raise HTTPException(status_code=404, detail="Simulation frame not found.")
-    return simulation.frames[frame_index]
 
 
 def _get_buffered_chunk(simulation: BufferedSimulationResult, chunk_index: int) -> SimulatedChunk:

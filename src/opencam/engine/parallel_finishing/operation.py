@@ -28,6 +28,7 @@ def build_parallel_finishing_operation_records(
         mesh,
         cut_areas=[area.to_numpy() for area in operation.drive_geometry.cut_areas],
         tool=operation.tool,
+        cut_direction=operation.cut_parameters.cut_direction,
         direction_degrees=operation.cut_parameters.direction_degrees,
         stepover=stepover,
         stock_to_leave=operation.cut_parameters.stock_to_leave,

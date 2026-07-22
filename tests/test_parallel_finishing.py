@@ -163,6 +163,65 @@ def test_parallel_finishing_emits_following_path_on_flat_plane():
     assert all(abs(record.z - 0.0) < 1e-6 for record in feed_records)
 
 
+@pytest.mark.parametrize(
+    ("cut_direction", "expected_dx"),
+    [("climb", 1.0), ("conventional", -1.0)],
+)
+def test_parallel_finishing_one_way_directions_retract_between_lanes(cut_direction: str, expected_dx: float):
+    records = build_parallel_finishing_records(
+        flat_plane_mesh(),
+        cut_areas=[cut_area()],
+        tool=CylindricalTool(
+            id="tool-2mm",
+            name="2mm flat end mill",
+            tool_number=1,
+            diameter=2.0,
+            cutting_height=10.0,
+            shoulder_height=12.0,
+        ),
+        cut_direction=cut_direction,
+        direction_degrees=0.0,
+        stepover=2.0,
+        stock_to_leave=0.0,
+        chord_tolerance=0.01,
+        feedrate=500.0,
+        clearance_plane_height=5.0,
+    )
+
+    feed_deltas = [
+        right.x - left.x
+        for left, right in zip(records, records[1:], strict=False)
+        if left.feed_type == right.feed_type == "feed_rate"
+    ]
+    assert all(delta * expected_dx >= -1e-9 for delta in feed_deltas if abs(delta) > 1e-9)
+    assert sum(record.comment == "move up to clearance plane" for record in records) >= 1
+    assert sum(record.comment == "move in clearance plane" for record in records) >= 1
+
+
+def test_parallel_finishing_mixed_direction_stays_at_cut_height_between_lanes():
+    records = build_parallel_finishing_records(
+        flat_plane_mesh(),
+        cut_areas=[cut_area()],
+        tool=CylindricalTool(
+            id="tool-2mm",
+            name="2mm flat end mill",
+            tool_number=1,
+            diameter=2.0,
+            cutting_height=10.0,
+            shoulder_height=12.0,
+        ),
+        cut_direction="mixed",
+        direction_degrees=0.0,
+        stepover=2.0,
+        stock_to_leave=0.0,
+        chord_tolerance=0.01,
+        feedrate=500.0,
+        clearance_plane_height=5.0,
+    )
+
+    assert not any(record.comment == "move in clearance plane" for record in records)
+
+
 def test_parallel_finishing_stock_to_leave_raises_path():
     mesh = flat_plane_mesh()
     tool = CylindricalTool(
@@ -294,7 +353,6 @@ def test_endpoint_generates_parallel_finishing_from_inline_mesh():
             "driveGeometry": {
                 "cutAreas": [
                     {
-                        "z": 0.0,
                         "vertices": [
                             {"x": 0.0, "y": 0.0},
                             {"x": 10.0, "y": 0.0},

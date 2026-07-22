@@ -5,16 +5,20 @@ from typing import Literal
 from pydantic import ConfigDict, Field
 
 from opencam.schemas.base import CamelBaseModel
-from opencam.schemas.geometry_2_5d import ClosedPolyline25D
+from opencam.schemas.geometry_2d import ClosedPolyline2D
 from opencam.schemas.operations.base import BaseCAMOperation, ui_metadata
 from opencam.schemas.operations.pocketing import StepoverMode
 
 
 class ParallelFinishingDriveGeometry(CamelBaseModel):
-    cut_areas: list[ClosedPolyline25D] = Field(min_length=1, title="Cut areas")
+    cut_areas: list[ClosedPolyline2D] = Field(min_length=1, title="Cut areas")
 
 
 class ParallelFinishingCutSettings(CamelBaseModel):
+    cut_direction: Literal["climb", "conventional", "mixed"] = Field(
+        default="mixed",
+        title="Climb/Conventional/Mixed",
+    )
     direction_degrees: float = Field(
         default=0.0,
         ge=0.0,

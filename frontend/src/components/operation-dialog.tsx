@@ -80,9 +80,7 @@ function getControlGeometryRows(value: DraftValue | undefined, geometryKey: stri
       return false;
     }
 
-    const hasZ = typeof geometry.z === "number" || typeof geometry.z === "string";
-    const hasVertices = Array.isArray(geometry.vertices) && geometry.vertices.length > 0;
-    return hasZ && hasVertices;
+    return Array.isArray(geometry.vertices) && geometry.vertices.length > 0;
   });
 }
 

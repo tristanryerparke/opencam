@@ -5,10 +5,9 @@
 /* Do not modify it by hand - just update the pydantic models and then re-run the script
 */
 
-export interface ClosedPolyline25D {
+export interface ClosedPolyline2D {
   kind?: "closed_polyline";
   vertices: Point2D[];
-  z: number;
 }
 export interface Point2D {
   x: number;
@@ -16,6 +15,7 @@ export interface Point2D {
   [k: string]: unknown;
 }
 export interface ParallelFinishingCutSettings {
+  cutDirection?: "climb" | "conventional" | "mixed";
   /**
    * Lane travel direction in degrees from +X. Stepover advances 90 degrees CCW.
    */
@@ -31,7 +31,7 @@ export interface ParallelFinishingDriveGeometry {
   /**
    * @minItems 1
    */
-  cutAreas: [ClosedPolyline25D, ...ClosedPolyline25D[]];
+  cutAreas: [ClosedPolyline2D, ...ClosedPolyline2D[]];
 }
 export interface ParallelFinishingOp {
   type?: "parallel_finishing";

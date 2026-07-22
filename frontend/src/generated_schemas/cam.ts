@@ -228,10 +228,16 @@ export interface ParallelFinishingDriveGeometry {
   /**
    * @minItems 1
    */
-  cutAreas: [ClosedPolyline25D, ...ClosedPolyline25D[]];
+  cutAreas: [ClosedPolyline2D, ...ClosedPolyline2D[]];
+  [k: string]: unknown;
+}
+export interface ClosedPolyline2D {
+  kind?: "closed_polyline";
+  vertices: Point2D[];
   [k: string]: unknown;
 }
 export interface ParallelFinishingCutSettings {
+  cutDirection?: "climb" | "conventional" | "mixed";
   /**
    * Lane travel direction in degrees from +X. Stepover advances 90 degrees CCW.
    */

@@ -29,6 +29,7 @@ import {
   parseOperationDraft,
 } from "@/lib/cam-schema";
 import { getBackendUrl } from "@/hooks/useBackendConnection";
+import type { ClosedPolyline2D } from "@/generated_schemas/geometry_2d";
 import type { ClosedPolyline25D } from "@/generated_schemas/geometry_2_5d";
 import {
   sampleOperationRecords,
@@ -404,7 +405,10 @@ function createPointMarkerPolylines(id: string, name: string, point: PolylinePoi
   ];
 }
 
-function geometryToMeshFaceSelection(geometry: ClosedPolyline25D, index: number): MeshFaceSelection {
+type ClosedPolyline = ClosedPolyline2D | ClosedPolyline25D;
+
+function geometryToMeshFaceSelection(geometry: ClosedPolyline, index: number, fallbackZ: number): MeshFaceSelection {
+  const z = "z" in geometry ? geometry.z : fallbackZ;
   return {
     id: `geometry-${index}`,
     label: `Edge loop ${index + 1}`,
@@ -413,8 +417,8 @@ function geometryToMeshFaceSelection(geometry: ClosedPolyline25D, index: number)
     triangleCount: 0,
     area: 0,
     isParallelToXY: true,
-    planeZ: geometry.z,
-    boundaryLoop: geometry.vertices.map(({ x, y }) => [x, y, geometry.z] as const),
+    planeZ: z,
+    boundaryLoop: geometry.vertices.map(({ x, y }) => [x, y, z] as const),
     validationError: null,
   };
 }
@@ -426,16 +430,18 @@ function asList<T>(value: T | T[] | undefined): T[] {
   return value ? [value] : [];
 }
 
-function operationToMeshFaceSelections(operation: Operation | null): MeshFaceSelection[] {
+function operationToMeshFaceSelections(operation: Operation | null, fallbackZ: number): MeshFaceSelection[] {
   if (!operation) {
     return [];
   }
   const geometryKey = getGeometryArrayKey(getOperationSchema(operation));
-  const driveGeometry = operation.driveGeometry as Record<string, ClosedPolyline25D | ClosedPolyline25D[] | undefined>;
-  return asList(geometryKey ? driveGeometry[geometryKey] : undefined).map(geometryToMeshFaceSelection);
+  const driveGeometry = operation.driveGeometry as Record<string, ClosedPolyline | ClosedPolyline[] | undefined>;
+  return asList(geometryKey ? driveGeometry[geometryKey] : undefined).map((geometry, index) =>
+    geometryToMeshFaceSelection(geometry, index, fallbackZ),
+  );
 }
 
-function draftToMeshFaceSelections(draft: DraftObject | null): MeshFaceSelection[] {
+function draftToMeshFaceSelections(draft: DraftObject | null, fallbackZ: number): MeshFaceSelection[] {
   const geometryKey = draft ? getGeometryArrayKey(getOperationSchema(draft)) : null;
   const geometries = asList(geometryKey ? (draft?.driveGeometry as DraftObject | undefined)?.[geometryKey] : undefined);
 
@@ -444,9 +450,10 @@ function draftToMeshFaceSelections(draft: DraftObject | null): MeshFaceSelection
       return [];
     }
 
-    const z = Number((geometry as DraftObject).z);
+    const geometryZ = Number((geometry as DraftObject).z);
+    const z = Number.isFinite(geometryZ) ? geometryZ : fallbackZ;
     const vertices = (geometry as DraftObject).vertices;
-    if (!Number.isFinite(z) || !Array.isArray(vertices)) {
+    if (!Array.isArray(vertices)) {
       return [];
     }
 
@@ -464,7 +471,7 @@ function draftToMeshFaceSelections(draft: DraftObject | null): MeshFaceSelection
       return [];
     }
 
-    return [geometryToMeshFaceSelection({ z, vertices: parsedVertices as ClosedPolyline25D["vertices"] }, index)];
+    return [geometryToMeshFaceSelection({ z, vertices: parsedVertices as ClosedPolyline25D["vertices"] }, index, fallbackZ)];
   });
 }
 
@@ -990,11 +997,11 @@ function App() {
 
   const highlightedMeshFaces = useMemo(() => {
     if (isOperationDialogOpen || faceSelectionMode) {
-      return draftToMeshFaceSelections(operationDraft);
+      return draftToMeshFaceSelections(operationDraft, meshMaxZ ?? 0);
     }
 
-    return visibleOperations.flatMap(operationToMeshFaceSelections);
-  }, [faceSelectionMode, isOperationDialogOpen, operationDraft, visibleOperations]);
+    return visibleOperations.flatMap((operation) => operationToMeshFaceSelections(operation, meshMaxZ ?? 0));
+  }, [faceSelectionMode, isOperationDialogOpen, meshMaxZ, operationDraft, visibleOperations]);
 
   const resolvePendingSimulationPresentation = useCallback((applied: boolean) => {
     const pending = pendingSimulationPresentationRef.current;

@@ -1,12 +1,12 @@
 """Parallel-finishing toolpath generation over a TriangleSurface.
 
 Lanes are straight parallel raster lines at the chosen direction, clipped to
-each selected cut area (treated as a tool-center boundary). Consecutive lanes
-are zig-zag linked with short cross feed moves so a contiguous region becomes
-one continuous feed polyline. Every straight segment is adaptively subdivided
-until linear interpolation of the cutter-location height is within chord
-tolerance, so the emitted path follows the surface exactly relative to the
-mesh.
+each selected cut area (treated as a tool-center boundary). Mixed cuts zig-zag
+link consecutive lanes with short cross-feed moves; climb and conventional
+cuts retract to clearance between lanes. Every straight segment is adaptively
+subdivided until linear interpolation of the cutter-location height is within
+chord tolerance, so the emitted path follows the surface exactly relative to
+the mesh.
 """
 
 from __future__ import annotations
@@ -204,6 +204,7 @@ def build_parallel_finishing_area_layers(
     cut_area_xy: np.ndarray,
     *,
     tool: Tool,
+    cut_direction: str = "mixed",
     direction_degrees: float,
     stepover: float,
     stock_to_leave: float,
@@ -240,20 +241,27 @@ def build_parallel_finishing_area_layers(
             index += 1
 
     lane_segments_uv = _lane_segments_in_polygon(polygon_uv, (u_min, u_max), v_values)
-    xy_segments = [
-        (
-            _to_xy(start[0], start[1], cos_t, sin_t),
-            _to_xy(end[0], end[1], cos_t, sin_t),
-        )
-        for start, end in sorted(
-            lane_segments_uv,
-            key=lambda segment: (round(segment[0][1], 9), min(segment[0][0], segment[1][0])),
-        )
-    ]
+    xy_segments: list[tuple[tuple[float, float], tuple[float, float]]] = []
+    for start, end in sorted(
+        lane_segments_uv,
+        key=lambda segment: (round(segment[0][1], 9), min(segment[0][0], segment[1][0])),
+    ):
+        if start[0] > end[0]:
+            start, end = end, start
+        start_xy = _to_xy(start[0], start[1], cos_t, sin_t)
+        end_xy = _to_xy(end[0], end[1], cos_t, sin_t)
+        xy_segments.append((start_xy, end_xy))
 
-    # ponytail: link_distance is a heuristic 1.5x stepover; if a future polygon
-    # shape puts genuinely-adjacent lanes farther apart, raise this factor.
-    polylines = _link_segments_zigzag(xy_segments, link_distance=1.5 * stepover + 1e-9)
+    if cut_direction == "mixed":
+        # ponytail: link_distance is a heuristic 1.5x stepover; if a future polygon
+        # shape puts genuinely-adjacent lanes farther apart, raise this factor.
+        polylines = _link_segments_zigzag(xy_segments, link_distance=1.5 * stepover + 1e-9)
+    elif cut_direction in {"climb", "conventional"}:
+        if cut_direction == "conventional":
+            xy_segments = [(end, start) for start, end in xy_segments]
+        polylines = [[start, end] for start, end in xy_segments]
+    else:
+        raise ValueError(f"Unsupported parallel finishing cut direction: {cut_direction!r}.")
 
     layers: list[list[FeedRatePositionRecord3D]] = []
     for polyline in polylines:
@@ -279,6 +287,7 @@ def build_parallel_finishing_records(
     *,
     cut_areas: list[np.ndarray],
     tool: Tool,
+    cut_direction: str = "mixed",
     direction_degrees: float,
     stepover: float,
     stock_to_leave: float,
@@ -298,6 +307,7 @@ def build_parallel_finishing_records(
                 surface,
                 cut_area,
                 tool=tool,
+                cut_direction=cut_direction,
                 direction_degrees=direction_degrees,
                 stepover=stepover,
                 stock_to_leave=stock_to_leave,

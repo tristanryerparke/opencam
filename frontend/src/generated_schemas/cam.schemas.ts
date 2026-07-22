@@ -248,6 +248,28 @@ export const camSchemaBundle = {
         "title": "ClosedPolyline25D",
         "type": "object"
       },
+      "ClosedPolyline2D": {
+        "properties": {
+          "kind": {
+            "const": "closed_polyline",
+            "default": "closed_polyline",
+            "title": "Kind",
+            "type": "string"
+          },
+          "vertices": {
+            "items": {
+              "$ref": "#/$defs/Point2D"
+            },
+            "title": "Vertices",
+            "type": "array"
+          }
+        },
+        "required": [
+          "vertices"
+        ],
+        "title": "ClosedPolyline2D",
+        "type": "object"
+      },
       "CylindricalTool": {
         "properties": {
           "id": {
@@ -419,6 +441,16 @@ export const camSchemaBundle = {
       },
       "ParallelFinishingCutSettings": {
         "properties": {
+          "cutDirection": {
+            "default": "mixed",
+            "enum": [
+              "climb",
+              "conventional",
+              "mixed"
+            ],
+            "title": "Climb/Conventional/Mixed",
+            "type": "string"
+          },
           "directionDegrees": {
             "default": 0,
             "description": "Lane travel direction in degrees from +X. Stepover advances 90 degrees CCW.",
@@ -451,7 +483,7 @@ export const camSchemaBundle = {
         "properties": {
           "cutAreas": {
             "items": {
-              "$ref": "#/$defs/ClosedPolyline25D"
+              "$ref": "#/$defs/ClosedPolyline2D"
             },
             "minItems": 1,
             "title": "Cut areas",
@@ -2388,7 +2420,7 @@ export const camSchemaBundle = {
         "title": "CAMLevels",
         "type": "object"
       },
-      "ClosedPolyline25D": {
+      "ClosedPolyline2D": {
         "properties": {
           "kind": {
             "const": "closed_polyline",
@@ -2402,17 +2434,12 @@ export const camSchemaBundle = {
             },
             "title": "Vertices",
             "type": "array"
-          },
-          "z": {
-            "title": "Z",
-            "type": "number"
           }
         },
         "required": [
-          "vertices",
-          "z"
+          "vertices"
         ],
-        "title": "ClosedPolyline25D",
+        "title": "ClosedPolyline2D",
         "type": "object"
       },
       "CylindricalTool": {
@@ -2527,6 +2554,16 @@ export const camSchemaBundle = {
       },
       "ParallelFinishingCutSettings": {
         "properties": {
+          "cutDirection": {
+            "default": "mixed",
+            "enum": [
+              "climb",
+              "conventional",
+              "mixed"
+            ],
+            "title": "Climb/Conventional/Mixed",
+            "type": "string"
+          },
           "directionDegrees": {
             "default": 0,
             "description": "Lane travel direction in degrees from +X. Stepover advances 90 degrees CCW.",
@@ -2559,7 +2596,7 @@ export const camSchemaBundle = {
         "properties": {
           "cutAreas": {
             "items": {
-              "$ref": "#/$defs/ClosedPolyline25D"
+              "$ref": "#/$defs/ClosedPolyline2D"
             },
             "minItems": 1,
             "title": "Cut areas",

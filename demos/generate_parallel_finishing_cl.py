@@ -4,7 +4,7 @@ from pathlib import Path
 from opencam.schemas.cam import CAMSetup
 from opencam.schemas.geometry_2_5d import ClosedPolyline25D
 from opencam.schemas.geometry_2d import Point2D
-from opencam.schemas.operations.base import AbsoluteClearance, FeedsAndSpeeds
+from opencam.schemas.operations.base import FeedsAndSpeeds
 from opencam.schemas.operations.parallel_finishing import (
     ParallelFinishingCutSettings,
     ParallelFinishingDriveGeometry,
@@ -16,7 +16,6 @@ from opencam.services.cam_engine import cam_engine
 from opencam.utilities.loader import load_step_mesh
 
 STEP_PATH = Path(__file__).resolve().parents[1] / "assets/operations/parallel-finishing/Parallel_Finishing_C.stp"
-CLEARANCE_HEIGHT = 60.0
 
 
 def build_operation(bounds_min, bounds_max) -> ParallelFinishingOp:
@@ -31,7 +30,6 @@ def build_operation(bounds_min, bounds_max) -> ParallelFinishingOp:
             shoulder_height=60.0,
         ),
         feeds_and_speeds=FeedsAndSpeeds(cut_feedrate=800.0, spindle_rpm=18_000),
-        clearance=AbsoluteClearance(absolute_height=CLEARANCE_HEIGHT),
         drive_geometry=ParallelFinishingDriveGeometry(
             cut_areas=[
                 ClosedPolyline25D(
@@ -47,7 +45,6 @@ def build_operation(bounds_min, bounds_max) -> ParallelFinishingOp:
             ]
         ),
         cut_parameters=ParallelFinishingCutSettings(
-            direction_degrees=0.0,
             stepover=StepoverMode(mode="percentage_of_tool_diameter", value=25),
             stock_to_leave=0.0,
         ),

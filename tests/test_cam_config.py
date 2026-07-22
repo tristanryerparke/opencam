@@ -89,6 +89,32 @@ def test_generate_cam_toolpath_rejects_clearance_below_top_z(pocket_request_payl
     assert "Clearance height must be above the operation top Z" in response.json()["detail"]
 
 
+def test_automatic_clearance_uses_highest_part_stock_or_operation_z(pocket_request_payload: dict):
+    pocket_request_payload["setup"]["stock"]["maxZ"] = 3.0
+    pocket_request_payload["setup"]["partMesh"] = {
+        "source": "inline",
+        "vertices": [[0.0, 0.0, 20.0], [1.0, 0.0, 20.0], [0.0, 1.0, 20.0]],
+        "faces": [[0, 1, 2]],
+    }
+    pocket_request_payload["operation"]["clearance"] = {"clearanceHeightType": "automatic"}
+    pocket_request_payload["operation"]["levels"]["driveGeometryPosition"] = "at_bottom"
+
+    response = client.post("/cam/toolpath", json=pocket_request_payload)
+
+    assert response.status_code == 200
+    assert response.json()["clearancePlaneHeight"] == 30.0
+
+
+def test_parallel_finishing_requires_a_part_mesh(pocket_request_payload: dict):
+    payload = deepcopy(pocket_request_payload)
+    payload["operation"]["type"] = "parallel_finishing"
+
+    response = client.post("/cam/toolpath", json=payload)
+
+    assert response.status_code == 422
+    assert "Parallel finishing requires a part mesh in the CAM setup." in response.text
+
+
 def test_generate_cam_toolpath_reports_and_logs_generation_errors(
     pocket_request_payload: dict,
     monkeypatch: pytest.MonkeyPatch,

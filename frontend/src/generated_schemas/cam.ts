@@ -7,6 +7,7 @@
 
 export interface CAMSetup {
   partMesh?: (Mesh | CachedMesh) | null;
+  clearanceOffset?: number;
   origin?: SetupOrigin;
   orientation?: SetupOrientation;
   stock?: SetupStock;
@@ -69,7 +70,7 @@ export interface Pocketing2DOp {
   displayName?: string;
   tool: CylindricalTool | BallTool | VTool;
   feedsAndSpeeds?: FeedsAndSpeeds;
-  clearance?: AbsoluteClearance | StockMaxZPlusOffsetClearance | PartMaxZPlusOffsetClearance;
+  clearance?: AutomaticClearance | AbsoluteClearance | StockMaxZPlusOffsetClearance | PartMaxZPlusOffsetClearance;
   levels?: CAMLevels;
   advanced?: CAMAdvancedParameters;
   driveGeometry: PocketingDriveGeometry;
@@ -119,6 +120,10 @@ export interface FeedsAndSpeeds {
   cutFeedrate?: number;
   leadOutFeedrate?: number;
   departureFeedrate?: number;
+  [k: string]: unknown;
+}
+export interface AutomaticClearance {
+  clearanceHeightType?: "automatic";
   [k: string]: unknown;
 }
 export interface AbsoluteClearance {
@@ -182,7 +187,7 @@ export interface Profiling2DOp {
   displayName?: string;
   tool: CylindricalTool | BallTool | VTool;
   feedsAndSpeeds?: FeedsAndSpeeds;
-  clearance?: AbsoluteClearance | StockMaxZPlusOffsetClearance | PartMaxZPlusOffsetClearance;
+  clearance?: AutomaticClearance | AbsoluteClearance | StockMaxZPlusOffsetClearance | PartMaxZPlusOffsetClearance;
   levels?: CAMLevels;
   advanced?: CAMAdvancedParameters;
   driveGeometry: ProfilingDriveGeometry;
@@ -213,7 +218,7 @@ export interface ParallelFinishingOp {
   displayName?: string;
   tool: CylindricalTool | BallTool | VTool;
   feedsAndSpeeds?: FeedsAndSpeeds;
-  clearance?: AbsoluteClearance | StockMaxZPlusOffsetClearance | PartMaxZPlusOffsetClearance;
+  clearance?: AutomaticClearance | AbsoluteClearance | StockMaxZPlusOffsetClearance | PartMaxZPlusOffsetClearance;
   levels?: CAMLevels;
   advanced?: CAMAdvancedParameters;
   driveGeometry: ParallelFinishingDriveGeometry;

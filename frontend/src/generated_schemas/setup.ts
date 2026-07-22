@@ -7,6 +7,7 @@
 
 export interface CAMSetup {
   partMesh?: (Mesh | CachedMesh) | null;
+  clearanceOffset?: number;
   origin?: SetupOrigin;
   orientation?: SetupOrientation;
   stock?: SetupStock;

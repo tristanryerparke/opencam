@@ -51,6 +51,8 @@ type SettingsDialogProps = {
   onPartRenderModeChange: (mode: ToolRenderMode) => void;
   stockRenderMode: ToolRenderMode;
   onStockRenderModeChange: (mode: ToolRenderMode) => void;
+  clearanceOffset: number;
+  onClearanceOffsetChange: (offset: number) => void;
 };
 
 const themeModeConfig = {
@@ -293,6 +295,8 @@ function GeneralSettingsTab({
   onPartRenderModeChange,
   stockRenderMode,
   onStockRenderModeChange,
+  clearanceOffset,
+  onClearanceOffsetChange,
 }: SettingsDialogProps) {
   return (
     <div className="space-y-4">
@@ -327,6 +331,30 @@ function GeneralSettingsTab({
         </div>
         <RenderModeTabs value={stockRenderMode} onChange={onStockRenderModeChange} ariaLabel="Stock render mode" />
       </div>
+
+      <label className="flex items-center justify-between gap-4 rounded-md border p-2">
+        <div>
+          <div className="text-sm font-medium">Automatic clearance offset</div>
+          <p className="text-xs text-muted-foreground">Added above the highest part, stock, or operation Z.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <input
+            type="number"
+            min="0"
+            step="0.1"
+            value={clearanceOffset}
+            onChange={(event) => {
+              const next = Number(event.target.value);
+              if (Number.isFinite(next) && next >= 0) {
+                onClearanceOffsetChange(next);
+              }
+            }}
+            className="w-24 rounded-md border bg-background px-2 py-1 text-right text-sm"
+            aria-label="Automatic clearance offset in millimeters"
+          />
+          <span className="text-sm text-muted-foreground">mm</span>
+        </div>
+      </label>
 
       <label className="flex items-center justify-between gap-4 rounded-md border p-2">
         <div>

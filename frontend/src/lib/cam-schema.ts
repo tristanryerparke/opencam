@@ -537,6 +537,7 @@ export function buildGenerateToolpathRequest(
   operation: Operation,
   meshMaxZ: number | null,
   cachedMeshVersion?: string | null,
+  clearanceOffset = 10,
 ): GenerateToolpathRequest {
   return {
     setup: {
@@ -546,6 +547,7 @@ export function buildGenerateToolpathRequest(
       origin: { x: 0, y: 0, z: 0 },
       orientation: { machineZAxis: "positiveZ" },
       stock: { maxZ: meshMaxZ ?? 0 },
+      clearanceOffset,
     },
     operation,
   };

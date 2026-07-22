@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from opencam.schemas.operations.base import (
     AbsoluteClearance,
+    AutomaticClearance,
     BaseCAMOperation,
     PartMaxZPlusOffsetClearance,
     StockMaxZPlusOffsetClearance,
@@ -17,6 +18,11 @@ def compute_clearance_height(
     part_max_z: float | None = None,
 ) -> float:
     clearance = operation.clearance
+    if isinstance(clearance, AutomaticClearance):
+        bounds = [setup.stock.max_z, operation_max_z]
+        if part_max_z is not None:
+            bounds.append(part_max_z)
+        return max(bounds) + setup.clearance_offset
     if isinstance(clearance, AbsoluteClearance):
         return clearance.absolute_height
     if isinstance(clearance, StockMaxZPlusOffsetClearance):

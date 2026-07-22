@@ -159,6 +159,8 @@ const SIMULATION_DEBUG_UI_STORAGE_KEY = "opencam.simulation-debug-ui";
 const TOOL_RENDER_MODE_STORAGE_KEY = "opencam.tool-render-mode.v1";
 const PART_RENDER_MODE_STORAGE_KEY = "opencam.part-render-mode.v1";
 const STOCK_RENDER_MODE_STORAGE_KEY = "opencam.stock-render-mode.v1";
+const CLEARANCE_OFFSET_STORAGE_KEY = "opencam.clearance-offset.v2";
+const DEFAULT_CLEARANCE_OFFSET = 10;
 const ORIGINAL_MESH_COLOR = 0x94a3b8;
 const ORIGINAL_MESH_EDGE_COLOR = 0x334155;
 const MILLED_STOCK_MESH_COLOR = 0xfb923c;
@@ -635,6 +637,23 @@ function App() {
       return "shaded";
     }
   });
+  const [clearanceOffset, setClearanceOffset] = useState(() => {
+    if (typeof window === "undefined") {
+      return DEFAULT_CLEARANCE_OFFSET;
+    }
+
+    try {
+      const storedValue = window.localStorage.getItem(CLEARANCE_OFFSET_STORAGE_KEY);
+      if (storedValue === null) {
+        return DEFAULT_CLEARANCE_OFFSET;
+      }
+
+      const stored = Number(storedValue);
+      return Number.isFinite(stored) && stored >= 0 ? stored : DEFAULT_CLEARANCE_OFFSET;
+    } catch {
+      return DEFAULT_CLEARANCE_OFFSET;
+    }
+  });
 
   const updateSimulationActiveMeshUrl = useCallback((url: string | null) => {
     simulationActiveMeshUrlRef.current = url;
@@ -702,6 +721,18 @@ function App() {
       // Ignore unavailable localStorage; the tabs switch still works for this session.
     }
   }, [stockRenderMode]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    try {
+      window.localStorage.setItem(CLEARANCE_OFFSET_STORAGE_KEY, String(clearanceOffset));
+    } catch {
+      // Ignore unavailable localStorage; the setting still works for this session.
+    }
+  }, [clearanceOffset]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -1829,7 +1860,12 @@ function App() {
         await fetch(`${getBackendUrl()}/simulate/${simulationTaskId}`, { method: "DELETE" });
       }
 
-      const requestBody = buildGenerateToolpathRequest(operationToGenerate, meshMaxZ, cachedMeshVersion);
+      const requestBody = buildGenerateToolpathRequest(
+        operationToGenerate,
+        meshMaxZ,
+        cachedMeshVersion,
+        clearanceOffset,
+      );
       const nextOperationLabel = operationToGenerate.displayName ?? "2D Pocket";
 
       currentGenerationLabelRef.current = nextOperationLabel;
@@ -2049,6 +2085,8 @@ function App() {
             onPartRenderModeChange={setPartRenderMode}
             stockRenderMode={stockRenderMode}
             onStockRenderModeChange={setStockRenderMode}
+            clearanceOffset={clearanceOffset}
+            onClearanceOffsetChange={setClearanceOffset}
           />
         </header>
 

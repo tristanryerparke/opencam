@@ -4,7 +4,7 @@ from pathlib import Path
 from opencam.schemas.cam import CAMSetup
 from opencam.schemas.cl_data import FeedRatePositionRecord3D
 from opencam.schemas.geometry_2_5d import ClosedPolyline25D
-from opencam.schemas.operations.base import AbsoluteClearance, CAMLevels, FeedsAndSpeeds
+from opencam.schemas.operations.base import CAMLevels, FeedsAndSpeeds
 from opencam.schemas.operations.pocketing import Pocketing2dOp, PocketingCutSettings, PocketingDriveGeometry, StepoverMode
 from opencam.schemas.geometry_2d import Point2D
 from opencam.schemas.tools import CylindricalTool
@@ -25,7 +25,6 @@ tool = CylindricalTool(
 operation = Pocketing2dOp(
     tool=tool,
     feeds_and_speeds=FeedsAndSpeeds(cut_feedrate=800.0, spindle_rpm=18_000),
-    clearance=AbsoluteClearance(absolute_height=10.0),
     levels=CAMLevels(depth_of_cut=6.0, max_stepdown=6),
     drive_geometry=PocketingDriveGeometry(
         cut_areas=[

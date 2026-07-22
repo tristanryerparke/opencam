@@ -10,6 +10,9 @@ from opencam.schemas.base import CamelBaseModel
 from opencam.schemas.tools import Tool
 
 
+DEFAULT_CLEARANCE_OFFSET = 10.0
+
+
 def ui_metadata(
     *,
     unit: str | None = None,
@@ -32,6 +35,10 @@ class FeedsAndSpeeds(CamelBaseModel):
     departure_feedrate: float = Field(default=500.0, gt=0, title="Departure feedrate", json_schema_extra=ui_metadata(unit="mm/min"))
 
 
+class AutomaticClearance(CamelBaseModel):
+    clearance_height_type: Literal["automatic"] = "automatic"
+
+
 class StockMaxZPlusOffsetClearance(CamelBaseModel):
     clearance_height_type: Literal["stock_max_z_plus_offset"] = "stock_max_z_plus_offset"
     offset: float = Field(default=5.0, ge=0, title="Offset", json_schema_extra=ui_metadata(unit="mm"))
@@ -48,7 +55,7 @@ class AbsoluteClearance(CamelBaseModel):
 
 
 ClearanceSettings = Annotated[
-    AbsoluteClearance | StockMaxZPlusOffsetClearance | PartMaxZPlusOffsetClearance,
+    AutomaticClearance | AbsoluteClearance | StockMaxZPlusOffsetClearance | PartMaxZPlusOffsetClearance,
     Field(discriminator="clearance_height_type"),
 ]
 
@@ -78,6 +85,6 @@ class BaseCAMOperation(CamelBaseModel):
     display_name: str = Field(default="2D Pocket", title="Operation name")
     tool: Tool = Field(title="Tool")
     feeds_and_speeds: FeedsAndSpeeds = Field(default_factory=FeedsAndSpeeds, title="Feeds and speeds")
-    clearance: ClearanceSettings = Field(default_factory=AbsoluteClearance, title="Clearance")
+    clearance: ClearanceSettings = Field(default_factory=AutomaticClearance, title="Clearance")
     levels: CAMLevels = Field(default_factory=CAMLevels, title="Levels")
     advanced: CAMAdvancedParameters = Field(default_factory=CAMAdvancedParameters, title="Advanced")

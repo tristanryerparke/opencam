@@ -6,7 +6,11 @@ from opencam.engine.pocketing.toolpath import build_pocketing_records, pocketing
 from opencam.engine.profiling.toolpath import build_profiling_records, profiling_max_cut_z
 from opencam.schemas.cl_data import OperationRecord3D
 from opencam.schemas.mesh import CachedMeshLoader, resolve_part_mesh
-from opencam.schemas.operations.base import BaseCAMOperation
+from opencam.schemas.operations.base import (
+    AutomaticClearance,
+    BaseCAMOperation,
+    PartMaxZPlusOffsetClearance,
+)
 from opencam.schemas.operations.parallel_finishing import ParallelFinishingOp
 from opencam.schemas.operations.pocketing import Pocketing2dOp
 from opencam.schemas.operations.profiling import Profiling2dOp
@@ -19,14 +23,20 @@ def cam_engine(
     *,
     cached_mesh_loader: CachedMeshLoader | None = None,
 ) -> OperationRecord3D:
-    if isinstance(operation, ParallelFinishingOp):
-        if setup.part_mesh is None:
-            raise ValueError("Parallel finishing requires a part mesh in the CAM setup.")
+    if isinstance(operation, ParallelFinishingOp) and setup.part_mesh is None:
+        raise ValueError("Parallel finishing requires a part mesh in the CAM setup.")
 
+    resolved_mesh = None
+    if setup.part_mesh is not None and (
+        isinstance(operation, ParallelFinishingOp)
+        or isinstance(operation.clearance, (AutomaticClearance, PartMaxZPlusOffsetClearance))
+    ):
         resolved_mesh = resolve_part_mesh(
             setup.part_mesh,
             cached_mesh_loader=cached_mesh_loader,
         )
+
+    if isinstance(operation, ParallelFinishingOp):
         operation_max_z = max(vertex[2] for vertex in resolved_mesh.vertices)
         clearance_plane_height = compute_clearance_height(
             setup,
@@ -52,6 +62,7 @@ def cam_engine(
             setup,
             operation,
             operation_max_z=operation_max_z,
+            part_max_z=max(vertex[2] for vertex in resolved_mesh.vertices) if resolved_mesh is not None else None,
         )
         validate_clearance_height(clearance_plane_height, operation_max_z)
         records = build_pocketing_records(
@@ -70,6 +81,7 @@ def cam_engine(
             setup,
             operation,
             operation_max_z=operation_max_z,
+            part_max_z=max(vertex[2] for vertex in resolved_mesh.vertices) if resolved_mesh is not None else None,
         )
         validate_clearance_height(clearance_plane_height, operation_max_z)
         records = build_profiling_records(

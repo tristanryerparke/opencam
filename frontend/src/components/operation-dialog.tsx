@@ -12,6 +12,7 @@ import {
 import IntegerInput from "@/components/ui/integer-input";
 import { Input } from "t-components/input";
 import { Label } from "t-components/label";
+import { RadioGroup, RadioGroupItem } from "t-components/radio-group";
 import NumberInput from "@/components/ui/number-input";
 import {
   Table,
@@ -97,6 +98,13 @@ function formatGeometryZ(value: DraftValue | undefined) {
 
   return "—";
 }
+
+const clearanceOptionLabels: Record<string, string> = {
+  automatic: "Automatic",
+  absolute: "Absolute",
+  stock_max_z_plus_offset: "Stock max Z + offset",
+  part_max_z_plus_offset: "Part max Z + offset",
+};
 
 function getNumericValue(value: DraftValue | undefined): number | undefined {
   if (typeof value === "number" && Number.isFinite(value)) {
@@ -263,42 +271,86 @@ function SchemaFields({ rootSchema, schema, value, path, onChange, onStartGeomet
       ),
     };
 
+    const selectOption = (nextValue: string) => {
+      const nextOption = discriminatedOptions.find((option) => option.value === nextValue);
+      if (nextOption) {
+        onChange(path, materializeDefaults(nextOption.schema, rootSchema));
+      }
+    };
+    const isClearanceMode = path.length === 1 && path[0] === "clearance";
+
     return (
       <div className="space-y-4">
         <div className="space-y-1">
           <Label>{label}</Label>
-          <Select
-            value={selectedOption.value}
-            onValueChange={(nextValue) => {
-              const nextOption = discriminatedOptions.find((option) => option.value === nextValue);
-              if (nextOption) {
-                onChange(path, materializeDefaults(nextOption.schema, rootSchema));
-              }
-            }}
-          >
-            <SelectTrigger className="w-full">
-              <SelectValue placeholder="Select an option" />
-            </SelectTrigger>
-            <SelectContent position="popper">
-              {discriminatedOptions.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.value}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          {isClearanceMode ? (
+            <RadioGroup value={selectedOption.value} onValueChange={selectOption} className="gap-2">
+              {discriminatedOptions.map((option) => {
+                const id = `clearance-mode-${option.value}`;
+                const isSelected = option.value === selectedOption.value;
+                const optionValue = value && typeof value === "object" && !Array.isArray(value)
+                  ? (value as DraftObject)
+                  : {};
+
+                return (
+                  <div key={option.value} className="flex items-center gap-2">
+                    <RadioGroupItem id={id} value={option.value} />
+                    <Label htmlFor={id}>
+                      {clearanceOptionLabels[option.value] ?? option.value}
+                    </Label>
+                    {Object.entries(option.schema.properties ?? {}).map(([key, childSchema]) => {
+                      const child = resolveSchema(childSchema, rootSchema);
+                      if (child.type !== "number" && child.type !== "integer") {
+                        return null;
+                      }
+
+                      const min = child.minimum ?? child.exclusiveMinimum;
+                      return (
+                        <NumberInput
+                          key={key}
+                          id={`${id}-${key}`}
+                          value={getNumericValue(optionValue[key])}
+                          min={min}
+                          allowNegative={min === undefined || min < 0}
+                          decimalScale={4}
+                          disabled={!isSelected}
+                          onValueChange={(nextValue) => onChange([...path, key], nextValue)}
+                          className="ml-auto w-32"
+                        />
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </RadioGroup>
+          ) : (
+            <Select value={selectedOption.value} onValueChange={selectOption}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Select an option" />
+              </SelectTrigger>
+              <SelectContent position="popper">
+                {discriminatedOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.value}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
           {resolved.description ? (
             <p className="text-xs leading-5 text-muted-foreground">{resolved.description}</p>
           ) : null}
         </div>
-        <SchemaFields
-          rootSchema={rootSchema}
-          schema={optionSchema}
-          value={value}
-          path={path}
-          onChange={onChange}
-          onStartGeometrySelection={onStartGeometrySelection}
-        />
+        {!isClearanceMode ? (
+          <SchemaFields
+            rootSchema={rootSchema}
+            schema={optionSchema}
+            value={value}
+            path={path}
+            onChange={onChange}
+            onStartGeometrySelection={onStartGeometrySelection}
+          />
+        ) : null}
       </div>
     );
   }

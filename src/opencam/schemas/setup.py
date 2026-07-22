@@ -6,7 +6,7 @@ from pydantic import ConfigDict, Field
 
 from opencam.schemas.base import CamelBaseModel
 from opencam.schemas.mesh import CachedMesh, Mesh
-from opencam.schemas.operations.base import ui_metadata
+from opencam.schemas.operations.base import DEFAULT_CLEARANCE_OFFSET, ui_metadata
 
 
 class SetupOrigin(CamelBaseModel):
@@ -39,6 +39,12 @@ class CAMSetup(CamelBaseModel):
         default=None,
         discriminator="source",
         title="Part mesh",
+    )
+    clearance_offset: float = Field(
+        default=DEFAULT_CLEARANCE_OFFSET,
+        ge=0,
+        title="Automatic clearance offset",
+        json_schema_extra=ui_metadata(unit="mm"),
     )
     origin: SetupOrigin = Field(default_factory=SetupOrigin, title="Origin")
     orientation: SetupOrientation = Field(default_factory=SetupOrientation, title="Orientation")

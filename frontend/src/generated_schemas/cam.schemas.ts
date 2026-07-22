@@ -25,6 +25,18 @@ export const camSchemaBundle = {
         "title": "AbsoluteClearance",
         "type": "object"
       },
+      "AutomaticClearance": {
+        "properties": {
+          "clearanceHeightType": {
+            "const": "automatic",
+            "default": "automatic",
+            "title": "Clearanceheighttype",
+            "type": "string"
+          }
+        },
+        "title": "AutomaticClearance",
+        "type": "object"
+      },
       "BallTool": {
         "properties": {
           "id": {
@@ -162,6 +174,15 @@ export const camSchemaBundle = {
             ],
             "default": null,
             "title": "Part mesh"
+          },
+          "clearanceOffset": {
+            "default": 10,
+            "minimum": 0,
+            "title": "Automatic clearance offset",
+            "type": "number",
+            "x-opencam": {
+              "unit": "mm"
+            }
           },
           "origin": {
             "$ref": "#/$defs/SetupOrigin",
@@ -490,12 +511,16 @@ export const camSchemaBundle = {
             "discriminator": {
               "mapping": {
                 "absolute": "#/$defs/AbsoluteClearance",
+                "automatic": "#/$defs/AutomaticClearance",
                 "part_max_z_plus_offset": "#/$defs/PartMaxZPlusOffsetClearance",
                 "stock_max_z_plus_offset": "#/$defs/StockMaxZPlusOffsetClearance"
               },
               "propertyName": "clearanceHeightType"
             },
             "oneOf": [
+              {
+                "$ref": "#/$defs/AutomaticClearance"
+              },
               {
                 "$ref": "#/$defs/AbsoluteClearance"
               },
@@ -600,12 +625,16 @@ export const camSchemaBundle = {
             "discriminator": {
               "mapping": {
                 "absolute": "#/$defs/AbsoluteClearance",
+                "automatic": "#/$defs/AutomaticClearance",
                 "part_max_z_plus_offset": "#/$defs/PartMaxZPlusOffsetClearance",
                 "stock_max_z_plus_offset": "#/$defs/StockMaxZPlusOffsetClearance"
               },
               "propertyName": "clearanceHeightType"
             },
             "oneOf": [
+              {
+                "$ref": "#/$defs/AutomaticClearance"
+              },
               {
                 "$ref": "#/$defs/AbsoluteClearance"
               },
@@ -779,12 +808,16 @@ export const camSchemaBundle = {
             "discriminator": {
               "mapping": {
                 "absolute": "#/$defs/AbsoluteClearance",
+                "automatic": "#/$defs/AutomaticClearance",
                 "part_max_z_plus_offset": "#/$defs/PartMaxZPlusOffsetClearance",
                 "stock_max_z_plus_offset": "#/$defs/StockMaxZPlusOffsetClearance"
               },
               "propertyName": "clearanceHeightType"
             },
             "oneOf": [
+              {
+                "$ref": "#/$defs/AutomaticClearance"
+              },
               {
                 "$ref": "#/$defs/AbsoluteClearance"
               },
@@ -1094,6 +1127,18 @@ export const camSchemaBundle = {
           }
         },
         "title": "AbsoluteClearance",
+        "type": "object"
+      },
+      "AutomaticClearance": {
+        "properties": {
+          "clearanceHeightType": {
+            "const": "automatic",
+            "default": "automatic",
+            "title": "Clearanceheighttype",
+            "type": "string"
+          }
+        },
+        "title": "AutomaticClearance",
         "type": "object"
       },
       "BallTool": {
@@ -1577,12 +1622,16 @@ export const camSchemaBundle = {
         "discriminator": {
           "mapping": {
             "absolute": "#/$defs/AbsoluteClearance",
+            "automatic": "#/$defs/AutomaticClearance",
             "part_max_z_plus_offset": "#/$defs/PartMaxZPlusOffsetClearance",
             "stock_max_z_plus_offset": "#/$defs/StockMaxZPlusOffsetClearance"
           },
           "propertyName": "clearanceHeightType"
         },
         "oneOf": [
+          {
+            "$ref": "#/$defs/AutomaticClearance"
+          },
           {
             "$ref": "#/$defs/AbsoluteClearance"
           },
@@ -1639,6 +1688,18 @@ export const camSchemaBundle = {
           }
         },
         "title": "AbsoluteClearance",
+        "type": "object"
+      },
+      "AutomaticClearance": {
+        "properties": {
+          "clearanceHeightType": {
+            "const": "automatic",
+            "default": "automatic",
+            "title": "Clearanceheighttype",
+            "type": "string"
+          }
+        },
+        "title": "AutomaticClearance",
         "type": "object"
       },
       "BallTool": {
@@ -2137,12 +2198,16 @@ export const camSchemaBundle = {
         "discriminator": {
           "mapping": {
             "absolute": "#/$defs/AbsoluteClearance",
+            "automatic": "#/$defs/AutomaticClearance",
             "part_max_z_plus_offset": "#/$defs/PartMaxZPlusOffsetClearance",
             "stock_max_z_plus_offset": "#/$defs/StockMaxZPlusOffsetClearance"
           },
           "propertyName": "clearanceHeightType"
         },
         "oneOf": [
+          {
+            "$ref": "#/$defs/AutomaticClearance"
+          },
           {
             "$ref": "#/$defs/AbsoluteClearance"
           },
@@ -2199,6 +2264,18 @@ export const camSchemaBundle = {
           }
         },
         "title": "AbsoluteClearance",
+        "type": "object"
+      },
+      "AutomaticClearance": {
+        "properties": {
+          "clearanceHeightType": {
+            "const": "automatic",
+            "default": "automatic",
+            "title": "Clearanceheighttype",
+            "type": "string"
+          }
+        },
+        "title": "AutomaticClearance",
         "type": "object"
       },
       "BallTool": {
@@ -2684,12 +2761,16 @@ export const camSchemaBundle = {
         "discriminator": {
           "mapping": {
             "absolute": "#/$defs/AbsoluteClearance",
+            "automatic": "#/$defs/AutomaticClearance",
             "part_max_z_plus_offset": "#/$defs/PartMaxZPlusOffsetClearance",
             "stock_max_z_plus_offset": "#/$defs/StockMaxZPlusOffsetClearance"
           },
           "propertyName": "clearanceHeightType"
         },
         "oneOf": [
+          {
+            "$ref": "#/$defs/AutomaticClearance"
+          },
           {
             "$ref": "#/$defs/AbsoluteClearance"
           },

@@ -9,6 +9,9 @@ export interface AbsoluteClearance {
   clearanceHeightType?: "absolute";
   absoluteHeight?: number;
 }
+export interface AutomaticClearance {
+  clearanceHeightType?: "automatic";
+}
 export interface CAMAdvancedParameters {
   operationsSorting?: "selection" | "shortest_distance";
   chordalTolerance?: number;

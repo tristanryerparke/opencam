@@ -39,7 +39,7 @@ export interface ParallelFinishingOp {
   displayName?: string;
   tool: CylindricalTool | BallTool | VTool;
   feedsAndSpeeds?: FeedsAndSpeeds;
-  clearance?: AbsoluteClearance | StockMaxZPlusOffsetClearance | PartMaxZPlusOffsetClearance;
+  clearance?: AutomaticClearance | AbsoluteClearance | StockMaxZPlusOffsetClearance | PartMaxZPlusOffsetClearance;
   levels?: CAMLevels;
   advanced?: CAMAdvancedParameters;
   driveGeometry: ParallelFinishingDriveGeometry;
@@ -89,6 +89,10 @@ export interface FeedsAndSpeeds {
   cutFeedrate?: number;
   leadOutFeedrate?: number;
   departureFeedrate?: number;
+  [k: string]: unknown;
+}
+export interface AutomaticClearance {
+  clearanceHeightType?: "automatic";
   [k: string]: unknown;
 }
 export interface AbsoluteClearance {

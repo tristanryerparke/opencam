@@ -9,6 +9,10 @@ import numpy
 
 
 ROOT = Path(__file__).resolve().parent
+OCL_SOURCE_ROOT = Path("third_party") / "opencamlib" / "src"
+OCL_ROOT = ROOT / OCL_SOURCE_ROOT
+if not OCL_ROOT.exists():
+    raise RuntimeError("OpenCAMLib source is missing. Run: git submodule update --init")
 
 
 def first_existing(*paths: str) -> Path | None:
@@ -62,6 +66,46 @@ for dependency in ("boost", "eigen", "gmp", "mpfr"):
         )
     )
 
+ocl_sources = [
+    str(OCL_SOURCE_ROOT / "geo" / name)
+    for name in (
+        "arc.cpp",
+        "bbox.cpp",
+        "ccpoint.cpp",
+        "clpoint.cpp",
+        "line.cpp",
+        "path.cpp",
+        "point.cpp",
+        "stlsurf.cpp",
+        "triangle.cpp",
+    )
+] + [
+    str(OCL_SOURCE_ROOT / "cutters" / name)
+    for name in (
+        "ballcutter.cpp",
+        "bullcutter.cpp",
+        "cylcutter.cpp",
+        "ellipse.cpp",
+        "ellipseposition.cpp",
+        "millingcutter.cpp",
+    )
+] + [
+    str(OCL_SOURCE_ROOT / "dropcutter" / name)
+    for name in (
+        "adaptivepathdropcutter.cpp",
+        "batchdropcutter.cpp",
+        "pathdropcutter.cpp",
+        "pointdropcutter.cpp",
+    )
+] + [
+    str(OCL_SOURCE_ROOT / "algo" / name)
+    for name in ("fiber.cpp", "interval.cpp")
+] + [str(OCL_SOURCE_ROOT / "common" / "numeric.cpp")]
+
+ocl_include_dirs = include_dirs + [
+    str(OCL_ROOT / name) for name in ("algo", "common", "cutters", "dropcutter", "geo")
+]
+
 ext_modules = [
     Pybind11Extension(
         "opencam._cgal_planar",
@@ -72,7 +116,15 @@ ext_modules = [
         define_macros=[("CGAL_HEADER_ONLY", "1")],
         cxx_std=17,
         extra_link_args=extra_link_args,
-    )
+    ),
+    Pybind11Extension(
+        "opencam._opencamlib",
+        ["src/opencam/_opencamlib.cpp", *ocl_sources],
+        include_dirs=ocl_include_dirs,
+        library_dirs=library_dirs,
+        cxx_std=17,
+        extra_link_args=extra_link_args,
+    ),
 ]
 
 setup(ext_modules=ext_modules, cmdclass={"build_ext": build_ext})

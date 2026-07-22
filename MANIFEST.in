@@ -1,0 +1,5 @@
+include src/opencam/_cgal_planar.cpp
+include src/opencam/_opencamlib.cpp
+recursive-include third_party/opencamlib/src *.cpp *.hpp
+include third_party/opencamlib/COPYING
+include third_party/opencamlib/README.rst

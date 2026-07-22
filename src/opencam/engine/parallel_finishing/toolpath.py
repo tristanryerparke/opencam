@@ -1,13 +1,4 @@
-"""Parallel-finishing toolpath generation over a TriangleSurface.
-
-Lanes are straight parallel raster lines at the chosen direction, clipped to
-each selected cut area (treated as a tool-center boundary). Consecutive lanes
-are zig-zag linked with short cross feed moves so a contiguous region becomes
-one continuous feed polyline. Every straight segment is adaptively subdivided
-until linear interpolation of the cutter-location height is within chord
-tolerance, so the emitted path follows the surface exactly relative to the
-mesh.
-"""
+"""Parallel-finishing lane planning with OpenCAMLib drop-cutter projection."""
 
 from __future__ import annotations
 
@@ -19,12 +10,10 @@ from shapely.geometry.base import BaseGeometry
 
 from opencam.engine.closed_polyline.validation import validate_closed_polyline
 from opencam.engine.levels.layers import build_cut_record_sequence
-from opencam.engine.parallel_finishing.surface import TriangleSurface
+from opencam.engine.parallel_finishing.ocl_backend import OpenCAMLibDropCutter
 from opencam.schemas.cl_data import FeedRatePositionRecord3D, PositionRecord
 from opencam.schemas.mesh import Mesh
-from opencam.schemas.tools import BallTool, CylindricalTool, Tool
-
-_MAX_SUBDIVISION_DEPTH = 18
+from opencam.schemas.tools import Tool
 
 
 def _lane_segments_in_polygon(
@@ -71,12 +60,7 @@ def _link_segments_zigzag(
     xy_segments: list[tuple[tuple[float, float], tuple[float, float]]],
     link_distance: float,
 ) -> list[list[tuple[float, float]]]:
-    """Order segments into continuous polylines, linking adjacent ones by feed.
-
-    Each segment is reoriented so it starts at the end of the previous polyline
-    when they are within link_distance; otherwise a new polyline starts (later
-    connected by a retract at clearance).
-    """
+    """Order segments into continuous polylines, linking adjacent ones by feed."""
     polylines: list[list[tuple[float, float]]] = []
     for segment in xy_segments:
         start, end = segment
@@ -96,123 +80,16 @@ def _link_segments_zigzag(
     return polylines
 
 
-def _segment_runs(
-    ax: float,
-    ay: float,
-    bx: float,
-    by: float,
-    height,
-    tolerance: float,
-    depth: int = 0,
-) -> list[list[tuple[float, float, float]]]:
-    """Adaptively sample a straight segment into covered runs.
-
-    Splits where the surface is absent (height None) and subdivides covered
-    portions until linear Z interpolation is within tolerance. Returns a list
-    of runs; each run is a list of (x, y, z). Gaps become run breaks.
-    """
-    za = height(ax, ay)
-    zb = height(bx, by)
-    mx = 0.5 * (ax + bx)
-    my = 0.5 * (ay + by)
-
-    # Uncovered at both ends: one midpoint probe avoids exponentially walking
-    # a wholly empty segment, while still finding the usual covered island.
-    if za is None and zb is None:
-        if depth >= _MAX_SUBDIVISION_DEPTH or height(mx, my) is None:
-            return []
-        return _segment_runs(ax, ay, mx, my, height, tolerance, depth + 1) + _segment_runs(
-            mx, my, bx, by, height, tolerance, depth + 1
-        )
-
-    # Coverage boundary (one end covered, one not): bisect to isolate the edge.
-    if za is None or zb is None:
-        if depth >= _MAX_SUBDIVISION_DEPTH:
-            return [[(ax, ay, za), (bx, by, zb)]] if (za is not None and zb is not None) else []
-        return _segment_runs(ax, ay, mx, my, height, tolerance, depth + 1) + _segment_runs(
-            mx, my, bx, by, height, tolerance, depth + 1
-        )
-
-    # Both covered. Check for an interior hole between two covered points.
-    zm = height(mx, my)
-    if zm is None:
-        if depth >= _MAX_SUBDIVISION_DEPTH:
-            return [[(ax, ay, za), (bx, by, zb)]]
-        return _segment_runs(ax, ay, mx, my, height, tolerance, depth + 1) + _segment_runs(
-            mx, my, bx, by, height, tolerance, depth + 1
-        )
-
-    within_tolerance = abs(zm - 0.5 * (za + zb)) <= tolerance
-    if within_tolerance or depth >= _MAX_SUBDIVISION_DEPTH:
-        return [[(ax, ay, za), (bx, by, zb)]]
-    left = _segment_runs(ax, ay, mx, my, height, tolerance, depth + 1)
-    right = _segment_runs(mx, my, bx, by, height, tolerance, depth + 1)
-    return _concat_runs(left, right)
-
-
-def _concat_runs(
-    left: list[list[tuple[float, float, float]]],
-    right: list[list[tuple[float, float, float]]],
-) -> list[list[tuple[float, float, float]]]:
-    if not left:
-        return right
-    if not right:
-        return left
-    # Both halves meet at the covered midpoint, so their boundary runs are contiguous.
-    return left[:-1] + [left[-1] + right[0][1:]] + right[1:]
-
-
-def _same_point(a: tuple[float, float, float], b: tuple[float, float, float]) -> bool:
-    return abs(a[0] - b[0]) <= 1e-9 and abs(a[1] - b[1]) <= 1e-9
-
-
-def _sample_polyline(
-    vertices: list[tuple[float, float]],
-    height,
-    tolerance: float,
-) -> list[list[tuple[float, float, float]]]:
-    """Sample a polyline into covered runs, merging contiguous ones across vertices."""
-    runs: list[list[tuple[float, float, float]]] = []
-    for (ax, ay), (bx, by) in zip(vertices, vertices[1:], strict=False):
-        for run in _segment_runs(ax, ay, bx, by, height, tolerance):
-            if runs and _same_point(runs[-1][-1], run[0]):
-                runs[-1].extend(run[1:])
-            else:
-                runs.append(list(run))
-    return runs
-
-
-def _height_function(surface: TriangleSurface, tool: Tool, r: float, stock_to_leave: float):
-    if isinstance(tool, BallTool):
-        base = surface.ball_tool_height
-    elif isinstance(tool, CylindricalTool):
-        base = surface.flat_tool_height
-    else:
-        raise NotImplementedError(f"Tool type {tool.type!r} is not supported for parallel finishing.")
-
-    def height(x: float, y: float) -> float | None:
-        value = base(x, y, r)
-        if not math.isfinite(value):
-            return None
-        return value + stock_to_leave
-
-    return height
-
-
 def build_parallel_finishing_area_layers(
-    surface: TriangleSurface,
+    backend: OpenCAMLibDropCutter,
     cut_area_xy: np.ndarray,
     *,
-    tool: Tool,
     direction_degrees: float,
     stepover: float,
     stock_to_leave: float,
     chord_tolerance: float,
     feedrate: float,
 ) -> list[list[FeedRatePositionRecord3D]]:
-    radius = tool.diameter / 2.0
-    height = _height_function(surface, tool, radius, stock_to_leave)
-
     theta = math.radians(direction_degrees)
     cos_t = math.cos(theta)
     sin_t = math.sin(theta)
@@ -257,7 +134,11 @@ def build_parallel_finishing_area_layers(
 
     layers: list[list[FeedRatePositionRecord3D]] = []
     for polyline in polylines:
-        for run in _sample_polyline(polyline, height, chord_tolerance):
+        for run in backend.project_runs(
+            polyline,
+            chord_tolerance=chord_tolerance,
+            stock_to_leave=stock_to_leave,
+        ):
             if len(run) < 2:
                 continue
             layers.append(
@@ -289,15 +170,14 @@ def build_parallel_finishing_records(
     if stepover <= 0.0:
         raise ValueError("Stepover must be greater than zero.")
 
-    surface = TriangleSurface.from_mesh(mesh)
+    backend = OpenCAMLibDropCutter(mesh, tool)
 
     cut_layers: list[list[FeedRatePositionRecord3D]] = []
     for cut_area in cut_areas:
         cut_layers.extend(
             build_parallel_finishing_area_layers(
-                surface,
+                backend,
                 cut_area,
-                tool=tool,
                 direction_degrees=direction_degrees,
                 stepover=stepover,
                 stock_to_leave=stock_to_leave,

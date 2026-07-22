@@ -60,11 +60,10 @@ const operationLabels: Record<OperationType, string> = {
   parallel_finishing: "Parallel Finishing",
 };
 
-const hiddenOperationFields = new Set(["type", "id", "displayName", "partMesh"]);
+const hiddenOperationFields = new Set(["type", "id", "displayName"]);
 const operationSectionOrder = new Map([
   ["driveGeometry", 0],
   ["cutParameters", 1],
-  ["partMesh", 1],
   ["tool", 2],
   ["feedsAndSpeeds", 3],
   ["levels", 4],
@@ -475,7 +474,6 @@ export function createOperationDraft(
   selection: MeshFaceSelection | null,
   _meshMaxZ: number | null,
   existingOperation?: Operation,
-  cachedMeshVersion?: string | null,
 ): DraftObject {
   const rootSchema = getOperationSchema(existingOperation ?? operationType);
   const geometryKey = getGeometryArrayKey(rootSchema);
@@ -498,16 +496,6 @@ export function createOperationDraft(
         }
       : driveGeometry,
   } satisfies DraftObject;
-
-  if (operationType === "parallel_finishing") {
-    // Parallel finishing always runs against the currently cached part mesh;
-    // partMesh is hidden from the form and re-pinned to the live cache version
-    // at generation time (buildGenerateToolpathRequest). The draft only needs a
-    // schema-valid placeholder so the Save button is never blocked by it.
-    (hydratedOperation as DraftObject).partMesh = cachedMeshVersion
-      ? { source: "cached", cacheId: cachedMeshVersion }
-      : { source: "inline", vertices: [[0, 0, 0], [0, 0, 0], [0, 0, 0]], faces: [[0, 1, 2]] };
-  }
 
   return schemaValueToDraft(rootSchema, hydratedOperation, rootSchema) as DraftObject;
 }
@@ -550,15 +538,11 @@ export function buildGenerateToolpathRequest(
   meshMaxZ: number | null,
   cachedMeshVersion?: string | null,
 ): GenerateToolpathRequest {
-  // Parallel finishing always runs against the currently cached part mesh;
-  // partMesh is hidden from the form, so pin it to the live cache version here
-  // in case the mesh was re-uploaded after the operation was created.
-  if (operation.type === "parallel_finishing" && cachedMeshVersion) {
-    operation = { ...operation, partMesh: { source: "cached", cacheId: cachedMeshVersion } };
-  }
-
   return {
     setup: {
+      partMesh: cachedMeshVersion
+        ? { source: "cached", cacheId: cachedMeshVersion }
+        : undefined,
       origin: { x: 0, y: 0, z: 0 },
       orientation: { machineZAxis: "positiveZ" },
       stock: { maxZ: meshMaxZ ?? 0 },

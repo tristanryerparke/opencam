@@ -1,4 +1,5 @@
 import io
+import logging
 from datetime import datetime
 
 import trimesh
@@ -14,6 +15,7 @@ from opencam.services.tool_mesh import build_tool
 from opencam.simulation.router import router as simulation_router
 from opencam.services.tool_library import ToolLibrary, get_tool_library
 
+logger = logging.getLogger(__name__)
 app = FastAPI(title="OpenCAM API", version="0.2.0")
 
 app.add_middleware(
@@ -137,6 +139,23 @@ async def generate_cam_toolpath(request: GenerateToolpathRequest):
         )
         return operation
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        logger.exception(
+            "CAM toolpath generation failed operation_id=%s type=%s",
+            request.operation.id,
+            request.operation.type,
+        )
+        raise HTTPException(status_code=400, detail=f"{type(exc).__name__}: {exc}") from exc
     except NotImplementedError as exc:
-        raise HTTPException(status_code=501, detail=str(exc)) from exc
+        logger.exception(
+            "CAM toolpath generation is not implemented operation_id=%s type=%s",
+            request.operation.id,
+            request.operation.type,
+        )
+        raise HTTPException(status_code=501, detail=f"{type(exc).__name__}: {exc}") from exc
+    except Exception:
+        logger.exception(
+            "Unhandled CAM toolpath generation failure operation_id=%s type=%s",
+            request.operation.id,
+            request.operation.type,
+        )
+        raise

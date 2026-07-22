@@ -5,24 +5,6 @@
 /* Do not modify it by hand - just update the pydantic models and then re-run the script
 */
 
-export interface BallTool {
-  id?: string;
-  name: string;
-  toolNumber: number;
-  manualChange?: boolean;
-  diameter: number;
-  cuttingHeight: number;
-  shoulderHeight: number;
-  numFlutes?: number;
-  type?: "ball";
-}
-/**
- * A reference to a mesh cached in the server mesh cache.
- */
-export interface CachedMesh {
-  source?: "cached";
-  cacheId: string;
-}
 export interface ClosedPolyline25D {
   kind?: "closed_polyline";
   vertices: Point2D[];
@@ -32,36 +14,6 @@ export interface Point2D {
   x: number;
   y: number;
   [k: string]: unknown;
-}
-export interface CylindricalTool {
-  id?: string;
-  name: string;
-  toolNumber: number;
-  manualChange?: boolean;
-  diameter: number;
-  cuttingHeight: number;
-  shoulderHeight: number;
-  numFlutes?: number;
-  type?: "cylinder";
-}
-/**
- * Inline triangle-mesh part data.
- */
-export interface Mesh {
-  source?: "inline";
-  /**
-   * @minItems 3
-   */
-  vertices: [
-    [unknown, unknown, unknown],
-    [unknown, unknown, unknown],
-    [unknown, unknown, unknown],
-    ...[unknown, unknown, unknown][]
-  ];
-  /**
-   * @minItems 1
-   */
-  faces: [[unknown, unknown, unknown], ...[unknown, unknown, unknown][]];
 }
 export interface ParallelFinishingCutSettings {
   /**
@@ -90,9 +42,32 @@ export interface ParallelFinishingOp {
   clearance?: AbsoluteClearance | StockMaxZPlusOffsetClearance | PartMaxZPlusOffsetClearance;
   levels?: CAMLevels;
   advanced?: CAMAdvancedParameters;
-  partMesh: Mesh | CachedMesh;
   driveGeometry: ParallelFinishingDriveGeometry;
   cutParameters?: ParallelFinishingCutSettings;
+}
+export interface CylindricalTool {
+  id?: string;
+  name: string;
+  toolNumber: number;
+  manualChange?: boolean;
+  diameter: number;
+  cuttingHeight: number;
+  shoulderHeight: number;
+  numFlutes?: number;
+  type?: "cylinder";
+  [k: string]: unknown;
+}
+export interface BallTool {
+  id?: string;
+  name: string;
+  toolNumber: number;
+  manualChange?: boolean;
+  diameter: number;
+  cuttingHeight: number;
+  shoulderHeight: number;
+  numFlutes?: number;
+  type?: "ball";
+  [k: string]: unknown;
 }
 export interface VTool {
   id?: string;

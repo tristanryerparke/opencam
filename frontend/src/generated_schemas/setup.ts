@@ -5,14 +5,37 @@
 /* Do not modify it by hand - just update the pydantic models and then re-run the script
 */
 
-export interface AbsoluteClearance {
-  clearanceHeightType?: "absolute";
-  absoluteHeight?: number;
-}
 export interface CAMSetup {
+  partMesh?: (Mesh | CachedMesh) | null;
   origin?: SetupOrigin;
   orientation?: SetupOrientation;
   stock?: SetupStock;
+}
+/**
+ * Inline triangle-mesh part data.
+ */
+export interface Mesh {
+  source?: "inline";
+  /**
+   * @minItems 3
+   */
+  vertices: [
+    [unknown, unknown, unknown],
+    [unknown, unknown, unknown],
+    [unknown, unknown, unknown],
+    ...[unknown, unknown, unknown][]
+  ];
+  /**
+   * @minItems 1
+   */
+  faces: [[unknown, unknown, unknown], ...[unknown, unknown, unknown][]];
+}
+/**
+ * A reference to a mesh cached in the server mesh cache.
+ */
+export interface CachedMesh {
+  source?: "cached";
+  cacheId: string;
 }
 export interface SetupOrigin {
   x?: number;
@@ -30,12 +53,4 @@ export interface SetupStock {
    * Used when clearance height is computed from stock height.
    */
   maxZ?: number;
-}
-export interface PartMaxZPlusOffsetClearance {
-  clearanceHeightType?: "part_max_z_plus_offset";
-  offset?: number;
-}
-export interface StockMaxZPlusOffsetClearance {
-  clearanceHeightType?: "stock_max_z_plus_offset";
-  offset?: number;
 }

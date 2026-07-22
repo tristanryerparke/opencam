@@ -278,17 +278,19 @@ def test_endpoint_generates_parallel_finishing_from_inline_mesh():
         )
     ).model_dump(mode="json", by_alias=True)
     payload = {
-        "setup": {"stock": {"maxZ": 0.0}},
-        "operation": {
-            "type": "parallel_finishing",
-            "tool": tool,
-            "clearance": {"clearanceHeightType": "absolute", "absoluteHeight": 5.0},
-            "advanced": {"chordalTolerance": 0.01},
+        "setup": {
+            "stock": {"maxZ": 0.0},
             "partMesh": {
                 "source": "inline",
                 "vertices": [list(vertex) for vertex in mesh.vertices],
                 "faces": [list(face) for face in mesh.faces],
             },
+        },
+        "operation": {
+            "type": "parallel_finishing",
+            "tool": tool,
+            "clearance": {"clearanceHeightType": "absolute", "absoluteHeight": 5.0},
+            "advanced": {"chordalTolerance": 0.01},
             "driveGeometry": {
                 "cutAreas": [
                     {

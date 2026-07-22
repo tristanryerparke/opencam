@@ -1366,7 +1366,7 @@ function App() {
     setIsOperationTypeDialogOpen(false);
     setOperationDialogMode("create");
     setResumeOperationDialogAfterSelection(false);
-    setOperationDraft(createOperationDraft(operationType, operations.length + 1, null, meshMaxZ, undefined, cachedMeshVersion));
+    setOperationDraft(createOperationDraft(operationType, operations.length + 1, null, meshMaxZ));
     setIsOperationDialogOpen(true);
   }
 
@@ -1382,8 +1382,19 @@ function App() {
     setIsOperationTypeDialogOpen(false);
     setOperationDialogMode("edit");
     setResumeOperationDialogAfterSelection(false);
-    setOperationDraft(createOperationDraft((operation.type ?? "pocketing_2d") as OperationType, operationIndex + 1, null, meshMaxZ, operation, cachedMeshVersion));
+    setOperationDraft(createOperationDraft((operation.type ?? "pocketing_2d") as OperationType, operationIndex + 1, null, meshMaxZ, operation));
     setIsOperationDialogOpen(true);
+  }
+
+  function handleRegenerateOperation(operationId: string) {
+    const operation = operations.find((item) => item.id === operationId);
+    if (!operation) {
+      return;
+    }
+
+    setSelectedOperationId(operationId);
+    setSelectedTreeNodeId(operationId);
+    void handleGenerateOperation(operation);
   }
 
   function handleDeleteOperation(operationId: string) {
@@ -1727,6 +1738,7 @@ function App() {
           }
 
           setSimulationTaskId(null);
+          setGeneratingOperationId(null);
           setSimulationProgressPercent(100);
           await applyCompletedSimulation(status.result);
 
@@ -1806,7 +1818,17 @@ function App() {
       return;
     }
 
+    if (operationToGenerate.type === "parallel_finishing" && !cachedMeshVersion) {
+      setRequestState("error");
+      setRequestMessage("Wait for the part mesh to finish caching before generating parallel finishing.");
+      return;
+    }
+
     try {
+      if (simulationTaskId) {
+        await fetch(`${getBackendUrl()}/simulate/${simulationTaskId}`, { method: "DELETE" });
+      }
+
       const requestBody = buildGenerateToolpathRequest(operationToGenerate, meshMaxZ, cachedMeshVersion);
       const nextOperationLabel = operationToGenerate.displayName ?? "2D Pocket";
 
@@ -2041,15 +2063,18 @@ function App() {
             downloadableOperationIds={downloadableOperationIds}
             generatingOperationId={generatingOperationId}
             generatingOperationProgressPercent={simulationProgressPercent}
+            isToolpathGenerating={generatedOperation === null && requestState === "submitting"}
+            isSimulationGenerating={generatedOperation !== null && requestState === "submitting"}
             onMeshUpload={handleMeshUpload}
             onAddOperation={handleAddOperation}
             onSelectNode={handleSelectTreeNode}
             onEditOperation={handleEditOperation}
+            onRegenerateOperation={handleRegenerateOperation}
             onDeleteOperation={handleDeleteOperation}
             onSimulateOperation={handleSimulateOperation}
             onCompareOperation={handleCompareOperation}
             onDownloadOperationClData={handleDownloadOperationClData}
-            canManageOperations={requestState !== "submitting"}
+            canManageOperations={requestState !== "submitting" || generatedOperation !== null}
             canCancelGeneration={requestState === "submitting" && simulationTaskId !== null}
             onCancelGeneration={handleCancelGeneration}
           />

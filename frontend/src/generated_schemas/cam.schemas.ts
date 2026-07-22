@@ -137,6 +137,32 @@ export const camSchemaBundle = {
       },
       "CAMSetup": {
         "properties": {
+          "partMesh": {
+            "anyOf": [
+              {
+                "discriminator": {
+                  "mapping": {
+                    "cached": "#/$defs/CachedMesh",
+                    "inline": "#/$defs/Mesh"
+                  },
+                  "propertyName": "source"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/$defs/Mesh"
+                  },
+                  {
+                    "$ref": "#/$defs/CachedMesh"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Part mesh"
+          },
           "origin": {
             "$ref": "#/$defs/SetupOrigin",
             "title": "Origin"
@@ -490,24 +516,6 @@ export const camSchemaBundle = {
             "$ref": "#/$defs/CAMAdvancedParameters",
             "title": "Advanced"
           },
-          "partMesh": {
-            "discriminator": {
-              "mapping": {
-                "cached": "#/$defs/CachedMesh",
-                "inline": "#/$defs/Mesh"
-              },
-              "propertyName": "source"
-            },
-            "oneOf": [
-              {
-                "$ref": "#/$defs/Mesh"
-              },
-              {
-                "$ref": "#/$defs/CachedMesh"
-              }
-            ],
-            "title": "Part mesh"
-          },
           "driveGeometry": {
             "$ref": "#/$defs/ParallelFinishingDriveGeometry",
             "title": "Drive geometry"
@@ -519,7 +527,6 @@ export const camSchemaBundle = {
         },
         "required": [
           "tool",
-          "partMesh",
           "driveGeometry"
         ],
         "title": "ParallelFinishingOp",
@@ -2304,27 +2311,6 @@ export const camSchemaBundle = {
         "title": "CAMLevels",
         "type": "object"
       },
-      "CachedMesh": {
-        "description": "A reference to a mesh cached in the server mesh cache.",
-        "properties": {
-          "source": {
-            "const": "cached",
-            "default": "cached",
-            "title": "Source",
-            "type": "string"
-          },
-          "cacheId": {
-            "minLength": 1,
-            "title": "Cache ID",
-            "type": "string"
-          }
-        },
-        "required": [
-          "cacheId"
-        ],
-        "title": "CachedMesh",
-        "type": "object"
-      },
       "ClosedPolyline25D": {
         "properties": {
           "kind": {
@@ -2460,65 +2446,6 @@ export const camSchemaBundle = {
           }
         },
         "title": "FeedsAndSpeeds",
-        "type": "object"
-      },
-      "Mesh": {
-        "description": "Inline triangle-mesh part data.",
-        "properties": {
-          "source": {
-            "const": "inline",
-            "default": "inline",
-            "title": "Source",
-            "type": "string"
-          },
-          "vertices": {
-            "items": {
-              "maxItems": 3,
-              "minItems": 3,
-              "prefixItems": [
-                {
-                  "type": "number"
-                },
-                {
-                  "type": "number"
-                },
-                {
-                  "type": "number"
-                }
-              ],
-              "type": "array"
-            },
-            "minItems": 3,
-            "title": "Vertices",
-            "type": "array"
-          },
-          "faces": {
-            "items": {
-              "maxItems": 3,
-              "minItems": 3,
-              "prefixItems": [
-                {
-                  "type": "integer"
-                },
-                {
-                  "type": "integer"
-                },
-                {
-                  "type": "integer"
-                }
-              ],
-              "type": "array"
-            },
-            "minItems": 1,
-            "title": "Faces",
-            "type": "array"
-          }
-        },
-        "required": [
-          "vertices",
-          "faces"
-        ],
-        "title": "Mesh",
         "type": "object"
       },
       "ParallelFinishingCutSettings": {
@@ -2783,24 +2710,6 @@ export const camSchemaBundle = {
         "$ref": "#/$defs/CAMAdvancedParameters",
         "title": "Advanced"
       },
-      "partMesh": {
-        "discriminator": {
-          "mapping": {
-            "cached": "#/$defs/CachedMesh",
-            "inline": "#/$defs/Mesh"
-          },
-          "propertyName": "source"
-        },
-        "oneOf": [
-          {
-            "$ref": "#/$defs/Mesh"
-          },
-          {
-            "$ref": "#/$defs/CachedMesh"
-          }
-        ],
-        "title": "Part mesh"
-      },
       "driveGeometry": {
         "$ref": "#/$defs/ParallelFinishingDriveGeometry",
         "title": "Drive geometry"
@@ -2812,7 +2721,6 @@ export const camSchemaBundle = {
     },
     "required": [
       "tool",
-      "partMesh",
       "driveGeometry"
     ],
     "title": "ParallelFinishingOp",

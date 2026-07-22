@@ -6,9 +6,38 @@
 */
 
 export interface CAMSetup {
+  partMesh?: (Mesh | CachedMesh) | null;
   origin?: SetupOrigin;
   orientation?: SetupOrientation;
   stock?: SetupStock;
+}
+/**
+ * Inline triangle-mesh part data.
+ */
+export interface Mesh {
+  source?: "inline";
+  /**
+   * @minItems 3
+   */
+  vertices: [
+    [unknown, unknown, unknown],
+    [unknown, unknown, unknown],
+    [unknown, unknown, unknown],
+    ...[unknown, unknown, unknown][]
+  ];
+  /**
+   * @minItems 1
+   */
+  faces: [[unknown, unknown, unknown], ...[unknown, unknown, unknown][]];
+  [k: string]: unknown;
+}
+/**
+ * A reference to a mesh cached in the server mesh cache.
+ */
+export interface CachedMesh {
+  source?: "cached";
+  cacheId: string;
+  [k: string]: unknown;
 }
 export interface SetupOrigin {
   x?: number;
@@ -28,15 +57,6 @@ export interface SetupStock {
    * Used when clearance height is computed from stock height.
    */
   maxZ?: number;
-  [k: string]: unknown;
-}
-export interface ClosedPolyline2D {
-  kind?: "closed_polyline";
-  vertices: Point2D[];
-}
-export interface Point2D {
-  x: number;
-  y: number;
   [k: string]: unknown;
 }
 export interface GenerateToolpathRequest {
@@ -140,6 +160,11 @@ export interface ClosedPolyline25D {
   z: number;
   [k: string]: unknown;
 }
+export interface Point2D {
+  x: number;
+  y: number;
+  [k: string]: unknown;
+}
 export interface PocketingCutSettings {
   cutDirection?: "climb" | "conventional";
   stepover?: StepoverMode;
@@ -191,37 +216,8 @@ export interface ParallelFinishingOp {
   clearance?: AbsoluteClearance | StockMaxZPlusOffsetClearance | PartMaxZPlusOffsetClearance;
   levels?: CAMLevels;
   advanced?: CAMAdvancedParameters;
-  partMesh: Mesh | CachedMesh;
   driveGeometry: ParallelFinishingDriveGeometry;
   cutParameters?: ParallelFinishingCutSettings;
-}
-/**
- * Inline triangle-mesh part data.
- */
-export interface Mesh {
-  source?: "inline";
-  /**
-   * @minItems 3
-   */
-  vertices: [
-    [unknown, unknown, unknown],
-    [unknown, unknown, unknown],
-    [unknown, unknown, unknown],
-    ...[unknown, unknown, unknown][]
-  ];
-  /**
-   * @minItems 1
-   */
-  faces: [[unknown, unknown, unknown], ...[unknown, unknown, unknown][]];
-  [k: string]: unknown;
-}
-/**
- * A reference to a mesh cached in the server mesh cache.
- */
-export interface CachedMesh {
-  source?: "cached";
-  cacheId: string;
-  [k: string]: unknown;
 }
 export interface ParallelFinishingDriveGeometry {
   /**

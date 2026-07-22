@@ -22,6 +22,7 @@ type OperationTreeItem = {
   fileName?: string;
   needsAttention?: boolean;
   progressPercent?: number;
+  simulationComplete?: boolean;
 };
 
 type AppSidebarProps = {
@@ -34,10 +35,13 @@ type AppSidebarProps = {
   downloadableOperationIds: ReadonlySet<string>;
   generatingOperationId: string | null;
   generatingOperationProgressPercent: number;
+  isToolpathGenerating: boolean;
+  isSimulationGenerating: boolean;
   onMeshUpload: (file: File | null) => void;
   onAddOperation: () => void;
   onSelectNode: (nodeId: string) => void;
   onEditOperation: (operationId: string) => void;
+  onRegenerateOperation: (operationId: string) => void;
   onDeleteOperation: (operationId: string) => void;
   onSimulateOperation: (operationId: string) => void;
   onCompareOperation: (operationId: string) => void;
@@ -61,6 +65,7 @@ function renderTreeNode(
   onDeletePart: () => void,
   canDeletePart: boolean,
   onEditOperation: (operationId: string) => void,
+  onRegenerateOperation: (operationId: string) => void,
   onDeleteOperation: (operationId: string) => void,
   onSimulateOperation: (operationId: string) => void,
   onCompareOperation: (operationId: string) => void,
@@ -69,6 +74,7 @@ function renderTreeNode(
   simulatableOperationIds: ReadonlySet<string>,
   comparableOperationIds: ReadonlySet<string>,
   downloadableOperationIds: ReadonlySet<string>,
+  isSimulationGenerating: boolean,
 ) {
   const operationId = node.data.operationId;
   const content = (
@@ -100,9 +106,11 @@ function renderTreeNode(
             <span className="truncate text-xs font-normal text-sidebar-foreground/65">{node.data.fileName}</span>
           ) : null}
         </span>
-        {node.data.progressPercent != null ? (
+        {node.data.simulationComplete ? (
+          <span className="ml-auto shrink-0 text-xs text-sidebar-foreground/65">Simulated</span>
+        ) : node.data.progressPercent != null ? (
           <span className="ml-auto shrink-0 text-xs tabular-nums text-sidebar-foreground/65">
-            {Math.round(node.data.progressPercent)}%
+            {isSimulationGenerating ? `Simulating ${Math.round(node.data.progressPercent)}%` : "Generating"}
           </span>
         ) : node.data.needsAttention ? (
           <span className="ml-auto h-2 w-2 shrink-0 rounded-full bg-destructive" aria-label="Needs STEP file" />
@@ -160,6 +168,9 @@ function renderTreeNode(
         <ContextMenuItem disabled={!canManageOperations} onSelect={() => onEditOperation(operationId)}>
           Edit operation
         </ContextMenuItem>
+        <ContextMenuItem disabled={!canManageOperations} onSelect={() => onRegenerateOperation(operationId)}>
+          Regenerate
+        </ContextMenuItem>
         <ContextMenuItem
           variant="destructive"
           disabled={!canManageOperations}
@@ -182,10 +193,13 @@ export function AppSidebar({
   downloadableOperationIds,
   generatingOperationId,
   generatingOperationProgressPercent,
+  isToolpathGenerating,
+  isSimulationGenerating,
   onMeshUpload,
   onAddOperation,
   onSelectNode,
   onEditOperation,
+  onRegenerateOperation,
   onDeleteOperation,
   onSimulateOperation,
   onCompareOperation,
@@ -214,7 +228,11 @@ export function AppSidebar({
           label: operation.displayName ?? `Operation ${index + 1}`,
           operationId: operation.id,
           progressPercent:
-            operation.id && operation.id === generatingOperationId ? generatingOperationProgressPercent : undefined,
+            operation.id &&
+            (operation.id === generatingOperationId || (isToolpathGenerating && operation.id === selectedNodeId))
+              ? generatingOperationProgressPercent
+              : undefined,
+          simulationComplete: operation.id ? comparableOperationIds.has(operation.id) : false,
         },
       })),
     },
@@ -250,6 +268,7 @@ export function AppSidebar({
               () => void onMeshUpload(null),
               meshLoaded,
               onEditOperation,
+              onRegenerateOperation,
               onDeleteOperation,
               onSimulateOperation,
               onCompareOperation,
@@ -258,6 +277,7 @@ export function AppSidebar({
               simulatableOperationIds,
               comparableOperationIds,
               downloadableOperationIds,
+              isSimulationGenerating,
             )}
           aria-label="CAM setup tree"
         />

@@ -1,9 +1,10 @@
 from copy import deepcopy
+import logging
 
 import pytest
 from fastapi.testclient import TestClient
 
-from opencam.schemas.cam import GenerateToolpathRequest
+import server.main as server_main
 from opencam.schemas.tools import BallTool, CylindricalTool
 from opencam.services.tool_mesh import build_tool
 from server.main import app
@@ -79,11 +80,31 @@ def pocket_request_payload() -> dict:
     }
 
 
-def test_generate_toolpath_request_rejects_clearance_below_top_z(pocket_request_payload: dict):
+def test_generate_cam_toolpath_rejects_clearance_below_top_z(pocket_request_payload: dict):
     pocket_request_payload["operation"]["clearance"]["absoluteHeight"] = 0.0
 
-    with pytest.raises(ValueError, match="Clearance height must be above the operation top Z"):
-        GenerateToolpathRequest.model_validate(pocket_request_payload)
+    response = client.post("/cam/toolpath", json=pocket_request_payload)
+
+    assert response.status_code == 400
+    assert "Clearance height must be above the operation top Z" in response.json()["detail"]
+
+
+def test_generate_cam_toolpath_reports_and_logs_generation_errors(
+    pocket_request_payload: dict,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+):
+    def fail(*args, **kwargs):
+        raise ValueError("toolpath generation failed")
+
+    monkeypatch.setattr(server_main, "cam_engine", fail)
+    with caplog.at_level(logging.ERROR, logger="server.main"):
+        response = client.post("/cam/toolpath", json=pocket_request_payload)
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "ValueError: toolpath generation failed"}
+    assert "CAM toolpath generation failed" in caplog.text
+    assert "toolpath generation failed" in caplog.text
 
 
 def test_generate_cam_toolpath_endpoint_returns_cl_data(pocket_request_payload: dict):

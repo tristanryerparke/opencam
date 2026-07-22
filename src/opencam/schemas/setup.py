@@ -5,13 +5,8 @@ from typing import Literal
 from pydantic import ConfigDict, Field
 
 from opencam.schemas.base import CamelBaseModel
-from opencam.schemas.operations.base import (
-    AbsoluteClearance,
-    BaseCAMOperation,
-    PartMaxZPlusOffsetClearance,
-    StockMaxZPlusOffsetClearance,
-    ui_metadata,
-)
+from opencam.schemas.mesh import CachedMesh, Mesh
+from opencam.schemas.operations.base import ui_metadata
 
 
 class SetupOrigin(CamelBaseModel):
@@ -40,16 +35,11 @@ class SetupStock(CamelBaseModel):
 class CAMSetup(CamelBaseModel):
     model_config = ConfigDict(title="CAMSetup")
 
+    part_mesh: Mesh | CachedMesh | None = Field(
+        default=None,
+        discriminator="source",
+        title="Part mesh",
+    )
     origin: SetupOrigin = Field(default_factory=SetupOrigin, title="Origin")
     orientation: SetupOrientation = Field(default_factory=SetupOrientation, title="Orientation")
     stock: SetupStock = Field(default_factory=SetupStock, title="Stock")
-
-    def clearance_height(self, operation: BaseCAMOperation) -> float:
-        clearance = operation.clearance
-        if isinstance(clearance, AbsoluteClearance):
-            return clearance.absolute_height
-        if isinstance(clearance, StockMaxZPlusOffsetClearance):
-            return self.stock.max_z + clearance.offset
-        if isinstance(clearance, PartMaxZPlusOffsetClearance):
-            return operation.max_cut_z() + clearance.offset
-        raise ValueError("Unsupported clearance height type.")  # pragma: no cover

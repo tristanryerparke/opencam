@@ -127,6 +127,78 @@ function setObjectWireframe(object: THREE.Object3D | null, enabled: boolean) {
   });
 }
 
+function createStepSurfaceRenderGeometry(
+  sourceGeometry: THREE.BufferGeometry,
+  faceRanges: ReadonlyArray<StepFaceRange>,
+) {
+  const weldedGeometry = mergeVertices(sourceGeometry.clone());
+  weldedGeometry.deleteAttribute("normal");
+
+  const position = weldedGeometry.getAttribute("position");
+  const index = weldedGeometry.getIndex();
+  if (!position || !index) {
+    weldedGeometry.computeVertexNormals();
+    return weldedGeometry;
+  }
+
+  const normalSums = new Map<string, THREE.Vector3>();
+  const triangleNormals = new Map<number, THREE.Vector3>();
+
+  for (const range of faceRanges) {
+    for (let triangleIndex = range.firstTriangle; triangleIndex < range.lastTriangleExclusive; triangleIndex += 1) {
+      const aIndex = index.getX(triangleIndex * 3);
+      const bIndex = index.getX(triangleIndex * 3 + 1);
+      const cIndex = index.getX(triangleIndex * 3 + 2);
+      const a = new THREE.Vector3().fromBufferAttribute(position, aIndex);
+      const b = new THREE.Vector3().fromBufferAttribute(position, bIndex);
+      const c = new THREE.Vector3().fromBufferAttribute(position, cIndex);
+      const normal = new THREE.Vector3().crossVectors(
+        b.sub(a),
+        c.sub(a),
+      );
+
+      triangleNormals.set(triangleIndex, normal.clone().normalize());
+      for (const vertexIndex of [aIndex, bIndex, cIndex]) {
+        const key = `${range.faceIndex}:${vertexIndex}`;
+        const sum = normalSums.get(key);
+        if (sum) {
+          sum.add(normal);
+        } else {
+          normalSums.set(key, normal.clone());
+        }
+      }
+    }
+  }
+
+  const renderGeometry = weldedGeometry.toNonIndexed();
+  weldedGeometry.dispose();
+  const renderPosition = renderGeometry.getAttribute("position");
+  const normals = new Float32Array(renderPosition.count * 3);
+
+  for (const range of faceRanges) {
+    for (let triangleIndex = range.firstTriangle; triangleIndex < range.lastTriangleExclusive; triangleIndex += 1) {
+      const fallback = triangleNormals.get(triangleIndex) ?? new THREE.Vector3(0, 0, 1);
+      for (let corner = 0; corner < 3; corner += 1) {
+        const sourceVertexIndex = index.getX(triangleIndex * 3 + corner);
+        const key = `${range.faceIndex}:${sourceVertexIndex}`;
+        const normal = normalSums.get(key)?.clone() ?? fallback.clone();
+        if (normal.lengthSq() === 0) {
+          normal.copy(fallback);
+        } else {
+          normal.normalize();
+        }
+        const renderVertexIndex = triangleIndex * 3 + corner;
+        normals[renderVertexIndex * 3] = normal.x;
+        normals[renderVertexIndex * 3 + 1] = normal.y;
+        normals[renderVertexIndex * 3 + 2] = normal.z;
+      }
+    }
+  }
+
+  renderGeometry.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
+  return renderGeometry;
+}
+
 export function usePolylineViewerScene(
   containerRef: RefObject<HTMLDivElement | null>,
   {
@@ -391,9 +463,24 @@ export function usePolylineViewerScene(
 
       const stepFaceRanges = sourceGeometry.userData.stepFaceRanges as StepFaceRange[] | undefined;
       if (stepFaceRanges?.length) {
+        // Smooth each original CAD surface independently: curved surfaces stay smooth,
+        // while adjacent STEP faces never blend their normals at sharp boundaries.
+        const renderGeometry = createStepSurfaceRenderGeometry(sourceGeometry, stepFaceRanges);
+
+        // Render geometry is non-indexed so each CAD surface can have its own smooth
+        // normals. Keep an index so STEP face ranges and edge-loop picking still work.
+        const renderVertexCount = renderGeometry.getAttribute("position").count;
+        const renderIndices = new Uint32Array(renderVertexCount);
+        for (let index = 0; index < renderVertexCount; index += 1) {
+          renderIndices[index] = index;
+        }
+        renderGeometry.setIndex(new THREE.BufferAttribute(renderIndices, 1));
+        renderGeometry.computeBoundingBox();
+        renderGeometry.computeBoundingSphere();
+
         const clampedOpacity = Math.max(0, Math.min(opacity, 1));
         const mesh = new THREE.Mesh(
-          sourceGeometry,
+          renderGeometry,
           new THREE.MeshStandardMaterial({
             side: THREE.DoubleSide,
             color,
@@ -423,15 +510,19 @@ export function usePolylineViewerScene(
           mesh.add(selectionHighlightGroup);
         }
 
+        const stepEdgeLoops = enableSelection ? getStepEdgeLoops(mesh) : [];
+        const bounds = renderGeometry.boundingBox?.clone() ?? null;
+        sourceGeometry.dispose();
+
         return {
           group: targetGroup,
           mesh,
-          bounds: sourceGeometry.boundingBox?.clone() ?? null,
+          bounds,
           edgeMaterial: null,
           selectionMesh: null,
           selectionData: null,
           selectionHighlightGroup,
-          stepEdgeLoops: enableSelection ? getStepEdgeLoops(mesh) : [],
+          stepEdgeLoops,
         } satisfies LoadedDisplayMesh;
       }
 

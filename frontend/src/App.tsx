@@ -5,16 +5,17 @@ import { SettingsDialog } from "@/components/settings-dialog";
 import { OperationDialog } from "@/components/operation-dialog";
 import { OperationTypeDialog } from "@/components/operation-type-dialog";
 import { SimulationDebugOverlay } from "@/components/simulation-debug-overlay";
+import { VisibilityBar } from "@/components/viewport/visibility-bar";
+import { AnimationBar } from "@/components/viewport/animation-bar";
+import { SIMULATION_STRIDE_OPTIONS } from "@/components/viewport/simulation-constants";
 import { PolylineViewer } from "@/components/polyline-viewer/viewer";
 import type {
   MeshFaceSelection,
   PolylineDefinition,
   PolylinePoint,
-  ToolRenderMode,
 } from "@/components/polyline-viewer/types";
 import { Button } from "t-components/button";
 import { X } from "lucide-react";
-import { Slider } from "@/components/ui/slider";
 import { SidebarProvider, SidebarTrigger } from "t-components/sidebar";
 import { getOpenCamBootstrap, sendRhinoUiDebug } from "@/bootstrap";
 import type { DraftObject, Operation, OperationType } from "@/lib/cam-schema";
@@ -26,6 +27,9 @@ import {
   parseOperationDraft,
 } from "@/lib/cam-schema";
 import { getBackendUrl } from "@/hooks/useBackendConnection";
+import { useCamStore } from "@/state/cam-store";
+import { useSettingsStore } from "@/state/settings-store";
+import { useShallow } from "zustand/react/shallow";
 import type { ClosedPolyline2D } from "@/generated_schemas/geometry_2d";
 import type { ClosedPolyline25D } from "@/generated_schemas/geometry_2_5d";
 import {
@@ -153,12 +157,6 @@ type SidebarSettingsPayload = {
 
 const SIDEBAR_SETTINGS_STORAGE_KEY = "opencam.sidebar-settings.v3";
 const LOCAL_MESH_STORAGE_KEY = "opencam.step.v1";
-const SIMULATION_DEBUG_UI_STORAGE_KEY = "opencam.simulation-debug-ui";
-const TOOL_RENDER_MODE_STORAGE_KEY = "opencam.tool-render-mode.v1";
-const PART_RENDER_MODE_STORAGE_KEY = "opencam.part-render-mode.v1";
-const STOCK_RENDER_MODE_STORAGE_KEY = "opencam.stock-render-mode.v1";
-const CLEARANCE_OFFSET_STORAGE_KEY = "opencam.clearance-offset.v2";
-const DEFAULT_CLEARANCE_OFFSET = 10;
 const ORIGINAL_MESH_COLOR = 0x94a3b8;
 const ORIGINAL_MESH_EDGE_COLOR = 0x334155;
 const MILLED_STOCK_MESH_COLOR = 0xfb923c;
@@ -171,7 +169,6 @@ const CHUNK_MARKER_SIZE = 2;
 const SIMULATION_PLAYBACK_INTERVAL_MS = 30;
 const SIMULATION_CONTACT_STEP_DISTANCE = 0.5;
 const SIMULATION_RAPID_FRAME_STEP_SCALE = 4;
-const SIMULATION_STRIDE_OPTIONS = [1, 2, 4, 8, 16] as const;
 const CHUNK_PADDING_X = 5;
 const CHUNK_PADDING_Y = 5;
 const CHUNK_PADDING_Z = 1;
@@ -474,45 +471,112 @@ function simulationStrideFrameCount(totalFrameCount: number, stride: number) {
   return (totalFrameCount - 1) % stride === 0 ? baseCount : baseCount + 1;
 }
 
-function simulationStrideOptionIndex(stride: number) {
-  const index = SIMULATION_STRIDE_OPTIONS.indexOf(stride as (typeof SIMULATION_STRIDE_OPTIONS)[number]);
-  return index >= 0 ? index : 0;
-}
-
 function App() {
-  const [meshName, setMeshName] = useState<string | null>(null);
-  const [meshUrl, setMeshUrl] = useState<string | null>(null);
+  const {
+    meshUrl,
+    meshMaxZ,
+    cachedMeshVersion,
+    operations,
+    generatedOperationsById,
+    faceSelectionMode,
+    selectedMeshFace,
+    selectedOperationId,
+    selectedTreeNodeId,
+    isOperationTypeDialogOpen,
+    isOperationDialogOpen,
+    operationDialogMode,
+    resumeOperationDialogAfterSelection,
+    operationDraft,
+    isSimulationMode,
+    isComparisonMode,
+    showStock,
+    showPartMesh,
+    showToolpaths,
+    showTool,
+    simulationId,
+    simulationFrameCount,
+    simulationFrameIndex,
+    simulationStride,
+    displayedSimulationFrameIndex,
+    isSimulationPlaying,
+  } = useCamStore(useShallow((state) => ({
+    meshUrl: state.workspace.meshUrl,
+    meshMaxZ: state.workspace.meshMaxZ,
+    cachedMeshVersion: state.workspace.cachedMeshVersion,
+    operations: state.workspace.operations,
+    generatedOperationsById: state.workspace.generatedOperationsById,
+    faceSelectionMode: state.selection.faceSelectionMode,
+    selectedMeshFace: state.selection.selectedMeshFace,
+    selectedOperationId: state.selection.selectedOperationId,
+    selectedTreeNodeId: state.selection.selectedTreeNodeId,
+    isOperationTypeDialogOpen: state.dialogs.isOperationTypeDialogOpen,
+    isOperationDialogOpen: state.dialogs.isOperationDialogOpen,
+    operationDialogMode: state.dialogs.operationDialogMode,
+    resumeOperationDialogAfterSelection: state.dialogs.resumeOperationDialogAfterSelection,
+    operationDraft: state.dialogs.operationDraft,
+    isSimulationMode: state.viewport.isSimulationMode,
+    isComparisonMode: state.viewport.isComparisonMode,
+    showStock: state.viewport.showStock,
+    showPartMesh: state.viewport.showPartMesh,
+    showToolpaths: state.viewport.showToolpaths,
+    showTool: state.viewport.showTool,
+    simulationId: state.simulation.id,
+    simulationFrameCount: state.simulation.frameCount,
+    simulationFrameIndex: state.simulation.frameIndex,
+    simulationStride: state.simulation.stride,
+    displayedSimulationFrameIndex: state.simulation.displayedFrameIndex,
+    isSimulationPlaying: state.simulation.isPlaying,
+  })));
+  const setMeshName = useCamStore((state) => state.actions.setMeshName);
+  const setMeshUrl = useCamStore((state) => state.actions.setMeshUrl);
+  const setMeshMaxZ = useCamStore((state) => state.actions.setMeshMaxZ);
+  const setCachedMeshVersion = useCamStore((state) => state.actions.setCachedMeshVersion);
+  const setOperations = useCamStore((state) => state.actions.setOperations);
+  const setGeneratedOperationsById = useCamStore((state) => state.actions.setGeneratedOperationsById);
+  const setSelectedMeshFace = useCamStore((state) => state.actions.setSelectedMeshFace);
+  const setFaceSelectionMode = useCamStore((state) => state.actions.setFaceSelectionMode);
+  const setSelectedOperationId = useCamStore((state) => state.actions.setSelectedOperationId);
+  const setSelectedTreeNodeId = useCamStore((state) => state.actions.setSelectedTreeNodeId);
+  const setIsOperationTypeDialogOpen = useCamStore((state) => state.actions.setIsOperationTypeDialogOpen);
+  const setIsOperationDialogOpen = useCamStore((state) => state.actions.setIsOperationDialogOpen);
+  const setOperationDialogMode = useCamStore((state) => state.actions.setOperationDialogMode);
+  const setResumeOperationDialogAfterSelection = useCamStore((state) => state.actions.setResumeOperationDialogAfterSelection);
+  const setOperationDraft = useCamStore((state) => state.actions.setOperationDraft);
+  const setIsSimulationMode = useCamStore((state) => state.actions.setIsSimulationMode);
+  const setIsComparisonMode = useCamStore((state) => state.actions.setIsComparisonMode);
+  const setShowStock = useCamStore((state) => state.actions.setShowStock);
+  const setSimulationId = useCamStore((state) => state.actions.setSimulationId);
+  const setSimulationFrameCount = useCamStore((state) => state.actions.setSimulationFrameCount);
+  const setSimulationFrameIndex = useCamStore((state) => state.actions.setSimulationFrameIndex);
+  const setSimulationStride = useCamStore((state) => state.actions.setSimulationStride);
+  const setDisplayedSimulationFrameIndex = useCamStore((state) => state.actions.setDisplayedSimulationFrameIndex);
+  const setIsSimulationPlaying = useCamStore((state) => state.actions.setIsSimulationPlaying);
+
+  const {
+    simulationDebugUiEnabled,
+    toolRenderMode,
+    partRenderMode,
+    stockRenderMode,
+    clearanceOffset,
+  } = useSettingsStore();
   const [, setMeshCacheState] = useState<MeshCacheState>("idle");
   const [, setMeshCacheMessage] = useState<string>("");
   const meshUploadRequestRef = useRef(0);
   const meshRestoreAbortRef = useRef<AbortController | null>(null);
   const hasInitializedSidebarSettingsRef = useRef(false);
-  const [faceSelectionMode, setFaceSelectionMode] = useState(false);
-  const [selectedMeshFace, setSelectedMeshFace] = useState<MeshFaceSelection | null>(null);
-  const [meshMaxZ, setMeshMaxZ] = useState<number | null>(null);
-  const [cachedMeshVersion, setCachedMeshVersion] = useState<string | null>(null);
-  const [operations, setOperations] = useState<Operation[]>([]);
-  const [selectedOperationId, setSelectedOperationId] = useState<string | null>(null);
-  const [selectedTreeNodeId, setSelectedTreeNodeId] = useState("setup-1");
-  const [isOperationTypeDialogOpen, setIsOperationTypeDialogOpen] = useState(false);
-  const [isOperationDialogOpen, setIsOperationDialogOpen] = useState(false);
-  const [operationDialogMode, setOperationDialogMode] = useState<"create" | "edit">("create");
-  const [resumeOperationDialogAfterSelection, setResumeOperationDialogAfterSelection] = useState(false);
-  const [operationDraft, setOperationDraft] = useState<DraftObject | null>(null);
+
   const [generatedOperation, setGeneratedOperation] =
     useState<GeneratedOperationResponse | null>(null);
-  const [generatedOperationsById, setGeneratedOperationsById] = useState<Record<string, GeneratedOperationResponse>>({});
+
   const [simulationActiveMeshUrl, setSimulationActiveMeshUrl] = useState<string | null>(null);
   const [simulationCachedMeshUrl, setSimulationCachedMeshUrl] = useState<string | null>(null);
   const [simulationFinalMeshUrl, setSimulationFinalMeshUrl] = useState<string | null>(null);
   const [simulationToolMeshUrl, setSimulationToolMeshUrl] = useState<string | null>(null);
   const [simulationToolPosition, setSimulationToolPosition] = useState<PolylinePoint | null>(null);
-  const [simulationId, setSimulationId] = useState<string | null>(null);
   const [simulationOperationId, setSimulationOperationId] = useState<string | null>(null);
   const [simulationTaskId, setSimulationTaskId] = useState<string | null>(null);
   const [generatingOperationId, setGeneratingOperationId] = useState<string | null>(null);
   const [simulationProgressPercent, setSimulationProgressPercent] = useState(0);
-  const [simulationFrameCount, setSimulationFrameCount] = useState(0);
   const [simulationChunkCount, setSimulationChunkCount] = useState(0);
   const [simulationChunkIndex, setSimulationChunkIndex] = useState<number | null>(null);
   const [simulationChunkStepIndex, setSimulationChunkStepIndex] = useState<number | null>(null);
@@ -521,10 +585,6 @@ function App() {
   const [simulationChunkFetchMs, setSimulationChunkFetchMs] = useState<number | null>(null);
   const [simulationChunkToolpathPoints, setSimulationChunkToolpathPoints] = useState<PolylinePoint[]>([]);
   const [simulationDisplayFrames, setSimulationDisplayFrames] = useState<SimulationDisplayFrame[]>([]);
-  const [simulationFrameIndex, setSimulationFrameIndex] = useState(0);
-  const [simulationStride, setSimulationStride] = useState<number>(SIMULATION_STRIDE_OPTIONS[0]);
-  const [displayedSimulationFrameIndex, setDisplayedSimulationFrameIndex] = useState<number | null>(null);
-  const [isSimulationPlaying, setIsSimulationPlaying] = useState(false);
   const loadedSimulationFrameRef = useRef<{
     simulationId: string | null;
     frameIndex: number | null;
@@ -544,83 +604,11 @@ function App() {
   const pendingSimulationPresentationRef = useRef<PendingSimulationPresentation | null>(null);
   const [requestState, setRequestState] = useState<RequestState>("idle");
   const [requestMessage, setRequestMessage] = useState<string>("");
-  const [isSimulationMode, setIsSimulationMode] = useState(false);
-  const [isComparisonMode, setIsComparisonMode] = useState(false);
   const [comparisonCachedMeshUrl, setComparisonCachedMeshUrl] = useState<string | null>(null);
   const [comparisonActiveMeshUrl, setComparisonActiveMeshUrl] = useState<string | null>(null);
   const comparisonRequestRef = useRef(0);
   const comparisonObjectUrlsRef = useRef<string[]>([]);
-  const [showStock, setShowStock] = useState(false);
-  const [showPartMesh, setShowPartMesh] = useState(true);
-  const [showToolpaths, setShowToolpaths] = useState(true);
-  const [showTool, setShowTool] = useState(true);
-  const [simulationDebugUiEnabled, setSimulationDebugUiEnabled] = useState(() => {
-    if (typeof window === "undefined") {
-      return false;
-    }
 
-    try {
-      return window.localStorage.getItem(SIMULATION_DEBUG_UI_STORAGE_KEY) === "true";
-    } catch {
-      return false;
-    }
-  });
-  const [toolRenderMode, setToolRenderMode] = useState<ToolRenderMode>(() => {
-    if (typeof window === "undefined") {
-      return "wireframe";
-    }
-
-    try {
-      return window.localStorage.getItem(TOOL_RENDER_MODE_STORAGE_KEY) === "shaded"
-        ? "shaded"
-        : "wireframe";
-    } catch {
-      return "wireframe";
-    }
-  });
-  const [partRenderMode, setPartRenderMode] = useState<ToolRenderMode>(() => {
-    if (typeof window === "undefined") {
-      return "shaded";
-    }
-
-    try {
-      return window.localStorage.getItem(PART_RENDER_MODE_STORAGE_KEY) === "wireframe"
-        ? "wireframe"
-        : "shaded";
-    } catch {
-      return "shaded";
-    }
-  });
-  const [stockRenderMode, setStockRenderMode] = useState<ToolRenderMode>(() => {
-    if (typeof window === "undefined") {
-      return "shaded";
-    }
-
-    try {
-      return window.localStorage.getItem(STOCK_RENDER_MODE_STORAGE_KEY) === "wireframe"
-        ? "wireframe"
-        : "shaded";
-    } catch {
-      return "shaded";
-    }
-  });
-  const [clearanceOffset, setClearanceOffset] = useState(() => {
-    if (typeof window === "undefined") {
-      return DEFAULT_CLEARANCE_OFFSET;
-    }
-
-    try {
-      const storedValue = window.localStorage.getItem(CLEARANCE_OFFSET_STORAGE_KEY);
-      if (storedValue === null) {
-        return DEFAULT_CLEARANCE_OFFSET;
-      }
-
-      const stored = Number(storedValue);
-      return Number.isFinite(stored) && stored >= 0 ? stored : DEFAULT_CLEARANCE_OFFSET;
-    } catch {
-      return DEFAULT_CLEARANCE_OFFSET;
-    }
-  });
 
   const updateSimulationActiveMeshUrl = useCallback((url: string | null) => {
     simulationActiveMeshUrlRef.current = url;
@@ -637,69 +625,6 @@ function App() {
       backendUrl: getBackendUrl(),
     });
   }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    try {
-      window.localStorage.setItem(
-        SIMULATION_DEBUG_UI_STORAGE_KEY,
-        simulationDebugUiEnabled ? "true" : "false",
-      );
-    } catch {
-      // Ignore unavailable localStorage; the checkbox still works for this session.
-    }
-  }, [simulationDebugUiEnabled]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    try {
-      window.localStorage.setItem(TOOL_RENDER_MODE_STORAGE_KEY, toolRenderMode);
-    } catch {
-      // Ignore unavailable localStorage; the tabs switch still works for this session.
-    }
-  }, [toolRenderMode]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    try {
-      window.localStorage.setItem(PART_RENDER_MODE_STORAGE_KEY, partRenderMode);
-    } catch {
-      // Ignore unavailable localStorage; the tabs switch still works for this session.
-    }
-  }, [partRenderMode]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    try {
-      window.localStorage.setItem(STOCK_RENDER_MODE_STORAGE_KEY, stockRenderMode);
-    } catch {
-      // Ignore unavailable localStorage; the tabs switch still works for this session.
-    }
-  }, [stockRenderMode]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    try {
-      window.localStorage.setItem(CLEARANCE_OFFSET_STORAGE_KEY, String(clearanceOffset));
-    } catch {
-      // Ignore unavailable localStorage; the setting still works for this session.
-    }
-  }, [clearanceOffset]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -1474,11 +1399,6 @@ function App() {
     }
   }
 
-  function handleSelectTreeNode(nodeId: string) {
-    setSelectedTreeNodeId(nodeId);
-    setSelectedOperationId(nodeId === "setup-1" || nodeId === "part" ? null : nodeId);
-  }
-
   function handleDownloadOperationClData(operationId: string) {
     const operation = operations.find((item) => item.id === operationId);
     const clData = generatedOperationsById[operationId];
@@ -2042,26 +1962,11 @@ function App() {
             <h2 className="text-sm font-semibold md:text-base">OpenCAM Viewer</h2>
           </div>
 
-          <SettingsDialog
-            simulationDebugUiEnabled={simulationDebugUiEnabled}
-            onSimulationDebugUiEnabledChange={setSimulationDebugUiEnabled}
-            toolRenderMode={toolRenderMode}
-            onToolRenderModeChange={setToolRenderMode}
-            partRenderMode={partRenderMode}
-            onPartRenderModeChange={setPartRenderMode}
-            stockRenderMode={stockRenderMode}
-            onStockRenderModeChange={setStockRenderMode}
-            clearanceOffset={clearanceOffset}
-            onClearanceOffsetChange={setClearanceOffset}
-          />
+          <SettingsDialog />
         </header>
 
         <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
           <AppSidebar
-            meshLoaded={Boolean(meshUrl)}
-            meshName={meshName}
-            operations={operations}
-            selectedNodeId={selectedTreeNodeId}
             simulatableOperationIds={simulatableOperationIds}
             comparableOperationIds={comparableOperationIds}
             downloadableOperationIds={downloadableOperationIds}
@@ -2071,7 +1976,6 @@ function App() {
             isSimulationGenerating={generatedOperation !== null && requestState === "submitting"}
             onMeshUpload={handleMeshUpload}
             onAddOperation={handleAddOperation}
-            onSelectNode={handleSelectTreeNode}
             onEditOperation={handleEditOperation}
             onRegenerateOperation={handleRegenerateOperation}
             onDeleteOperation={handleDeleteOperation}
@@ -2121,22 +2025,7 @@ function App() {
                   className="h-full min-h-0 flex-1 rounded-none border-0 shadow-none"
                 />
 
-                <div className="pointer-events-auto absolute left-2 top-2 z-20 flex items-center gap-1 rounded-md border bg-background/90 p-1 shadow backdrop-blur">
-                  <Button type="button" className="w-12" variant={showStock ? "outline" : "secondary"} onClick={() => setShowStock((current) => !current)} aria-pressed={showStock}>
-                    Stock
-                  </Button>
-                  <Button type="button" className="w-12" variant={showPartMesh ? "outline" : "secondary"} onClick={() => setShowPartMesh((current) => !current)} aria-pressed={showPartMesh}>
-                    Part
-                  </Button>
-                  <Button type="button" className="w-18" variant={showToolpaths ? "outline" : "secondary"} onClick={() => setShowToolpaths((current) => !current)} aria-pressed={showToolpaths}>
-                    Toolpaths
-                  </Button>
-                  {isSimulationMode ? (
-                    <Button type="button" className="w-12" variant={showTool ? "outline" : "secondary"} onClick={() => setShowTool((current) => !current)} aria-pressed={showTool}>
-                      Tool
-                    </Button>
-                  ) : null}
-                </div>
+                <VisibilityBar />
 
                 <SimulationDebugOverlay
                   visible={simulationDebugUiEnabled && Boolean(simulationId)}
@@ -2148,48 +2037,14 @@ function App() {
                   chunkFetchMs={simulationChunkFetchMs}
                 />
 
-            {isSimulationMode && simulationId && simulationFrameCount > 0 ? (
-              <div className="pointer-events-none absolute inset-x-2 bottom-2 z-20">
-                <div className="pointer-events-auto mx-auto flex max-w-4xl items-center gap-3 rounded-md border bg-background/95 px-2 py-2 shadow">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={requestState === "submitting" || simulationFrameCount <= 1}
-                    onClick={isSimulationPlaying ? handleSimulationPause : handleSimulationPlay}
-                  >
-                    {isSimulationPlaying ? "Pause" : "Play"}
-                  </Button>
-
-                  <Slider
-                    min={0}
-                    max={Math.max(simulationFrameCount - 1, 0)}
-                    step={1}
-                    value={[simulationFrameIndex]}
-                    onValueChange={handleSimulationFrameChange}
-                    disabled={requestState === "submitting"}
-                    className="flex-1"
-                  />
-
-                  <div className="w-20">
-                    <Slider
-                      min={0}
-                      max={SIMULATION_STRIDE_OPTIONS.length - 1}
-                      step={1}
-                      value={[simulationStrideOptionIndex(simulationStride)]}
-                      onValueChange={handleSimulationStrideChange}
-                    />
-                  </div>
-
-                  <div className="shrink-0 whitespace-nowrap text-right text-xs tabular-nums text-muted-foreground">
-                    Frame {simulationFrameIndex + 1} / {simulationFrameCount}
-                  </div>
-
-                  <Button type="button" variant="ghost" size="icon-xs" onClick={handleExitSimulation} aria-label="Exit simulation" title="Exit simulation">
-                    <X />
-                  </Button>
-                </div>
-              </div>
-            ) : null}
+            <AnimationBar
+              disabled={requestState === "submitting"}
+              onFrameChange={handleSimulationFrameChange}
+              onPlay={handleSimulationPlay}
+              onPause={handleSimulationPause}
+              onStrideChange={handleSimulationStrideChange}
+              onExit={handleExitSimulation}
+            />
 
             {isComparisonMode ? (
               <div className="pointer-events-none absolute inset-x-2 bottom-2 z-20">

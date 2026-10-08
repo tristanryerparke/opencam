@@ -927,6 +927,7 @@ function App() {
       displayedSimulationChunkIndexRef.current = frame.chunkIndex;
       displayedSimulationCachedMeshUrlRef.current = cachedMeshUrl;
       setDisplayedSimulationFrameIndex(frameIndex);
+      setSimulationFrameIndex(frameIndex);
       setSimulationChunkIndex(frame.chunkIndex);
       setSimulationChunkStepIndex(null);
       setSimulationChunkStepCount(0);
@@ -935,7 +936,7 @@ function App() {
       setSimulationChunkToolpathPoints([]);
       setSimulationToolPosition(toolPositionToPoint(frame.toolPosition));
     },
-    [],
+    [setSimulationFrameIndex],
   );
 
   const maybeCommitPendingSimulationPresentation = useCallback(() => {
@@ -1080,15 +1081,17 @@ function App() {
       setIsSimulationMode(nextIsSimulationMode);
       loadedSimulationFrameRef.current = {
         simulationId: simulation.simulationId,
-        frameIndex: finalFrameIndex,
+        frameIndex: nextIsSimulationMode ? finalFrameIndex : null,
       };
 
       setSimulationToolMeshUrl(resolveBackendAssetUrl(simulation.toolMeshUrl));
       setSimulationFinalMeshUrl(resolveBackendAssetUrl(simulation.finalMeshUrl));
 
-      if (!finalFrame) {
-        updateSimulationActiveMeshUrl(null);
-        updateSimulationCachedMeshUrl(null);
+      if (!finalFrame || !nextIsSimulationMode) {
+        if (!finalFrame) {
+          updateSimulationActiveMeshUrl(null);
+          updateSimulationCachedMeshUrl(null);
+        }
         setIsSimulationPlaying(false);
         return;
       }
@@ -1108,7 +1111,7 @@ function App() {
   );
 
   useEffect(() => {
-    if (!simulationId || simulationFrameCount === 0) {
+    if (!isSimulationMode || !simulationId || simulationFrameCount === 0) {
       return undefined;
     }
 
@@ -1153,7 +1156,7 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [applySimulationFrame, simulationFrameCount, simulationFrameIndex, simulationId, visibleSimulationFrames]);
+  }, [applySimulationFrame, isSimulationMode, simulationFrameCount, simulationFrameIndex, simulationId, visibleSimulationFrames]);
 
   useEffect(() => {
     if (!isSimulationPlaying || !simulationId || simulationFrameCount <= 1) {

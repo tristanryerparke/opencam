@@ -1,5 +1,6 @@
 import pocketingIconUrl from "../../../graphics/pocketing-1.svg";
 import profilingIconUrl from "../../../graphics/profiling-1.svg";
+import parallelFinishingIconUrl from "../../../graphics/parallel_finishing.svg";
 
 import { Button } from "t-components/button";
 import {
@@ -44,9 +45,7 @@ export function OperationTypeDialog({
             <span>2.5D Profiling</span>
           </Button>
           <Button type="button" variant="outline" className="h-auto flex-col gap-3 p-4" onClick={onSelectParallelFinishing}>
-            <div className="flex h-20 w-20 items-center justify-center text-[2.5rem] leading-none text-muted-foreground">
-              &#x2261;
-            </div>
+            <img src={parallelFinishingIconUrl} alt="" className="h-20 w-20 scale-150" />
             <span>Parallel Finishing</span>
           </Button>
         </div>

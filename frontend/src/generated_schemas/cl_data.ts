@@ -22,6 +22,7 @@ export interface OperationRecord3D {
   toolAxis?: number[];
   preComments?: string[];
   postComments?: string[];
+  spindleRpm?: number;
   clearancePlaneHeight: number;
   records: (RapidPositionRecord3D | FeedRatePositionRecord3D)[];
 }

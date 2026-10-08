@@ -5,6 +5,7 @@ from tempfile import TemporaryDirectory
 
 from fastapi import Depends, FastAPI, File, HTTPException, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
+from opencam.post_processing.duet3d.router import router as duet3d_post_processing_router
 from opencam.schemas.cam import GenerateToolpathRequest
 from opencam.schemas.cl_data import OperationRecord3D
 from opencam.schemas.mesh import Mesh
@@ -27,6 +28,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(simulation_router)
+app.include_router(duet3d_post_processing_router)
 
 
 @app.get("/test")

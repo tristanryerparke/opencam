@@ -1402,8 +1402,7 @@ function App() {
     }
   }
 
-  function handleDownloadOperationClData(operationId: string) {
-    const operation = operations.find((item) => item.id === operationId);
+  function handleDownloadOperationClData(operationId: string) {    const operation = operations.find((item) => item.id === operationId);
     const clData = generatedOperationsById[operationId];
 
     if (!operation || !clData) {
@@ -1426,6 +1425,67 @@ function App() {
     link.click();
     link.remove();
     window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+  }
+
+  async function downloadNcFile(clDataList: OperationRecord3D[], fileStem: string) {
+    try {
+      const response = await fetch(`${getBackendUrl()}/cam/post-process/duet3d/nc`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(clDataList),
+      });
+      if (!response.ok) {
+        const detail = (await response.json().catch(() => null)) as { detail?: string } | null;
+        throw new Error(detail?.detail ?? `Post processing failed (${response.status}).`);
+      }
+      const ncText = await response.text();
+      const objectUrl = URL.createObjectURL(new Blob([ncText], { type: "text/plain" }));
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = `${fileStem}.nc`;
+      document.body.append(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+    } catch (error) {
+      setRequestState("error");
+      setRequestMessage(
+        error instanceof Error ? error.message : "Failed to post-process the operation.",
+      );
+    }
+  }
+
+  async function handlePostProcessOperation(operationId: string) {
+    const operation = operations.find((item) => item.id === operationId);
+    const clData = generatedOperationsById[operationId];
+
+    if (!operation || !clData) {
+      setRequestState("error");
+      setRequestMessage("Generate the operation before post-processing it.");
+      return;
+    }
+
+    const fileStem = (operation.displayName ?? operation.id ?? "operation")
+      .trim()
+      .replace(/[\\/:*?"<>|]+/g, "-")
+      .replace(/\s+/g, "-") || "operation";
+    await downloadNcFile([clData], fileStem);
+  }
+
+  async function handlePostProcessSetup(label: string) {
+    const clDataList = operations.flatMap((operation) => {
+      const clData = operation.id != null ? generatedOperationsById[operation.id] : null;
+      return clData != null ? [clData] : [];
+    });
+
+    if (clDataList.length === 0) {
+      setRequestState("error");
+      setRequestMessage("Generate at least one operation before post-processing the setup.");
+      return;
+    }
+
+    const fileStem = label.trim().replace(/\s+/g, "-") || "setup";
+    await downloadNcFile(clDataList, fileStem);
   }
 
   async function handleCompareOperation(operationId: string) {
@@ -1985,6 +2045,8 @@ function App() {
             onSimulateOperation={handleSimulateOperation}
             onCompareOperation={handleCompareOperation}
             onDownloadOperationClData={handleDownloadOperationClData}
+            onPostProcessOperation={handlePostProcessOperation}
+            onPostProcessSetup={handlePostProcessSetup}
             canManageOperations={requestState !== "submitting" || generatedOperation !== null}
             canCancelGeneration={requestState === "submitting" && simulationTaskId !== null}
             onCancelGeneration={handleCancelGeneration}

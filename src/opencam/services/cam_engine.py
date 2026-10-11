@@ -52,6 +52,7 @@ def cam_engine(
         )
         return OperationRecord3D(
             tool=operation.tool,
+            spindle_rpm=operation.feeds_and_speeds.spindle_rpm,
             clearance_plane_height=clearance_plane_height,
             records=records,
         )
@@ -71,6 +72,7 @@ def cam_engine(
         )
         return OperationRecord3D(
             tool=operation.tool,
+            spindle_rpm=operation.feeds_and_speeds.spindle_rpm,
             clearance_plane_height=clearance_plane_height,
             records=records,
         )
@@ -90,6 +92,7 @@ def cam_engine(
         )
         return OperationRecord3D(
             tool=operation.tool,
+            spindle_rpm=operation.feeds_and_speeds.spindle_rpm,
             clearance_plane_height=clearance_plane_height,
             records=records,
         )

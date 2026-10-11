@@ -26,6 +26,7 @@ type OperationTreeItemProps = TreeNodeRenderProps<OperationTreeItemData> & {
   onSimulate: (operationId: string) => void;
   onCompare: (operationId: string) => void;
   onDownloadClData: (operationId: string) => void;
+  onPostProcess: (operationId: string) => void;
   canManageOperations: boolean;
   simulatableOperationIds: ReadonlySet<string>;
   comparableOperationIds: ReadonlySet<string>;
@@ -47,6 +48,7 @@ export function OperationTreeItem({
   onSimulate,
   onCompare,
   onDownloadClData,
+  onPostProcess,
   canManageOperations,
   simulatableOperationIds,
   comparableOperationIds,
@@ -121,6 +123,12 @@ export function OperationTreeItem({
           onSelect={() => onDownloadClData(operationId)}
         >
           Download CL JSON
+        </ContextMenuItem>
+        <ContextMenuItem
+          disabled={!downloadableOperationIds.has(operationId)}
+          onSelect={() => onPostProcess(operationId)}
+        >
+          Post Process
         </ContextMenuItem>
         <ContextMenuItem disabled={!canManageOperations} onSelect={() => onEdit(operationId)}>
           Edit operation

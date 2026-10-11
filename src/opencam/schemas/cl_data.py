@@ -35,5 +35,6 @@ class OperationRecord3D(CamelBaseModel):
     tool_axis: list[float] = Field(default_factory=lambda: [0.0, 0.0, 1.0])
     pre_comments: list[str] = Field(default_factory=list)
     post_comments: list[str] = Field(default_factory=list)
+    spindle_rpm: int = Field(default=12000, gt=0)
     clearance_plane_height: float
     records: list[PositionRecord]

@@ -116,9 +116,9 @@ async def cache_mesh(step: UploadFile = File(...)):
 
 
 @app.get("/cam/mesh/file")
-def get_cached_mesh_file():
+def get_cached_mesh_file(v: str | None = None):
     cached_mesh = get_mesh_cache().get_mesh()
-    if cached_mesh is None:
+    if cached_mesh is None or (v is not None and v != cached_mesh.version):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mesh not found.")
     return Response(
         content=cached_mesh.mesh.model_dump_json(by_alias=True),

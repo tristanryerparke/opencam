@@ -375,44 +375,6 @@ function readCachedMeshFromLocalStorage() {
   return null;
 }
 
-function readFileAsDataUrl(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === "string") {
-        resolve(reader.result);
-        return;
-      }
-
-      reject(new Error("Failed to read STEP for browser cache."));
-    };
-    reader.onerror = () => reject(reader.error ?? new Error("Failed to read STEP for browser cache."));
-    reader.readAsDataURL(file);
-  });
-}
-
-async function saveMeshToLocalStorage(file: File, shouldSave: () => boolean = () => true) {
-  const dataUrl = await readFileAsDataUrl(file);
-  const payload = {
-    name: file.name,
-    dataUrl,
-  } satisfies LocalCachedMeshPayload;
-
-  if (typeof window === "undefined" || !shouldSave()) {
-    return { payload, saved: false };
-  }
-
-  try {
-    // ponytail: localStorage only fits small STEP files; use IndexedDB if large files need browser persistence.
-    window.localStorage.setItem(LOCAL_MESH_STORAGE_KEY, JSON.stringify(payload));
-    return { payload, saved: true };
-  } catch (error: unknown) {
-    console.error("Failed to cache STEP in localStorage", error);
-    removeCachedMeshFromLocalStorage();
-    return { payload, saved: false };
-  }
-}
-
 async function uploadStepToBackend(step: Blob, name: string, signal?: AbortSignal) {
   const upload = new FormData();
   upload.append("step", step, name);
@@ -745,10 +707,13 @@ function App() {
       return;
     }
 
+    // Hydration updates Zustand during the first effect, but this effect's
+    // initial render still closes over empty defaults (including in StrictMode).
+    const current = useCamStore.getState();
     const payload: SidebarSettingsPayload = {
-      selectedOperationId,
-      selectedTreeNodeId,
-      operations,
+      selectedOperationId: current.selection.selectedOperationId,
+      selectedTreeNodeId: current.selection.selectedTreeNodeId,
+      operations: current.workspace.operations,
     };
 
     try {
@@ -768,53 +733,55 @@ function App() {
     meshUploadRequestRef.current = requestId;
 
     void (async () => {
-      const localMesh = readCachedMeshFromLocalStorage();
-      if (localMesh) {
-        if (cancelled || meshUploadRequestRef.current !== requestId) {
-          return;
-        }
-
-        setMeshName(localMesh.name);
-        setMeshUrl(null);
-        setMeshMaxZ(null);
-        setMeshCacheState("saving");
-        setMeshCacheMessage("Restoring STEP in backend memory...");
-
-        restoreController = new AbortController();
-        meshRestoreAbortRef.current = restoreController;
-        try {
-          const restoredMesh = await uploadLocalStorageMeshToBackend(localMesh, restoreController.signal);
-          if (!cancelled && meshUploadRequestRef.current === requestId) {
-            setMeshUrl(resolveBackendAssetUrl(restoredMesh.meshUrl));
-            setMeshMaxZ(restoredMesh.maxZ);
-            setCachedMeshVersion(restoredMesh.version);
-            setMeshCacheState("ready");
-            setMeshCacheMessage("STEP and mesh cached in backend memory.");
-          }
-        } catch (error: unknown) {
-          if (!cancelled && meshUploadRequestRef.current === requestId) {
-            console.error("Failed to restore STEP to backend cache", error);
-            setMeshCacheMessage("Cached in browser localStorage. Backend cache unavailable.");
-          }
-        } finally {
-          if (meshRestoreAbortRef.current === restoreController) {
-            meshRestoreAbortRef.current = null;
-          }
-        }
-        return;
-      }
-
       const cachedMesh = await fetchCachedMesh();
-      if (cancelled || meshUploadRequestRef.current !== requestId || !cachedMesh) {
+      if (cancelled || meshUploadRequestRef.current !== requestId) {
+        return;
+      }
+      if (cachedMesh) {
+        removeCachedMeshFromLocalStorage();
+        setMeshName(cachedMesh.name);
+        setMeshUrl(resolveBackendAssetUrl(cachedMesh.meshUrl));
+        setMeshMaxZ(cachedMesh.maxZ);
+        setCachedMeshVersion(cachedMesh.version);
+        setMeshCacheState("ready");
+        setMeshCacheMessage("STEP and mesh cached in backend.");
         return;
       }
 
-      setMeshName(cachedMesh.name);
-      setMeshUrl(resolveBackendAssetUrl(cachedMesh.meshUrl));
-      setMeshMaxZ(cachedMesh.maxZ);
-      setCachedMeshVersion(cachedMesh.version);
-      setMeshCacheState("ready");
-      setMeshCacheMessage("Cached in backend memory.");
+      // Migrate the old browser STEP once if no backend cache exists. New uploads
+      // are never saved in browser storage; failed migration preserves old data.
+      const localMesh = readCachedMeshFromLocalStorage();
+      if (!localMesh) {
+        return;
+      }
+      setMeshName(localMesh.name);
+      setMeshUrl(null);
+      setMeshMaxZ(null);
+      setMeshCacheState("saving");
+      setMeshCacheMessage("Migrating STEP to backend cache...");
+      restoreController = new AbortController();
+      meshRestoreAbortRef.current = restoreController;
+      try {
+        const restoredMesh = await uploadLocalStorageMeshToBackend(localMesh, restoreController.signal);
+        if (!cancelled && meshUploadRequestRef.current === requestId) {
+          setMeshUrl(resolveBackendAssetUrl(restoredMesh.meshUrl));
+          setMeshMaxZ(restoredMesh.maxZ);
+          setCachedMeshVersion(restoredMesh.version);
+          setMeshCacheState("ready");
+          setMeshCacheMessage("STEP and mesh cached in backend.");
+          removeCachedMeshFromLocalStorage();
+        }
+      } catch (error: unknown) {
+        if (!cancelled && meshUploadRequestRef.current === requestId) {
+          console.error("Failed to migrate STEP to backend cache", error);
+          setMeshCacheState("error");
+          setMeshCacheMessage("Backend cache unavailable; old browser STEP preserved.");
+        }
+      } finally {
+        if (meshRestoreAbortRef.current === restoreController) {
+          meshRestoreAbortRef.current = null;
+        }
+      }
     })().catch((error: unknown) => {
       if (cancelled || meshUploadRequestRef.current !== requestId) {
         return;
@@ -2078,93 +2045,66 @@ function App() {
     meshUploadRequestRef.current = requestId;
     meshRestoreAbortRef.current?.abort();
     meshRestoreAbortRef.current = null;
-    removeCachedMeshFromLocalStorage();
-    queuedGenerationOperationsRef.current = [];
 
-    setMeshName(null);
-    setMeshUrl(null);
-    setMeshCacheState(file ? "saving" : "idle");
-    setMeshCacheMessage("");
-    setMeshMaxZ(null);
-    setCachedMeshVersion(null);
-    setSelectedMeshFace(null);
-    setOperations([]);
-    setGeneratingOperationId(null);
-    setSelectedOperationId(null);
-    setSelectedTreeNodeId("setup-1");
-    setGeneratedOperation(null);
-    setGeneratedOperationsById({});
-    resetSimulationPlaybackState();
-    setRequestState("idle");
-    setRequestMessage("");
-    setIsSimulationMode(false);
-    setFaceSelectionMode(false);
-    setIsOperationTypeDialogOpen(false);
-    setIsOperationDialogOpen(false);
-    setResumeOperationDialogAfterSelection(false);
-    setOperationDraft(null);
+    function clearWorkspace() {
+      queuedGenerationOperationsRef.current = [];
+      setMeshName(null);
+      setMeshUrl(null);
+      setMeshMaxZ(null);
+      setCachedMeshVersion(null);
+      setSelectedMeshFace(null);
+      setOperations([]);
+      setGeneratingOperationId(null);
+      setSelectedOperationId(null);
+      setSelectedTreeNodeId("setup-1");
+      setGeneratedOperation(null);
+      setGeneratedOperationsById({});
+      resetSimulationPlaybackState();
+      setRequestState("idle");
+      setRequestMessage("");
+      setIsSimulationMode(false);
+      setFaceSelectionMode(false);
+      setIsOperationTypeDialogOpen(false);
+      setIsOperationDialogOpen(false);
+      setResumeOperationDialogAfterSelection(false);
+      setOperationDraft(null);
+    }
 
     if (!file) {
+      clearWorkspace();
+      removeCachedMeshFromLocalStorage();
+      setMeshCacheState("idle");
+      setMeshCacheMessage("");
       void fetch(`${getBackendUrl()}/cam/mesh`, { method: "DELETE" }).catch(() => undefined);
       return;
     }
 
+    setMeshCacheState("saving");
+    setMeshCacheMessage("Processing STEP in backend...");
     try {
-      const localMesh = await saveMeshToLocalStorage(
-        file,
-        () => meshUploadRequestRef.current === requestId,
-      );
+      const cachedMesh = await uploadStepToBackend(file, file.name);
       if (meshUploadRequestRef.current !== requestId) {
         return;
       }
 
-      setMeshName(localMesh.payload.name);
-      setMeshUrl(null);
-      setMeshMaxZ(null);
-      setMeshCacheState("saving");
-      setMeshCacheMessage(
-        localMesh.saved
-          ? "Cached in browser localStorage. Processing STEP in backend..."
-          : "Processing STEP in backend...",
-      );
-
-      try {
-        const cachedMesh = await uploadStepToBackend(file, file.name);
-        if (meshUploadRequestRef.current !== requestId) {
-          return;
-        }
-
-        setMeshUrl(resolveBackendAssetUrl(cachedMesh.meshUrl));
-        setMeshMaxZ(cachedMesh.maxZ);
-        setCachedMeshVersion(cachedMesh.version);
-        setMeshCacheState("ready");
-        setMeshCacheMessage(
-          localMesh.saved
-            ? "STEP and mesh cached in browser and backend memory."
-            : "STEP and mesh cached in backend memory.",
-        );
-      } catch (error: unknown) {
-        if (meshUploadRequestRef.current !== requestId) {
-          return;
-        }
-
-        console.error("Failed to cache STEP in backend", error);
-        setMeshCacheState("error");
-        setMeshCacheMessage("Backend STEP processing unavailable.");
-      }
-    } catch (error) {
+      clearWorkspace();
+      removeCachedMeshFromLocalStorage();
+      setMeshName(cachedMesh.name);
+      setMeshUrl(resolveBackendAssetUrl(cachedMesh.meshUrl));
+      setMeshMaxZ(cachedMesh.maxZ);
+      setCachedMeshVersion(cachedMesh.version);
+      setMeshCacheState("ready");
+      setMeshCacheMessage("STEP and mesh cached in backend.");
+    } catch (error: unknown) {
       if (meshUploadRequestRef.current !== requestId) {
         return;
       }
 
+      console.error("Failed to cache STEP in backend", error);
       setMeshCacheState("error");
-      setMeshCacheMessage(
-        error instanceof Error ? error.message : "Failed to cache STEP in browser.",
-      );
+      setMeshCacheMessage("Backend STEP processing unavailable; previous mesh and operations preserved.");
       setRequestState("error");
-      setRequestMessage(
-        error instanceof Error ? error.message : "Failed to cache STEP in browser.",
-      );
+      setRequestMessage(error instanceof Error ? error.message : "Failed to cache STEP in backend.");
     }
   }
 

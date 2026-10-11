@@ -10,6 +10,10 @@ uv run scripts/inspect_toolpath_frame.py 570b4d31 42
 
 To reproduce toolpath generation, POST that run's `replay-request.json` if present, otherwise `request.json`, to `/cam/toolpath`, or load it as `GenerateToolpathRequest` and call `cam_engine(request.setup, request.operation)` in an automated regression. Each replay creates a new logged run.
 
+## Restart-safe regeneration
+
+Backend retains one STEP plus its converted mesh in gitignored `mesh-cache/current.zip`; uploading another STEP atomically replaces that entry, and deleting the part removes it. Mesh cache ID survives backend restarts. Browser stores operations, selection, and generation settings, but not new STEP uploads or completed simulation frames. After a browser reload, frontend reads backend mesh metadata and regenerates operation and simulation from those inputs. If no backend cache exists, an older STEP stored by a previous frontend version is migrated once, then removed from browser storage after successful upload. If backend already has a part, its cache wins and any old browser STEP entry is discarded.
+
 ## Rhino cutting-animation demo
 
 This repo uses the sibling `../rhino-python-renderer` package in editable mode. To send an OpenCAM swept-volume animation to Rhino through the C# `RhinoRendererPlugin`:

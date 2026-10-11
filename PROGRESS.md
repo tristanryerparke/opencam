@@ -171,3 +171,42 @@ better (B30 12->9); 90 tests pass.
 - [x] Reproduce CL 583 transition using logged request and identify first scoop ordered ahead of clearing passes.
 - [x] Order scoops so cleared-area passes precede fully engaged passes while preserving cut direction and coverage.
 - [x] Replay logged request, measure engagement at affected CL range, and run maintained checks.
+
+### Adaptive boundary cleanup integration
+
+- [x] Measure remaining border stock and relate it to scoop entry/exit geometry on replayed pocket.
+- [x] Attach needed contour fragments to nearby scoops through already-swept, in-bounds connectors.
+- [x] Remove cleanup loop only when swept-area residual meets existing coverage tolerance; otherwise retain it.
+- [x] Replay Sim 9ba69ab4 request: climb cleanup loop eliminated, cut length 1914.8 -> 1700.8 mm, clearance links unchanged (1), 98 maintained tests pass.
+
+Conventional replay still retains its cleanup loop where the safe-fragment coverage gate fails; no cutting-direction or coverage guarantee is relaxed.
+
+### Adaptive boundary touch-point gaps (Sim d3ad51da)
+
+- [x] Locate logged run and CL record 2446 at final border fragment.
+- [x] Extend integrated fragments forward to the next earlier pass's actual border contact only where connector stays within previously swept cutter-center region and pocket bounds.
+- [x] Preserve existing keep-down transfers when extension would force a retract.
+- [x] Replay logged request: final border move now reaches (144.5662, 123.1750), previous pass contact; full cleanup loop still absent, retract count unchanged (1); 98 maintained tests pass.
+
+Sim `cfe7721d` still shows gaps near CL 2446. Follow-up found the earlier analytic check sampled only a small window by the final XY point; full-pocket coverage leaves 1.47 mm² of thin stock across 32 areas, including 0.136 mm² just above that point. The assumption that tolerance-sized residuals would be invisible was wrong.
+
+- [x] Reproduce the remaining stock from logged Sim `cfe7721d` and identify the tolerance-based cleanup gate.
+- [x] Require complete swept-area coverage before omitting the contour loop; preserve loop when fragments leave stock.
+- [x] Replay request and verify zero remaining analytic area, full cleanup CL, 98 maintained tests, and lint.
+
+Replayed run `e69200c5`: full contour loop restored (260.33 mm) because fragmented paths leave 1.47 mm²; reachable-pocket residual is now 0.0 mm². Old CL record 2446 no longer refers to the same move after regeneration. Smaller integrated contour fragments alone do not yet meet zero-gap requirement for this pocket.
+
+### Residual-driven adaptive border integration
+
+- [ ] Measure uncovered stock projected onto border for reported pocket.
+- [ ] Integrate required border segments into scoop passes before CL emission, with bounded engagement and no separate final rim loop when coverage succeeds.
+- [ ] Replay problematic request and validate zero residual, link safety, cut direction, and maintained checks.
+
+### Restart-safe regeneration cache
+
+- [x] Persist one backend STEP and converted mesh as a single replaceable cache entry across backend restarts.
+- [x] Stop saving new STEP files in browser storage; restore mesh metadata from backend on page load.
+- [x] Preserve browser operation/setup-generation inputs on refresh without overwriting saved operations during hydration.
+- [x] Validate cache replacement, restart, regeneration inputs, maintained tests, and frontend build.
+
+Backend uses atomic `mesh-cache/current.zip` replacement, stable cache ID on restart, version-checked mesh URLs, and disk deletion on explicit part removal. Existing browser STEP is migrated only when backend has no cached part; new uploads never enter browser storage. Browser keeps operation JSON and settings, not generated CL, frames, or simulation meshes. Maintained tests: 98 pass; frontend TypeScript/build pass. Full ESLint reports three pre-existing errors in unrelated components; App.tsx alone has zero errors and nine existing warnings.

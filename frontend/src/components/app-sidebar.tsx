@@ -26,6 +26,8 @@ type AppSidebarProps = {
   onSimulateOperation: (operationId: string) => void;
   onCompareOperation: (operationId: string) => void;
   onDownloadOperationClData: (operationId: string) => void;
+  onPostProcessOperation: (operationId: string) => void;
+  onPostProcessSetup: (label: string) => void;
   canManageOperations: boolean;
   canCancelGeneration: boolean;
   onCancelGeneration: () => void;
@@ -47,6 +49,8 @@ export function AppSidebar({
   onSimulateOperation,
   onCompareOperation,
   onDownloadOperationClData,
+  onPostProcessOperation,
+  onPostProcessSetup,
   canManageOperations,
   canCancelGeneration,
   onCancelGeneration,
@@ -123,7 +127,13 @@ export function AppSidebar({
             }
 
             if (props.node.id === "setup-1") {
-              return <SetupTreeItem {...props} />;
+              return (
+                <SetupTreeItem
+                  {...props}
+                  onPostProcess={onPostProcessSetup}
+                  canPostProcess={downloadableOperationIds.size > 0}
+                />
+              );
             }
 
             return (
@@ -135,6 +145,7 @@ export function AppSidebar({
                 onSimulate={onSimulateOperation}
                 onCompare={onCompareOperation}
                 onDownloadClData={onDownloadOperationClData}
+                onPostProcess={onPostProcessOperation}
                 canManageOperations={canManageOperations}
                 simulatableOperationIds={simulatableOperationIds}
                 comparableOperationIds={comparableOperationIds}

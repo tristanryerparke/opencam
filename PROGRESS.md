@@ -24,3 +24,5 @@
 - [x] Remove configurable `M453` and `G94` emission.
 - [x] Add demo script turning saved CL-data JSON into Duet 3D G-code.
 - [x] Add shared G-code emitter with axis culling, prefix culling, and `fg` formatting.
+- [x] Add backend route returning an `.nc` download for stored CL data.
+- [x] Add frontend right-click "Post Process" on operation/setup tree items to download the `.nc`.

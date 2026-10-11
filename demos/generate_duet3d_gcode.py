@@ -10,23 +10,10 @@ Edit `build_machine` below with the real machine travel, feed, and spindle limit
 import argparse
 from pathlib import Path
 
-from opencam.post_processing.duet3d.models import Duet3DMachineDefinition
+from opencam.post_processing.duet3d.models import build_default_duet3d_machine
 from opencam.post_processing.duet3d.post_processor import Duet3DPostProcessor
 from opencam.schemas.cl_data import OperationRecord3D
-from opencam.schemas.machine import MachineAxisDefinition, MachineSpindleDefinition
 from opencam.services.tool_library import get_tool_library
-
-
-def build_machine() -> Duet3DMachineDefinition:
-    return Duet3DMachineDefinition(
-        name="Duet 3D demo CNC",
-        axes=[
-            MachineAxisDefinition(letter="X", minimum_position=0, maximum_position=500, maximum_feedrate=6000),
-            MachineAxisDefinition(letter="Y", minimum_position=0, maximum_position=500, maximum_feedrate=6000),
-            MachineAxisDefinition(letter="Z", minimum_position=-100, maximum_position=100, maximum_feedrate=2000),
-        ],
-        spindle=MachineSpindleDefinition(minimum_rpm=6000, maximum_rpm=24000),
-    )
 
 
 def main() -> None:
@@ -40,7 +27,7 @@ def main() -> None:
 
     operation = OperationRecord3D.model_validate_json(args.cl_json.read_text())
     post_processor = Duet3DPostProcessor(
-        build_machine(), get_tool_library(), verbose_comments=args.verbose_comments
+        build_default_duet3d_machine(), get_tool_library(), verbose_comments=args.verbose_comments
     )
     gcode = post_processor.post_process([operation], program_name=args.cl_json.stem)
 

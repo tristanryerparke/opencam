@@ -168,6 +168,8 @@ export interface Point2D {
   [k: string]: unknown;
 }
 export interface PocketingCutSettings {
+  clearingStrategy?: "offset" | "adaptive";
+  keepToolDown?: boolean;
   cutDirection?: "climb" | "conventional";
   stepover?: StepoverMode;
   stockToLeave?: number;

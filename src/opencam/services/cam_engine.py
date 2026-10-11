@@ -1,9 +1,18 @@
 from __future__ import annotations
 
 from opencam.engine.clearance import compute_clearance_height, validate_clearance_height
-from opencam.engine.parallel_finishing.operation import build_parallel_finishing_operation_records
-from opencam.engine.pocketing.toolpath import build_pocketing_records, pocketing_max_cut_z
-from opencam.engine.profiling.toolpath import build_profiling_records, profiling_max_cut_z
+from opencam.engine.parallel_finishing.operation import (
+    build_parallel_finishing_operation_records,
+)
+from opencam.engine.pocketing.toolpath import (
+    build_pocketing_records,
+    pocketing_max_cut_z,
+)
+from opencam.engine.profiling.toolpath import (
+    build_profiling_records,
+    profiling_max_cut_z,
+)
+from opencam.schemas.cam import GenerateToolpathRequest
 from opencam.schemas.cl_data import OperationRecord3D
 from opencam.schemas.mesh import CachedMeshLoader, resolve_part_mesh
 from opencam.schemas.operations.base import (
@@ -15,9 +24,27 @@ from opencam.schemas.operations.parallel_finishing import ParallelFinishingOp
 from opencam.schemas.operations.pocketing import Pocketing2dOp
 from opencam.schemas.operations.profiling import Profiling2dOp
 from opencam.schemas.setup import CAMSetup
+from opencam.services.toolpath_run_logs import log_generated_cl
 
 
 def cam_engine(
+    setup: CAMSetup,
+    operation: BaseCAMOperation,
+    *,
+    cached_mesh_loader: CachedMeshLoader | None = None,
+) -> OperationRecord3D:
+    result = _build_cam_operation(
+        setup, operation, cached_mesh_loader=cached_mesh_loader
+    )
+    result._log_run_id = log_generated_cl(
+        result,
+        request=GenerateToolpathRequest(setup=setup, operation=operation),
+        cached_mesh_loader=cached_mesh_loader,
+    )
+    return result
+
+
+def _build_cam_operation(
     setup: CAMSetup,
     operation: BaseCAMOperation,
     *,

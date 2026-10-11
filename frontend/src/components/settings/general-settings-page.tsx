@@ -63,7 +63,9 @@ export function GeneralSettingsPage() {
     partRenderMode,
     stockRenderMode,
     clearanceOffset,
+    simulationCompletedToolpathOnly,
     setSimulationDebugUiEnabled,
+    setSimulationCompletedToolpathOnly,
     setToolRenderMode,
     setPartRenderMode,
     setStockRenderMode,
@@ -126,6 +128,18 @@ export function GeneralSettingsPage() {
           />
           <span className="text-sm text-muted-foreground">mm</span>
         </div>
+      </label>
+
+      <label className="flex items-center justify-between gap-4 rounded-md border p-2">
+        <div>
+          <div className="text-sm font-medium">Completed toolpath only</div>
+          <p className="text-xs text-muted-foreground">During simulation, show only the toolpath already cut, animated per simulation frame.</p>
+        </div>
+        <input
+          type="checkbox"
+          checked={simulationCompletedToolpathOnly}
+          onChange={(event) => setSimulationCompletedToolpathOnly(event.target.checked)}
+        />
       </label>
 
       <label className="flex items-center justify-between gap-4 rounded-md border p-2">

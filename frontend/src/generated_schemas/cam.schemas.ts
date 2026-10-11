@@ -711,6 +711,20 @@ export const camSchemaBundle = {
       },
       "PocketingCutSettings": {
         "properties": {
+          "clearingStrategy": {
+            "default": "offset",
+            "enum": [
+              "offset",
+              "adaptive"
+            ],
+            "title": "Clearing algorithm",
+            "type": "string"
+          },
+          "keepToolDown": {
+            "default": true,
+            "title": "Keep tool down",
+            "type": "boolean"
+          },
           "cutDirection": {
             "default": "climb",
             "enum": [
@@ -1419,6 +1433,20 @@ export const camSchemaBundle = {
       },
       "PocketingCutSettings": {
         "properties": {
+          "clearingStrategy": {
+            "default": "offset",
+            "enum": [
+              "offset",
+              "adaptive"
+            ],
+            "title": "Clearing algorithm",
+            "type": "string"
+          },
+          "keepToolDown": {
+            "default": true,
+            "title": "Keep tool down",
+            "type": "boolean"
+          },
           "cutDirection": {
             "default": "climb",
             "enum": [

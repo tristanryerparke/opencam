@@ -154,3 +154,15 @@ export function clearGroup(group: THREE.Group) {
     disposeObject(child);
   }
 }
+
+export function sceneBoundsEquals(left: THREE.Box3, right: THREE.Box3, tolerance = 1e-4) {
+  const points: ReadonlyArray<THREE.Vector3> = [
+    left.min,
+    left.max,
+    right.min,
+    right.max,
+  ];
+  return points.every((point) => Number.isFinite(point.x) && Number.isFinite(point.y) && Number.isFinite(point.z))
+    && left.min.distanceToSquared(right.min) <= tolerance * tolerance
+    && left.max.distanceToSquared(right.max) <= tolerance * tolerance;
+}

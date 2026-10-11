@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, Folders } from "lucide-react";
+import { ChevronDown, ChevronRight, Move3d } from "lucide-react";
 
 import { SidebarMenuButton } from "t-components/sidebar";
 import {
@@ -47,7 +47,7 @@ export function SetupTreeItem({
               select(event);
             }}
           >
-            <Folders className="mt-0.5 h-4 w-4 shrink-0" />
+            <Move3d className="mt-0.5 h-4 w-4 shrink-0" />
             <span className="flex min-w-0 flex-1 items-center gap-1.5 font-medium">
               <span className="truncate">{node.data.label}</span>
             </span>

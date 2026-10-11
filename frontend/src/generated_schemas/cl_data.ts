@@ -5,12 +5,26 @@
 /* Do not modify it by hand - just update the pydantic models and then re-run the script
 */
 
+export interface ArcPositionRecord3D {
+  type?: "position_3d";
+  x: number;
+  y: number;
+  z: number;
+  comment?: string | null;
+  motionRole?: "cutting" | "linking";
+  feedType?: "arc";
+  centerOffsetX: number;
+  centerOffsetY: number;
+  clockwise: boolean;
+  feedrate: number;
+}
 export interface FeedRatePositionRecord3D {
   type?: "position_3d";
   x: number;
   y: number;
   z: number;
   comment?: string | null;
+  motionRole?: "cutting" | "linking";
   feedType?: "feed_rate";
   feedrate: number;
 }
@@ -24,7 +38,7 @@ export interface OperationRecord3D {
   postComments?: string[];
   spindleRpm?: number;
   clearancePlaneHeight: number;
-  records: (RapidPositionRecord3D | FeedRatePositionRecord3D)[];
+  records: (RapidPositionRecord3D | FeedRatePositionRecord3D | ArcPositionRecord3D)[];
 }
 export interface CylindricalTool {
   id?: string;
@@ -69,6 +83,7 @@ export interface RapidPositionRecord3D {
   y: number;
   z: number;
   comment?: string | null;
+  motionRole?: "travel";
   feedType?: "rapid";
 }
 /**
@@ -80,4 +95,5 @@ export interface PositionRecord3D {
   y: number;
   z: number;
   comment?: string | null;
+  motionRole?: "cutting" | "linking" | "travel";
 }

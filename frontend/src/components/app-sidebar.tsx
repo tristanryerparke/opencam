@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, type CSSProperties } from "react";
 
 import { Button } from "t-components/button";
 import { Sidebar, SidebarContent } from "t-components/sidebar";
@@ -92,7 +92,7 @@ export function AppSidebar({
   ];
 
   return (
-    <Sidebar>
+    <Sidebar style={{ "--sidebar-width": "13.5rem" } as CSSProperties}>
       <SidebarContent className="gap-3 p-2">
         <input
           ref={fileInputRef}

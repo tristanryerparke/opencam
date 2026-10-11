@@ -1,8 +1,8 @@
 import * as THREE from "three";
 
 export const POLYLINE_COLORS = ["#60a5fa", "#f97316", "#22c55e", "#e879f9"] as const;
-export const POLYLINE_LINEWIDTH = 2.35;
-export const CLEARANCE_POLYLINE_LINEWIDTH = 2.1;
+export const POLYLINE_LINEWIDTH = 1;
+export const CLEARANCE_POLYLINE_LINEWIDTH = 1;
 export const MESH_EDGE_LINEWIDTH = 1;
 export const OVERLAY_LIFT_FACTOR = 1e-5;
 export const MIN_OVERLAY_LIFT = 0.0001;

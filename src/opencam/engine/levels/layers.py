@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 
 from opencam.schemas.cl_data import (
+    ArcPositionRecord3D,
     FeedRatePositionRecord3D,
     PositionRecord,
     PositionRecord3D,
@@ -77,7 +78,7 @@ def build_rapid_records(
 
 
 def build_cut_record_sequence(
-    cut_layers: list[list[FeedRatePositionRecord3D]],
+    cut_layers: list[list[FeedRatePositionRecord3D | ArcPositionRecord3D]],
     *,
     clearance_plane_height: float,
 ) -> list[PositionRecord]:

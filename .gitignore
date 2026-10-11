@@ -58,6 +58,7 @@ htmlcov/
 
 # Generated simulation outputs
 output/
+/toolpath-runs/
 
 # Local backend data
 opencam-tinydb.json

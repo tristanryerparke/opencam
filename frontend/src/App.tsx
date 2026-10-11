@@ -33,6 +33,7 @@ import { useShallow } from "zustand/react/shallow";
 import type { ClosedPolyline2D } from "@/generated_schemas/geometry_2d";
 import type { ClosedPolyline25D } from "@/generated_schemas/geometry_2_5d";
 import {
+  linearizeOperationRecords,
   sampleOperationRecords,
   type OperationRecord3D,
   type PositionRecord3D,
@@ -49,6 +50,7 @@ type ToolPositionResponse = {
 type SimulationChunkFrameResponse = {
   toolPosition: ToolPositionResponse;
   activeMeshIndex: number;
+  clRecordIndex: number;
 };
 
 type SimulationChunkResponse = {
@@ -88,28 +90,47 @@ type SimulationDisplayFrame = {
   activeMeshKey: string;
   cachedMeshUrl: string;
   chunkIndex: number;
+  sourceFrameIndex: number;
   toolPosition: ToolPositionResponse;
+  clRecordIndex: number;
 };
 
 const CUT_PATH_COLOR = "#1d4ed8";
+const LINK_PATH_COLOR = "#eab308";
 const CLEARANCE_PATH_COLOR = "#dc2626";
 
-function createDisplayPolylines(records: ReadonlyArray<PositionRecord3D>): PolylineDefinition[] {
+type DisplayPathRole = "cutting" | "linking" | "travel";
+
+function displayPathRole(record: PositionRecord3D): DisplayPathRole {
+  if (record.motionRole === "linking") return "linking";
+  if (record.motionRole === "travel" || record.feedType === "rapid") return "travel";
+  return "cutting";
+}
+
+function createDisplayPolylines(sourceRecords: ReadonlyArray<PositionRecord3D>): PolylineDefinition[] {
+  const records = linearizeOperationRecords(sourceRecords);
   const polylines: PolylineDefinition[] = [];
   let points: PolylinePoint[] = [];
-  let feedType: PositionRecord3D["feedType"] | null = null;
+  let role: DisplayPathRole | null = null;
 
   for (let index = 1; index < records.length; index += 1) {
     const start = records[index - 1];
     const end = records[index];
-    if (feedType !== end.feedType) {
+    const nextRole = displayPathRole(end);
+    if (role !== nextRole) {
       points = [[start.x, start.y, start.z], [end.x, end.y, end.z]];
-      feedType = end.feedType;
+      role = nextRole;
+      const name = role === "travel" ? "Rapid moves" : role === "linking" ? "Linking moves" : "Cutting moves";
+      const color = role === "travel"
+        ? CLEARANCE_PATH_COLOR
+        : role === "linking"
+          ? LINK_PATH_COLOR
+          : CUT_PATH_COLOR;
       polylines.push({
         id: `record-${index}`,
-        name: feedType === "rapid" ? "Rapid moves" : "Feed moves",
-        color: feedType === "rapid" ? CLEARANCE_PATH_COLOR : CUT_PATH_COLOR,
-        kind: feedType,
+        name,
+        color,
+        kind: role === "travel" ? "rapid" : "feed_rate",
         points,
       });
     } else {
@@ -118,6 +139,68 @@ function createDisplayPolylines(records: ReadonlyArray<PositionRecord3D>): Polyl
   }
 
   return polylines;
+}
+
+function createSimulationFrameRecords(
+  sourceRecords: ReadonlyArray<PositionRecord3D>,
+  frames: ReadonlyArray<SimulationDisplayFrame>,
+): PositionRecord3D[] {
+  const records = linearizeOperationRecords(sourceRecords);
+  if (records.length === 0) {
+    return [];
+  }
+
+  const positionTolerance = 1e-5;
+  const positionToleranceSq = positionTolerance * positionTolerance;
+  let segmentCursor = 0;
+  let template = records[0];
+
+  return frames.map((frame) => {
+    const position = frame.toolPosition;
+    for (let index = segmentCursor; index < records.length - 1; index += 1) {
+      const start = records[index];
+      const end = records[index + 1];
+      const dx = end.x - start.x;
+      const dy = end.y - start.y;
+      const dz = end.z - start.z;
+      const segmentLengthSq = dx * dx + dy * dy + dz * dz;
+      if (segmentLengthSq <= positionToleranceSq) {
+        continue;
+      }
+
+      const parameter = (
+        (position.x - start.x) * dx +
+        (position.y - start.y) * dy +
+        (position.z - start.z) * dz
+      ) / segmentLengthSq;
+      if (parameter < -positionTolerance || parameter > 1 + positionTolerance) {
+        continue;
+      }
+
+      const clampedParameter = Math.max(0, Math.min(parameter, 1));
+      const projectedX = start.x + dx * clampedParameter;
+      const projectedY = start.y + dy * clampedParameter;
+      const projectedZ = start.z + dz * clampedParameter;
+      const projectionDistanceSq =
+        (position.x - projectedX) ** 2 +
+        (position.y - projectedY) ** 2 +
+        (position.z - projectedZ) ** 2;
+      if (projectionDistanceSq > positionToleranceSq) {
+        continue;
+      }
+
+      segmentCursor = index;
+      template = end;
+      break;
+    }
+
+    return {
+      ...template,
+      x: position.x,
+      y: position.y,
+      z: position.z,
+    };
+  });
 }
 
 type PendingSimulationPresentation = {
@@ -436,13 +519,16 @@ function buildSimulationDisplayFrames(
   simulationId: string,
   chunks: ReadonlyArray<SimulationChunkResponse>,
 ): SimulationDisplayFrame[] {
+  let sourceFrameIndex = 0;
   return chunks.flatMap((chunk, chunkIndex) =>
     chunk.frames.map((frame) => ({
       activeMeshUrl: `/simulate/${simulationId}/chunks/${chunkIndex}/active-meshes/${frame.activeMeshIndex}.glb`,
       activeMeshKey: `${chunkIndex}:${frame.activeMeshIndex}`,
       cachedMeshUrl: chunk.cachedMeshUrl,
       chunkIndex,
+      sourceFrameIndex: sourceFrameIndex++,
       toolPosition: frame.toolPosition,
+      clRecordIndex: frame.clRecordIndex,
     })),
   );
 }
@@ -554,6 +640,7 @@ function App() {
 
   const {
     simulationDebugUiEnabled,
+    simulationCompletedToolpathOnly,
     toolRenderMode,
     partRenderMode,
     stockRenderMode,
@@ -838,15 +925,71 @@ function App() {
     return createDisplayPolylines(generatedRecords);
   }, [generatedRecords]);
 
+  const otherOperationRecords = useMemo<PositionRecord3D[]>(() => {
+    return visibleOperations.flatMap((operation) =>
+      operation.id && operation.id !== simulationOperationId
+        ? (generatedOperationsById[operation.id]?.records ?? [])
+        : [],
+    );
+  }, [generatedOperationsById, visibleOperations, simulationOperationId]);
+
+  const otherOperationPolylines = useMemo<PolylineDefinition[]>(() => {
+    return createDisplayPolylines(otherOperationRecords);
+  }, [otherOperationRecords]);
+
+  const simulationClippingEligible = Boolean(
+    isSimulationMode &&
+      simulationCompletedToolpathOnly &&
+      simulationOperationId &&
+      (generatedOperationsById[simulationOperationId]?.records?.length ?? 0) >= 2,
+  );
+
+  const simulationFrameRecords = useMemo<PositionRecord3D[] | null>(() => {
+    if (!simulationClippingEligible || !simulationOperationId) {
+      return null;
+    }
+    const operationRecords = generatedOperationsById[simulationOperationId]?.records;
+    if (!operationRecords) {
+      return null;
+    }
+    return createSimulationFrameRecords(operationRecords, simulationDisplayFrames);
+  }, [generatedOperationsById, simulationClippingEligible, simulationDisplayFrames, simulationOperationId]);
+
+  const simulationCompletedPolylines = useMemo<PolylineDefinition[] | null>(() => {
+    if (!simulationFrameRecords) {
+      return simulationClippingEligible ? [] : null;
+    }
+    if (displayedSimulationFrameIndex == null) {
+      return [];
+    }
+    const displayedFrame = visibleSimulationFrames[displayedSimulationFrameIndex];
+    if (!displayedFrame) {
+      return [];
+    }
+    return createDisplayPolylines(
+      simulationFrameRecords.slice(0, displayedFrame.sourceFrameIndex + 1),
+    );
+  }, [
+    displayedSimulationFrameIndex,
+    simulationClippingEligible,
+    simulationFrameRecords,
+    visibleSimulationFrames,
+  ]);
+
   const viewportPolylines = useMemo<PolylineDefinition[]>(() => {
+    const clippingActive = simulationCompletedPolylines !== null;
+    const basePolylines = clippingActive
+      ? [...otherOperationPolylines, ...simulationCompletedPolylines]
+      : operationPolylines;
+
     if (!simulationDebugUiEnabled || !isSimulationMode || simulationChunkToolpathPoints.length < 2) {
-      return operationPolylines;
+      return basePolylines;
     }
 
     const startPoint = simulationChunkToolpathPoints[0];
     const endPoint = simulationChunkToolpathPoints[simulationChunkToolpathPoints.length - 1];
     return [
-      ...operationPolylines,
+      ...basePolylines,
       {
         id: "simulation-current-chunk-toolpath",
         name: "Current chunk toolpath",
@@ -857,7 +1000,14 @@ function App() {
       ...createPointMarkerPolylines("simulation-current-chunk-start", "Chunk start", startPoint, CHUNK_START_MARKER_COLOR),
       ...createPointMarkerPolylines("simulation-current-chunk-end", "Chunk end", endPoint, CHUNK_END_MARKER_COLOR),
     ];
-  }, [isSimulationMode, operationPolylines, simulationChunkToolpathPoints, simulationDebugUiEnabled]);
+  }, [
+    isSimulationMode,
+    operationPolylines,
+    otherOperationPolylines,
+    simulationCompletedPolylines,
+    simulationChunkToolpathPoints,
+    simulationDebugUiEnabled,
+  ]);
 
   useEffect(() => {
     const nextFrameCount = visibleSimulationFrames.length;
@@ -1859,6 +2009,8 @@ function App() {
       const operation = (await response.json()) as GeneratedOperationResponse;
       const simulationRequest = new FormData();
       simulationRequest.append("operation", JSON.stringify(operation));
+      const runId = response.headers.get("X-Toolpath-Run-Id");
+      if (runId) simulationRequest.append("run_id", runId);
       simulationRequest.append("chunk_padding_x", String(CHUNK_PADDING_X));
       simulationRequest.append("chunk_padding_y", String(CHUNK_PADDING_Y));
       simulationRequest.append("chunk_padding_z", String(CHUNK_PADDING_Z));
@@ -2094,6 +2246,10 @@ function App() {
 
                 <SimulationDebugOverlay
                   visible={simulationDebugUiEnabled && Boolean(simulationId)}
+                  simulationId={simulationId}
+                  clRecordIndex={displayedSimulationFrameIndex == null
+                    ? null
+                    : visibleSimulationFrames[displayedSimulationFrameIndex]?.clRecordIndex ?? null}
                   chunkIndex={simulationChunkIndex}
                   chunkCount={simulationChunkCount}
                   stepIndex={simulationChunkStepIndex}

@@ -3,9 +3,15 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 
+from opencam.engine.arc import validate_xy_arc, xy_arc_bounds
 from opencam.post_processing.duet3d.models import Duet3DMachineDefinition
 from opencam.post_processing.gcode import GcodeCommand, GcodeMove, emit_gcode
-from opencam.schemas.cl_data import FeedRatePositionRecord3D, OperationRecord3D, PositionRecord3D
+from opencam.schemas.cl_data import (
+    ArcPositionRecord3D,
+    FeedRatePositionRecord3D,
+    OperationRecord3D,
+    PositionRecord3D,
+)
 from opencam.schemas.tools import Tool
 from opencam.services.tool_library import ToolLibrary
 
@@ -113,7 +119,20 @@ class Duet3DPostProcessor:
         )
 
         for record in operation.records:
-            if isinstance(record, FeedRatePositionRecord3D):
+            if isinstance(record, ArcPositionRecord3D):
+                objects.append(
+                    GcodeMove(
+                        "G2" if record.clockwise else "G3",
+                        x=record.x,
+                        y=record.y,
+                        z=record.z,
+                        i=record.center_offset_x,
+                        j=record.center_offset_y,
+                        feedrate=record.feedrate,
+                        comment=record.comment,
+                    )
+                )
+            elif isinstance(record, FeedRatePositionRecord3D):
                 objects.append(
                     GcodeMove(
                         "G1",
@@ -187,11 +206,32 @@ class Duet3DPostProcessor:
                     f"{axis.minimum_position} to {axis.maximum_position}."
                 )
 
-        if not isinstance(record, FeedRatePositionRecord3D):
+        if not isinstance(record, (FeedRatePositionRecord3D, ArcPositionRecord3D)):
             return
         if not math.isfinite(record.feedrate) or record.feedrate <= 0:
             raise ValueError("Feed rate must be finite and greater than zero.")
         if previous_record is None:
+            if isinstance(record, ArcPositionRecord3D):
+                raise ValueError("Arc move requires a preceding position record.")
+            return
+
+        if isinstance(record, ArcPositionRecord3D):
+            if not math.isfinite(record.center_offset_x) or not math.isfinite(record.center_offset_y):
+                raise ValueError("Arc center offsets must be finite.")
+            validate_xy_arc(previous_record, record)
+            min_x, min_y, max_x, max_y = xy_arc_bounds(previous_record, record)
+            for letter, low, high in (("X", min_x, max_x), ("Y", min_y, max_y)):
+                axis = self._axes[letter]
+                if low < axis.minimum_position or high > axis.maximum_position:
+                    raise ValueError(
+                        f"Arc exceeds {letter}-axis travel {axis.minimum_position} to "
+                        f"{axis.maximum_position}."
+                    )
+                if axis.maximum_feedrate is not None and record.feedrate > axis.maximum_feedrate:
+                    raise ValueError(
+                        f"Arc feed rate {record.feedrate} exceeds {letter}-axis maximum "
+                        f"{axis.maximum_feedrate}."
+                    )
             return
 
         deltas = {

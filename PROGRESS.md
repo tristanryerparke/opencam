@@ -217,6 +217,25 @@ Sim `52ae6737`: order after global chaining starts at DFS indices 46, 2, 21, 47,
 
 Replayed run `62f51be2`: previous CL 1177/1056/1111/1635 appear at new CL 1048/1074/1822/2565 in DFS leg order. Max scoop-to-prior-centerline spacing is 1.4385 mm (requested 1.5875 mm). Prior spiral replay A30: max 1.8235 mm (requested 1.905 mm), first scoop remains within root swept area, and 128 local rim excursions remain. Travel records in reported pocket fell from 39 to 12 despite DFS order. Maintained tests: 98 pass; lint and diff check pass. Pruning's pointwise check now runs only for later scoops near the candidate to retain ~1 s generation time per replay.
 
+### Adaptive generation speed — incremental reach cache
+
+- [x] Cache incremental swept reachability for scoop-border safety checks; remove growing-union buffers.
+- [x] Relax tangent blend tessellation from 1° to 2° while retaining tangent continuity and collision checks.
+- [x] Profile reported replay; run coverage, linking, and maintained checks.
+
+Replaced per-scoop `prior_centerlines.buffer(stepover)` and its tolerance re-buffer with two incremental unions: each emitted scoop contributes its own requested-stepover sweep and requested-stepover-plus-chord-tolerance sweep. GEOS distributes buffering over union exactly; the centerline union remains only for exact wall-contact discovery and final proofs. Local lead candidates retain identical safe-region and prior-coverage predicates, now against cached sweeps. Focus-end scoops update both caches before later limbs. Root finishing needs no later local-reach query.
+
+Relaxed blend tessellation derivative alignment from one degree to two degrees (`MAX_BLEND_TANGENT_STEP`). Control-hull chord-error subdivision, fine collision sampling, and endpoint tangent matching remain unchanged. Sim `35f739ba`: CL records 4632 to 3714 (-19.818653%); old CL 1510 / 1638 wall joins now 1.455078° / 1.433199°. cProfile generation is 7.504s to 4.089s (-45.509062%); final unprofiled CAM + log replay is 3.273s, run `a4cbc703-6f88-449d-a2e8-acd65d2017d3`.
+
+All reported, `27af87bf`, and `6be39e3d` replays retain coverage proofs, cutter-center bounds, requested stepover, no full-rim fallback, and all tangent joins. Updated maximum emitted blend tangent deviation is below 2° (1.952548° reported, 1.986053° / 1.979251° regressions). 98 maintained tests, focused Ruff, and `git diff --check` pass. Further speed target: cache fixed buffers during pruning; current profile still spends about 1.1s there, but this is lower priority than completed lead-cache change.
+
+### Adaptive generation speed — prune sweep cache
+
+- [x] Build each immutable path's tool-radius sweep once during redundancy pruning.
+- [x] Reuse cached sweeps for every trial union; profile reported replay and run maintained checks.
+
+`_prune_redundant_paths` now builds the tool-radius sweep of every immutable path once, keyed by object identity. Every candidate-removal trial unions those cached sweeps instead of repeating the same GEOS buffers. Paths are only removed from `retained`; their geometry never changes, so cache validity holds. Sim `35f739ba` cProfile: 4.089s to 3.921s (-4.108584%); pruning 1.105s to 0.910s (-17.647059%). Unprofiled CAM + log replay `a9e5ffbb-ccbf-404f-9ad2-392df3c08d26`: 3.184s. Its `cl.json` is byte-identical to pre-cache replay `a4cbc703-6f88-449d-a2e8-acd65d2017d3`, proving cache changes performance only. 98 maintained tests, focused Ruff, `git diff --check`, reported replay, and A30 regression replay pass.
+
 ### Tangent scoop-to-border joins (Sim 35f739ba)
 
 - [x] Replace projected-endpoint doglegs with tangent blends that preserve border overlaps.

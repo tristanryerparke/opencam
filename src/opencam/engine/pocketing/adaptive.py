@@ -39,6 +39,7 @@ MAX_BOUNDARY_SAMPLES = 4_000
 MINIMUM_RADIUS = 1e-9
 STEPUNDER_FRACTION = 0.9
 SPIRAL_LENGTH_FACTOR = 1.2
+MAX_BLEND_TANGENT_STEP = math.radians(2)
 
 
 @dataclass(frozen=True)
@@ -189,6 +190,13 @@ def _prune_redundant_paths(
     material and is not worth the full coverage union.
     """
     retained = list(paths)
+    sweeps = {
+        id(path): LineString(path).buffer(
+            tool_radius, quad_segs=coverage_quad_segs,
+        )
+        for path in paths
+        if path.shape[0] >= 2
+    }
     candidates = sorted(
         (path for path in paths if id(path) in prunable_path_ids),
         key=lambda path: LineString(path).length,
@@ -213,16 +221,7 @@ def _prune_redundant_paths(
             removed_candidate=candidate,
         ):
             continue
-        swept_area = unary_union(
-            [
-                LineString(path).buffer(
-                    tool_radius,
-                    quad_segs=coverage_quad_segs,
-                )
-                for path in trial
-                if path.shape[0] >= 2
-            ]
-        )
+        swept_area = unary_union([sweeps[id(path)] for path in trial if path.shape[0] >= 2])
         residual = target_region.difference(swept_area)
         if residual.is_empty or residual.buffer(-coverage_tolerance).is_empty:
             retained = trial
@@ -429,6 +428,8 @@ def _integrate_boundary_cleanup(
     contacts: dict[int, tuple[float, float]] = {}
     result = AdaptivePocketLayers()
     prior: BaseGeometry | None = None
+    reachable: BaseGeometry | None = None
+    reachable_with_tolerance: BaseGeometry | None = None
     safe = component.buffer(chord_tolerance * 1e-6)
     for index, path in enumerate(paths):
         circle = scoop_circles.get(id(path))
@@ -442,14 +443,25 @@ def _integrate_boundary_cleanup(
             ))
             bordered, current_contacts = _scoop_border_leads(
                 path, circle=circle, ring=ring, prior=prior, safe=safe,
+                reachable=reachable,
+                reachable_with_tolerance=reachable_with_tolerance,
                 previous_contacts=contacts.get(owner),
-                maximum_cut_width=requested_cut_width,
-                chord_tolerance=chord_tolerance, coverage_quad_segs=coverage_quad_segs,
+                chord_tolerance=chord_tolerance,
             )
             contacts[owner] = current_contacts
         result.append(bordered)
         line = LineString(bordered)
         prior = line if prior is None else unary_union([prior, line])
+        sweep = line.buffer(requested_cut_width, quad_segs=coverage_quad_segs)
+        expanded_sweep = line.buffer(
+            requested_cut_width + chord_tolerance, quad_segs=coverage_quad_segs,
+        )
+        reachable = sweep if reachable is None else reachable.union(sweep)
+        reachable_with_tolerance = (
+            expanded_sweep
+            if reachable_with_tolerance is None
+            else reachable_with_tolerance.union(expanded_sweep)
+        )
         if index not in terminal_indices or circle is None or ring is None:
             continue
         cap = _forward_ring_segment(
@@ -464,7 +476,17 @@ def _integrate_boundary_cleanup(
             return AdaptivePocketLayers(paths + cleanup_paths)
         for scoop in completion:
             result.append(scoop)
-            prior = unary_union([prior, LineString(scoop)])
+            line = LineString(scoop)
+            prior = unary_union([prior, line])
+            reachable = reachable.union(
+                line.buffer(requested_cut_width, quad_segs=coverage_quad_segs)
+            )
+            reachable_with_tolerance = reachable_with_tolerance.union(
+                line.buffer(
+                    requested_cut_width + chord_tolerance,
+                    quad_segs=coverage_quad_segs,
+                )
+            )
 
     # A root spiral can expose a round cap behind its outgoing limbs. Finish
     # that cap at the root, not after the descendants have been machined.
@@ -504,16 +526,15 @@ def _scoop_border_leads(
     ring: LineString,
     prior: BaseGeometry,
     safe: BaseGeometry,
+    reachable: BaseGeometry,
+    reachable_with_tolerance: BaseGeometry,
     previous_contacts: tuple[float, float] | None,
-    maximum_cut_width: float,
     chord_tolerance: float,
-    coverage_quad_segs: int,
 ) -> tuple[np.ndarray, tuple[float, float]]:
     start, end = (ring.project(Point(point)) for point in (path[1], path[-2]))
     first, last = previous_contacts or tuple(
         ring.project(Point(point)) for point in (path[0], path[-1])
     )
-    reachable = prior.buffer(maximum_cut_width, quad_segs=coverage_quad_segs)
     reached = ring.intersection(prior)
     stations = [
         ring.project(Point(coordinate))
@@ -530,7 +551,7 @@ def _scoop_border_leads(
     lead_in = _forward_ring_segment(ring, first, start)
     lead_out = _forward_ring_segment(ring, end, last)
     arc = path[1:-1]
-    allowed = safe.intersection(reachable.buffer(chord_tolerance))
+    allowed = safe.intersection(reachable_with_tolerance)
     incoming = _end_tangent(lead_in)
     outgoing = _start_tangent(lead_out)
     if incoming is None:
@@ -566,7 +587,7 @@ def _scoop_border_leads(
         LineString(lead_in).length <= LineString(path).length
         and LineString(lead_out).length <= LineString(path).length
         and safe.covers(LineString(candidate))
-        and reachable.buffer(chord_tolerance).covers(LineString(candidate))
+        and reachable_with_tolerance.covers(LineString(candidate))
     ):
         return np.ascontiguousarray(candidate), (start, end)
     return path, (start, end)
@@ -631,7 +652,7 @@ def _sample_cubic_join(controls: np.ndarray, *, chord_tolerance: float) -> np.nd
         tangents = np.asarray((curve[1] - curve[0], curve[3] - curve[2]))
         tangent_lengths = np.linalg.norm(tangents, axis=1)
         aligned = length_squared <= MINIMUM_RADIUS**2 or bool(np.all(
-            tangents @ chord >= math.cos(math.radians(1)) * tangent_lengths * math.sqrt(length_squared)
+            tangents @ chord >= math.cos(MAX_BLEND_TANGENT_STEP) * tangent_lengths * math.sqrt(length_squared)
         ))
         if flatness <= chord_tolerance and aligned:
             points.append(curve[-1])

@@ -340,7 +340,6 @@ def _build_component_paths(
                 cut_direction=cut_direction,
             )
         )
-
         scoop_paths = _build_depth_first_scoop_paths(
             component,
             graph,
@@ -998,13 +997,13 @@ def _cut_width(
     return math.dist(first.center, second.center) + second.radius - first.radius
 
 
-def _spiral_path(
+def _spiral_path_parts(
     circle: MaximalInscribedCircle,
     *,
     maximum_cut_width: float,
     chord_tolerance: float,
     cut_direction: Literal["climb", "conventional"] = "climb",
-) -> np.ndarray:
+) -> tuple[np.ndarray, np.ndarray]:
     turns = max(1, math.ceil(circle.radius / maximum_cut_width))
     end_angle = math.tau * turns
     direction = 1.0 if cut_direction == "climb" else -1.0
@@ -1022,6 +1021,22 @@ def _spiral_path(
         start_angle=direction * end_angle,
         sweep_angle=direction * math.tau,
         chord_tolerance=chord_tolerance,
+    )
+    return spiral, outer_circle
+
+
+def _spiral_path(
+    circle: MaximalInscribedCircle,
+    *,
+    maximum_cut_width: float,
+    chord_tolerance: float,
+    cut_direction: Literal["climb", "conventional"] = "climb",
+) -> np.ndarray:
+    spiral, outer_circle = _spiral_path_parts(
+        circle,
+        maximum_cut_width=maximum_cut_width,
+        chord_tolerance=chord_tolerance,
+        cut_direction=cut_direction,
     )
     return np.ascontiguousarray(np.vstack((spiral, outer_circle[1:])), dtype=np.float64)
 

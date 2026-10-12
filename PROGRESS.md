@@ -236,6 +236,22 @@ All reported, `27af87bf`, and `6be39e3d` replays retain coverage proofs, cutter-
 
 `_prune_redundant_paths` now builds the tool-radius sweep of every immutable path once, keyed by object identity. Every candidate-removal trial unions those cached sweeps instead of repeating the same GEOS buffers. Paths are only removed from `retained`; their geometry never changes, so cache validity holds. Sim `35f739ba` cProfile: 4.089s to 3.921s (-4.108584%); pruning 1.105s to 0.910s (-17.647059%). Unprofiled CAM + log replay `a9e5ffbb-ccbf-404f-9ad2-392df3c08d26`: 3.184s. Its `cl.json` is byte-identical to pre-cache replay `a4cbc703-6f88-449d-a2e8-acd65d2017d3`, proving cache changes performance only. 98 maintained tests, focused Ruff, `git diff --check`, reported replay, and A30 regression replay pass.
 
+### Deferred root spiral closing lap (Sim dea8f882)
+
+- [ ] Build and validate rootless and full-root candidates before pruning; select rootless only when it has no cleanup fallback and no short motion.
+- [ ] Replay `dea8f882`; verify duplicate removal, coverage, links, and maintained checks.
+
+Stopped after three invalid variants and reverted all deferred-lap behavior. Root-lap omission before pruning removes the `dea8f882` duplicate and maintains coverage, but at 30% stepover it changes pruning enough to create a 0.628688 mm terminal poke in pocket B. Omitting lap after normal pruning fails `dea8f882`, because pruning had already removed scoops relying on full-root coverage. Restoring the lap afterward cannot restore those pruned scoops. Existing stable output is restored: reported root-circle paths remain 329.240 mm spiral lap, 47.208 mm local wall lead, and 20.442 mm next scoop; all 98 maintained tests and focused Ruff pass.
+
+Next valid design is two complete candidate plans per wall-adjacent root: full-root baseline and rootless-before-pruning. Run prune plus local integration independently. Select rootless only if no original cleanup path remains, no motion is shorter than 90% requested stepover, complete coverage/bounds/stepover proofs pass, and links are safe; otherwise use full-root baseline. This avoids mixing full-root pruning decisions with rootless local planning.
+
+### Pocketing asset sweep — current stable planner
+
+- [x] Generate all five `assets/operations/pocketing/*_drive_curve*.json` polylines at 25/30/50% stepover and both directions.
+- [x] Check coverage, center bounds, short paths, links, and closed full-rim paths.
+
+Tested A, B, C1, C2, and D with a 6.35 mm tool, 0 stock-to-leave, 0.01 mm chord tolerance, 25/30/50% stepover, and climb/conventional: 30 configurations. A/B/C1/C2: generation, coverage, cutter-center bounds, no-short-path check, sampled keep-down bounds, and no closed rim pass all pass. D30 passes same checks. D25 and D50 fail cutter-center bounds and retain a 225.340927 mm closed full-rim fallback in both directions. Dense 0.002 mm sampling of outside portions finds D25 centers up to 0.198730 mm outside at `(137.541162, 337.883515)` on path 24; D50 up to 0.615886 mm outside at `(145.843634, 330.543179)` on path 17. Coverage residuals are within current tolerance, but these are safety failures, not acceptable numerical slivers. D25/D50 `AdaptivePocketLayers` have zero `internal_links`; every outside segment is emitted as cutting, not linking. The top-down plot excludes inter-path keep-down moves entirely. D25 has 51 ordinary keep-down links and 3 clearance links; D50 has 23 and 1, respectively, but neither category explains red paths. Likely source: `_scoop_path` bitangent line/arc geometry can leave a concave tool-center component after medial graph edges passed the component tolerance test. No code changed during this sweep.
+
 ### Tangent scoop-to-border joins (Sim 35f739ba)
 
 - [x] Replace projected-endpoint doglegs with tangent blends that preserve border overlaps.

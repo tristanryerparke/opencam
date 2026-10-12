@@ -79,6 +79,13 @@ def build_pocketing_records(
                 heights,
                 feedrate=operation.feeds_and_speeds.cut_feedrate,
             )
+        elif getattr(layers, "internal_links", None):
+            cut_layers = build_linked_cut_layers(
+                layers,
+                [None] * (len(layers) - 1),
+                heights,
+                feedrate=operation.feeds_and_speeds.cut_feedrate,
+            )
         else:
             cut_layers = duplicate_layers_at_heights(
                 layers,

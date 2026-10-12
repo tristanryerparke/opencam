@@ -32,6 +32,13 @@ class KeepDownLink:
     moves: tuple[LinearLinkMove2D | ArcLinkMove2D, ...]
 
 
+@dataclass(frozen=True)
+class InternalContourLink:
+    start_index: int
+    end_index: int
+    link: KeepDownLink
+
+
 def build_tool_center_region(
     polyline: np.ndarray,
     *,
@@ -92,48 +99,26 @@ def build_linked_cut_layers(
             "Expected one keep-down link decision between each pocket path."
         )
 
+    internal_links: dict[int, list[InternalContourLink]] = getattr(paths, "internal_links", {})
     layers: list[list[FeedRatePositionRecord3D | ArcPositionRecord3D]] = []
     for height in heights:
-        current = _path_records(paths[0], height=height, feedrate=feedrate)
+        current = _path_records(
+            paths[0], height=height, feedrate=feedrate,
+            internal_links=internal_links.get(0, []),
+        )
         for index, link in enumerate(links):
             next_records = _path_records(
                 paths[index + 1],
                 height=height,
                 feedrate=feedrate,
+                internal_links=internal_links.get(index + 1, []),
             )
             if link is None:
                 layers.append(current)
                 current = next_records
                 continue
 
-            for move in link.moves:
-                start = current[-1]
-                if isinstance(move, ArcLinkMove2D):
-                    current.append(
-                        ArcPositionRecord3D(
-                            x=move.target[0],
-                            y=move.target[1],
-                            z=height,
-                            center_offset_x=move.center[0] - start.x,
-                            center_offset_y=move.center[1] - start.y,
-                            clockwise=move.clockwise,
-                            feedrate=feedrate,
-                            comment="keep tool down",
-                            motion_role="linking",
-                        )
-                    )
-                else:
-                    current.append(
-                        FeedRatePositionRecord3D(
-                            x=move.target[0],
-                            y=move.target[1],
-                            z=height,
-                            feedrate=feedrate,
-                            comment="keep tool down",
-                            motion_role="linking",
-                        )
-                    )
-
+            _append_link_records(current, link, height=height, feedrate=feedrate)
             current.extend(next_records[1:])
 
         layers.append(current)
@@ -141,21 +126,62 @@ def build_linked_cut_layers(
     return layers
 
 
+def _append_link_records(
+    records: list[FeedRatePositionRecord3D | ArcPositionRecord3D],
+    link: KeepDownLink,
+    *,
+    height: float,
+    feedrate: float,
+) -> None:
+    for move in link.moves:
+        start = records[-1]
+        if isinstance(move, ArcLinkMove2D):
+            records.append(
+                ArcPositionRecord3D(
+                    x=move.target[0], y=move.target[1], z=height,
+                    center_offset_x=move.center[0] - start.x,
+                    center_offset_y=move.center[1] - start.y,
+                    clockwise=move.clockwise, feedrate=feedrate,
+                    comment="keep tool down", motion_role="linking",
+                )
+            )
+        else:
+            records.append(
+                FeedRatePositionRecord3D(
+                    x=move.target[0], y=move.target[1], z=height,
+                    feedrate=feedrate, comment="keep tool down", motion_role="linking",
+                )
+            )
+
+
 def _path_records(
     path: np.ndarray,
     *,
     height: float,
     feedrate: float,
+    internal_links: list[InternalContourLink] | None = None,
 ) -> list[FeedRatePositionRecord3D | ArcPositionRecord3D]:
-    return [
+    records: list[FeedRatePositionRecord3D | ArcPositionRecord3D] = [
         FeedRatePositionRecord3D(
-            x=float(x),
-            y=float(y),
-            z=height,
-            feedrate=feedrate,
+            x=float(path[0, 0]), y=float(path[0, 1]), z=height, feedrate=feedrate,
         )
-        for x, y in path
     ]
+    links = {item.start_index: item for item in internal_links or []}
+    index = 0
+    while index < len(path) - 1:
+        internal = links.get(index)
+        if internal is not None:
+            _append_link_records(records, internal.link, height=height, feedrate=feedrate)
+            index = internal.end_index
+            continue
+        index += 1
+        records.append(
+            FeedRatePositionRecord3D(
+                x=float(path[index, 0]), y=float(path[index, 1]),
+                z=height, feedrate=feedrate,
+            )
+        )
+    return records
 
 
 def _build_keep_down_link(

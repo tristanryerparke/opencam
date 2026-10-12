@@ -198,9 +198,71 @@ Replayed run `e69200c5`: full contour loop restored (260.33 mm) because fragment
 
 ### Residual-driven adaptive border integration
 
-- [ ] Measure uncovered stock projected onto border for reported pocket.
-- [ ] Integrate required border segments into scoop passes before CL emission, with bounded engagement and no separate final rim loop when coverage succeeds.
-- [ ] Replay problematic request and validate zero residual, link safety, cut direction, and maintained checks.
+- [x] Measure uncovered stock projected onto border for reported pocket.
+- [x] Interleave residual-relevant offset sections directly into scoop paths at cutter positions within 90% stepover, with bounded native arc-line-arc links and cleared-boundary polyline fallback.
+- [x] Replay problematic request and validate negligible numerical residual, link safety, cut direction, and maintained checks.
+
+Probe on logged Sim `cfe7721d`: prior scoop-only coverage leaves 31.76 mm². Buffering uncovered material by tool radius identifies 204.65 mm of the 260.33 mm rim as relevant. Simple append-to-nearest-scoop extension fails: 11/12 contour intervals can be attached within a relaxed connector distance but still leave 10.44 mm²; splitting into 38 pieces assigns 33 yet adds ~410 mm of path and leaves 10.45 mm². Snapping existing scoop vertices to the exact offset line within 1 mm still leaves 17.43 mm². A complete offset line clears the region, but residual spans broad straight walls as well as corners.
+
+Follow-up sequencing probe: divide entire offset ring into 152 sections of at most the effective 90%-stepover distance (1.7145 mm). Every section comes within that radius of an existing scoop vertex, but splitting scoops there creates 341 subpaths, 20 clearance retracts, and 15 failed border links. Choosing only sections with existing native arc-line-arc/straight links has no feasible anchor even at section 1. Resolved by representing internal link spans inside each scoop and routing tight corners along previously swept offset border. Production emits native linking arcs when tangent arcs fit and cleared linear links otherwise; no standalone final rim loop on reported request. Residual mask limits cutting to 128 local offset sections (256 radial moves), with 0 outer retracts in climb and 2 in conventional; leftover Shapely residual is under 1e-8 mm². Logged replay `9cf4cc85` has 324 native linking arcs and 98 maintained tests pass. Cost: added local radial motion; optimize section grouping if simulation shows excessive weaving.
+
+### Adaptive leg-first scoop order (Sim 52ae6737)
+
+- [x] Trace CL records 1056/1111/1177/1635 to scoop sequence and quantify prior centerline spacing.
+- [x] Preserve DFS branch order rather than globally chaining paths by proximity to swept tool area.
+- [x] Prevent scoop pruning from widening any later DFS scoop past requested stepover.
+- [x] Replay reported and earlier spiral regressions; check coverage, engagement, links, and maintained tests.
+
+Sim `52ae6737`: order after global chaining starts at DFS indices 46, 2, 21, 47, 1. Prior centerline spacing at CL 1056/1111 is 1.649/2.866 mm versus 0.791/1.435 mm in DFS order; requested stepover is 1.5875 mm. Pruning also breaks DFS spacing in prior A30 replay (two violations); unpruned DFS has none. Cutter-sweep containment is insufficient to enforce stepover.
+
+Replayed run `62f51be2`: previous CL 1177/1056/1111/1635 appear at new CL 1048/1074/1822/2565 in DFS leg order. Max scoop-to-prior-centerline spacing is 1.4385 mm (requested 1.5875 mm). Prior spiral replay A30: max 1.8235 mm (requested 1.905 mm), first scoop remains within root swept area, and 128 local rim excursions remain. Travel records in reported pocket fell from 39 to 12 despite DFS order. Maintained tests: 98 pass; lint and diff check pass. Pruning's pointwise check now runs only for later scoops near the candidate to retain ~1 s generation time per replay.
+
+### Tangent scoop-to-border joins (Sim 35f739ba)
+
+- [x] Replace projected-endpoint doglegs with tangent blends that preserve border overlaps.
+- [x] Replay CL 1511/1639 neighborhoods; check tangent continuity, bounds, stepover, and coverage.
+- [x] Run maintained checks and save updated replay.
+
+`_scoop_border_leads` now trims short ends of the sampled scoop circle and inserts G1 cubic blends. Endpoint derivatives match the oriented border and analytic circle tangents; existing border overlaps and scoop order stay unchanged. Control-polygon forward progress rejects backwards hooks. Candidate curves receive fine collision sampling against bounds and the prior-cut stepover region; emitted cutting polylines use control-hull chord-error bounds and a 1-degree tangent-direction sampling limit. No CL schema changes or new tests.
+
+Sim `35f739ba` / run `82bb2bf9`: all 86 entry/exit joins accepted in both directions, no original-scoop or full-rim fallback. At the two reported wall joins (old CL 1510 and 1638), emitted turns are 0.731901° and 0.716018°, replacing 90° projection doglegs; underlying curves meet tangentially. Compared before/after at `/tmp/tangent-scoop-comparison.png`. Complete center boundary/interior coverage and all cutter-center bounds remain valid. Sampled maximum prior-centerline spacing is 1.910175 mm, versus logged pre-change 1.910296 mm; requested 1.905 mm plus existing 0.01 mm chord tolerance. Polygonal coverage-buffer residuals remain thin tessellation slivers, with the existing boundary/interior proof passing.
+
+Older `27af87bf` and `6be39e3d` replays also accept every join in both directions without full-rim fallback; maximum spacings 1.437952 / 1.823472 mm respectively. Native keep-down links for the reported replay remain in bounds (100 climb / 96 conventional arcs; 2 / 4 clearance links). 98 maintained tests, focused Ruff, and `git diff --check` pass. Updated replay `955b9ff1-8456-4b6d-9841-a364ecd3c8f2`: 4632 CL records.
+
+### Scoop-local border contacts — confirmed sequencing
+
+- [x] Generate short border lead-in/out from previous and current scoop contacts, retaining scoop order.
+- [x] Finish each focus locally with additional scoops until its remaining border is within stepover; use scoop-like entry/exit, not inset contour passes.
+- [x] Replay reported pocket and verify local coverage, spacing, safe links, and maintained checks.
+
+Removed whole-interval inset-contour planning. After pruning, each retained scoop follows the oriented border from previously reached wall contacts into its arc and back out to prior wall coverage. Leads are accepted only within the cutter-center region and requested prior-centerline spacing. Retained DFS ancestry determines actual focus ends, including parents whose tiny descendants were pruned. Terminal fronts grow as clipped circles, not offset-wall contours, until the local cap is within the effective stepover. Final caps include the preceding scoop's border lead-in/out. An exposed root-spiral cap is finished immediately after that root, before outgoing limbs, when already within stepover. Existing rounded scoop-link routing supplies native arcs or clearance travel.
+
+Reported pocket, both directions: 54 bordered scoops, 6 terminal focuses, 9 terminal moves (3 additional scoop fronts plus local caps); no full-rim fallback. Climb cutting length 2008.233 mm; maximum sampled cutting-center spacing 1.437797 mm (conventional 1.438243 mm), requested 1.5875 mm. Every cutting path remains in cutter-center bounds. Sampled all native link arcs at 0.001 mm chord tolerance: 118 climb / 120 conventional arcs, no out-of-bounds links; 4 / 3 clearance connections respectively. Final replay `9cc51ab0-9b05-4879-9db3-7572c7257bf9`, 3382 CL records. Plot `/tmp/scoop-local-final.png` inspected.
+
+Coverage verification explicitly proves the complete cutter-center boundary and center-region interior are covered. Polygonal cutter-buffer unions still produce chord-approximation slivers (0.005769938 mm² climb, 0.004761454 mm² conventional); these are accepted only with that geometric coverage proof and empty residual erosion at chord_tolerance/4, not an arbitrary increased residual-area threshold. Older A30 replay `6be39e3d` also avoids full-rim fallback, covers boundary/interior, keeps all cuts in bounds, and stays within 1.823472 mm spacing against 1.905 mm requested in both directions. General cases that cannot prove local completion still retain existing cleanup fallback.
+
+98 maintained tests pass; focused Ruff and `git diff --check` pass. No new tests or unrelated working-tree changes.
+
+### Continuous limb border sweeps — replace fragment weaving (superseded)
+
+- [x] Preserve DFS limb ownership through pruning and assign contiguous border intervals.
+- [x] Emit whole-interval sweeps toward border, then border cut, without per-fragment radial returns.
+- [x] Replay reported pocket; check spacing, coverage, cut direction, linking, and maintained checks.
+
+Replaced radial fragment excursions with inward parallel contours spanning contiguous limb-owned border intervals. Short ownership islands merge into an adjacent later limb instead of producing tiny cuts. Each interval advances by bounded whole-length sweeps, ending on the oriented border before moving on. All contour segments must lie inside cutter-center bounds and the prior-centerline stepover buffer; connectors use native rounded links or a checked border route. General integration failures still retain the full-rim fallback.
+
+Reported replay: 7 border intervals (shortest 11.397 mm), 7 internal links for climb, no full-rim fallback in either direction. Sampled cutting-center spacing at 0.1 mm resolution: maximum 1.438487 mm for both directions against requested 1.5875 mm. Cutting-only analytic residual: 0.001008507 mm² climb, 2.4271e-8 mm² conventional. All sampled internal connectors remain in cutter-center bounds. Climb cutting length 2236.732 mm; logged replay `00bd33fd-739f-4d61-aa14-ac7283a14256`, 3463 CL records. Inspected plotted cutting paths and internal links at `/tmp/continuous-limb.png`.
+
+Also corrected conventional traversal to reverse individual scoops without reversing their advancing stock-front order. Existing direction assertion now verifies oriented wall tangents for concave border sections whose open-path signed area differs from a convex scoop; it does not reverse those sections to satisfy an area heuristic. 98 maintained tests pass, focused Ruff and `git diff --check` pass.
+
+### Branch-local border scoop (Sim f2f52b15)
+
+- [x] Locate final rim pass and measure CL 2990 engagement against prior cuts.
+- [x] Add bounded intermediate sweep immediately before local border interval when gap exceeds requested stepover.
+- [x] Attach contour sections to nearby DFS scoops in their focus area; omit full rim when local coverage and radial links pass.
+- [x] Replay logged pocket, check CL motion and coverage, run maintained checks.
+
+Run `27af87bf` had a 225.35 mm final rim loop, 86.72 mm² of material left after scoops. At original CL 2990 cutter center sat 1.926 mm from previous centerline (requested 1.5875 mm); about 6.60 mm of rim exceeded requested spacing. New planner allows a previously swept cutter-radius approach, inserts an interpolated intermediate contour sweep where needed, then cuts the true offset immediately at that scoop vertex. On replay, 11 extra intermediate sweeps and 131 border excursions replace the final rim; the local residual near old CL 2990 is below 1e-9 mm². Total analytic residual is about 0.001 mm² across sub-0.005 mm buffer slivers (numerical chord approximation), outer retracts 2. Max cutter-center spacing across the emitted cutting segments, in their actual order, is 1.438 mm versus the requested 1.5875 mm. Replayed CL run `dae2a417`; 98 maintained tests and focused lint pass. Cost: many small excursions and more CL moves than original rim; section grouping remains an optimization. Branch ownership is spatial to the nearest DFS scoop, not stored explicitly as medial-tree IDs.
 
 ### Restart-safe regeneration cache
 

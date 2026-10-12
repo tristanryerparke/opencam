@@ -1,10 +1,11 @@
 import json
+from itertools import pairwise
 from pathlib import Path
 
 import numpy as np
 import pytest
-from shapely.geometry import LineString, Polygon
-from shapely.ops import unary_union
+from shapely.geometry import LineString, Point, Polygon
+from shapely.ops import orient, unary_union
 
 from opencam.engine.closed_polyline.offset import quad_segs_for_tolerance
 from opencam.engine.pocketing.adaptive import (
@@ -109,8 +110,26 @@ def test_adaptive_cut_direction_is_consistent(
         chord_tolerance=CHORD_TOLERANCE,
         cut_direction=cut_direction,
     )
-    signed_areas = [
-        _signed_area(path) for path in paths if path.shape[0] >= 4
-    ]
-    assert signed_areas
-    assert all(np.sign(area) == expected_sign for area in signed_areas if abs(area) > 1e-9)
+    center_region = build_tool_center_region(
+        polyline, tool_diameter=TOOL_DIAMETER, stock_to_leave=0,
+        chord_tolerance=CHORD_TOLERANCE,
+    )
+    boundary = LineString(orient(center_region, sign=expected_sign).exterior.coords)
+    border_band = boundary.buffer(TOOL_DIAMETER * stepover_percent / 100)
+    assert paths
+    for path in paths:
+        area = _signed_area(path)
+        if abs(area) <= 1e-9 or np.sign(area) == expected_sign:
+            continue
+        # Open concave border intervals need not have the scoop's signed area.
+        # They must instead stay near the wall and follow its oriented tangent.
+        assert border_band.covers(LineString(path))
+        for start, end in pairwise(path):
+            station = boundary.project(Point((start + end) / 2))
+            before = np.asarray(boundary.interpolate(
+                (station - CHORD_TOLERANCE) % boundary.length,
+            ).coords[0])
+            after = np.asarray(boundary.interpolate(
+                (station + CHORD_TOLERANCE) % boundary.length,
+            ).coords[0])
+            assert np.dot(end - start, after - before) >= -1e-9

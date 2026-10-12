@@ -19,6 +19,8 @@ from typing import Literal
 import networkx as nx
 import numpy as np
 from scipy.spatial import QhullError, Voronoi
+from shapely import distance as geometry_distance
+from shapely import line_interpolate_point
 from shapely.geometry import LineString, Point, Polygon
 from shapely.geometry.base import BaseGeometry
 from shapely.ops import orient, substring, unary_union
@@ -26,7 +28,9 @@ from shapely.ops import orient, substring, unary_union
 from opencam.engine.closed_polyline.offset import quad_segs_for_tolerance
 from opencam.engine.closed_polyline.validation import validate_closed_polyline
 from opencam.engine.pocketing.linking import (
-    _build_keep_down_link,
+    InternalContourLink,
+    _end_tangent,
+    _start_tangent,
     build_tool_center_region,
 )
 from opencam.engine.pocketing.models import Coordinate2D
@@ -41,6 +45,24 @@ SPIRAL_LENGTH_FACTOR = 1.2
 class MaximalInscribedCircle:
     center: Coordinate2D
     radius: float
+
+
+class LimbScoopPaths(list[np.ndarray]):
+    def __init__(self) -> None:
+        super().__init__()
+        self.limb_owners: dict[int, int] = {}
+        self.limb_parents: dict[int, int | None] = {}
+        self.circles: dict[int, MaximalInscribedCircle] = {}
+
+
+class AdaptivePocketLayers(list[np.ndarray]):
+    def __init__(
+        self,
+        paths: list[np.ndarray] | None = None,
+        internal_links: dict[int, list[InternalContourLink]] | None = None,
+    ) -> None:
+        super().__init__(paths or [])
+        self.internal_links = internal_links or {}
 
 
 def build_adaptive_pocket_layers(
@@ -86,7 +108,7 @@ def build_adaptive_pocket_layers(
         tool_radius,
         chord_tolerance / 4,
     )
-    paths: list[np.ndarray] = []
+    paths = AdaptivePocketLayers()
 
     for component in sorted(components, key=_polygon_sort_key):
         component_target = target_region.intersection(
@@ -103,6 +125,10 @@ def build_adaptive_pocket_layers(
             coverage_quad_segs=coverage_quad_segs,
             cut_direction=cut_direction,
         )
+        if isinstance(component_paths, AdaptivePocketLayers):
+            paths.internal_links.update(
+                {len(paths) + index: links for index, links in component_paths.internal_links.items()}
+            )
         paths.extend(component_paths)
 
     return paths
@@ -151,6 +177,7 @@ def _prune_redundant_paths(
     separation_tolerance: float,
     coverage_tolerance: float,
     coverage_quad_segs: int,
+    stepover_limit: float,
 ) -> list[np.ndarray]:
     """Drop redundant paths whose material stays covered within tolerance.
 
@@ -175,6 +202,17 @@ def _prune_redundant_paths(
         ):
             continue
         trial = [path for path in retained if path is not candidate]
+        candidate_index = next(
+            index for index, path in enumerate(retained) if path is candidate
+        )
+        if not _preserves_scoop_stepover(
+            trial,
+            first_changed_index=candidate_index,
+            scoop_ids=prunable_path_ids,
+            stepover_limit=stepover_limit,
+            removed_candidate=candidate,
+        ):
+            continue
         swept_area = unary_union(
             [
                 LineString(path).buffer(
@@ -190,6 +228,36 @@ def _prune_redundant_paths(
             retained = trial
 
     return retained
+
+
+def _preserves_scoop_stepover(
+    paths: list[np.ndarray],
+    *,
+    first_changed_index: int,
+    scoop_ids: set[int],
+    stepover_limit: float,
+    removed_candidate: np.ndarray,
+) -> bool:
+    """Check only later scoops the removed centerline could have protected."""
+    candidate_line = LineString(removed_candidate)
+    later: list[np.ndarray] = []
+    for path in paths[first_changed_index:]:
+        line = LineString(path)
+        if id(path) in scoop_ids and candidate_line.distance(line) <= stepover_limit:
+            prior = unary_union(
+                [LineString(item) for item in (*paths[:first_changed_index], *later)]
+            )
+            count = max(1, math.ceil(line.length / 0.1))
+            spacing = line.length / count
+            sampled = line_interpolate_point(line, np.linspace(0, line.length, count + 1))
+            maximum = float(np.max(geometry_distance(prior, sampled)))
+            # Distance to a fixed set is 1-Lipschitz along the line.
+            if maximum > stepover_limit - spacing / 2 and not prior.buffer(
+                stepover_limit, quad_segs=16
+            ).covers(line):
+                return False
+        later.append(path)
+    return True
 
 
 def _is_near_redundant(
@@ -248,6 +316,9 @@ def _build_component_paths(
 
     paths: list[np.ndarray] = []
     prunable_path_ids: set[int] = set()
+    limb_owners: dict[int, int] = {}
+    limb_parents: dict[int, int | None] = {}
+    scoop_circles: dict[int, MaximalInscribedCircle] = {}
     for node_ids in sorted(
         nx.connected_components(medial_axis),
         key=lambda ids: _component_sort_key(medial_axis, ids),
@@ -282,6 +353,9 @@ def _build_component_paths(
             coverage_quad_segs=coverage_quad_segs,
             cut_direction=cut_direction,
         )
+        limb_owners.update(scoop_paths.limb_owners)
+        limb_parents.update(scoop_paths.limb_parents)
+        scoop_circles.update(scoop_paths.circles)
         paths.extend(scoop_paths)
         prunable_path_ids.update(id(scoop) for scoop in scoop_paths)
 
@@ -294,27 +368,25 @@ def _build_component_paths(
         separation_tolerance=maximum_cut_width * 0.5,
         coverage_tolerance=coverage_slack + chord_tolerance,
         coverage_quad_segs=coverage_quad_segs,
+        stepover_limit=maximum_cut_width + coverage_slack + chord_tolerance,
     )
     cleanup_ids = {id(path) for path in cleanup_paths}
     cut_paths = [path for path in retained if id(path) not in cleanup_ids]
     final_cleanup = [path for path in retained if id(path) in cleanup_ids]
-    ordered = _chain_nearest_paths(
-        cut_paths,
-        maximum_link_distance=1.5 * maximum_cut_width,
-        tool_radius=tool_radius,
-        chord_tolerance=chord_tolerance,
-        coverage_quad_segs=coverage_quad_segs,
-    )
     return _integrate_boundary_cleanup(
-        ordered,
+        cut_paths,
         final_cleanup,
         component=component,
         target_region=target_region,
         tool_radius=tool_radius,
         maximum_cut_width=maximum_cut_width,
-        coverage_tolerance=coverage_slack + chord_tolerance,
         chord_tolerance=chord_tolerance,
         coverage_quad_segs=coverage_quad_segs,
+        requested_cut_width=maximum_cut_width + coverage_slack,
+        limb_owners=limb_owners,
+        limb_parents=limb_parents,
+        scoop_circles=scoop_circles,
+        cut_direction=cut_direction,
     )
 
 
@@ -322,272 +394,309 @@ def _integrate_boundary_cleanup(
     paths: list[np.ndarray],
     cleanup_paths: list[np.ndarray],
     *,
+    limb_owners: dict[int, int],
+    limb_parents: dict[int, int | None],
+    scoop_circles: dict[int, MaximalInscribedCircle],
+    requested_cut_width: float,
     component: Polygon,
     target_region: BaseGeometry,
     tool_radius: float,
     maximum_cut_width: float,
-    coverage_tolerance: float,
     chord_tolerance: float,
     coverage_quad_segs: int,
-) -> list[np.ndarray]:
-    """Attach only needed contour portions to nearby, already-cleared scoops.
-
-    Never exchange the full cleanup loop for fragments if any reachable stock
-    remains: step-over slack is not a finish tolerance for pocket walls.
-    """
+    cut_direction: Literal["climb", "conventional"],
+) -> AdaptivePocketLayers:
+    """Extend scoops between reached wall contacts and finish only their local caps."""
     if not paths or not cleanup_paths:
-        return paths + cleanup_paths
+        return AdaptivePocketLayers(paths + cleanup_paths)
 
-    centerlines = [LineString(path) for path in paths]
-    existing_centerlines = unary_union(centerlines)
-    proposed: dict[int, np.ndarray] = {}
-    swept: BaseGeometry | None = None
-    cleared_after: list[BaseGeometry] = []
-    for centerline in centerlines:
-        cut = centerline.buffer(tool_radius, quad_segs=coverage_quad_segs)
-        swept = cut if swept is None else swept.union(cut)
-        cleared_after.append(swept.buffer(chord_tolerance))
-
-    for ring_path in cleanup_paths:
-        ring = LineString(ring_path)
-        sample_count = max(
-            1,
-            math.ceil(ring.length / max(coverage_tolerance, maximum_cut_width / 8)),
-        )
-        spacing = ring.length / sample_count
-        needed = [
-            existing_centerlines.distance(ring.interpolate((index + 0.5) * spacing))
-            > coverage_tolerance
-            for index in range(sample_count)
-        ]
-        intervals: list[tuple[float, float]] = []
-        start: int | None = None
-        for index, required in enumerate([*needed, False]):
-            if required and start is None:
-                start = index
-            elif not required and start is not None:
-                intervals.append(
-                    (max(0, (start - 1) * spacing), min(ring.length, (index + 1) * spacing))
-                )
-                start = None
-        fragments = [
-            np.asarray(substring(ring, first, last).coords, dtype=np.float64)
-            for first, last in intervals
-        ]
-        if len(fragments) > 1 and needed[0] and needed[-1]:
-            fragments[0] = np.vstack((fragments[-1], fragments[0][1:]))
-            fragments.pop()
-
-        for fragment in fragments:
-            start_point = fragment[0]
-            fragment_line = LineString(fragment)
-            candidates = sorted(
-                range(len(paths)),
-                key=lambda index: float(np.linalg.norm(paths[index][-1] - start_point)),
+    last_in_limb = {
+        limb_owners[id(path)]: index
+        for index, path in enumerate(paths) if id(path) in limb_owners
+    }
+    nonterminal: set[int] = set()
+    for owner in last_in_limb:
+        parent = limb_parents.get(owner)
+        while parent is not None:
+            nonterminal.add(parent)
+            parent = limb_parents.get(parent)
+    terminal_indices = {
+        index for owner, index in last_in_limb.items() if owner not in nonterminal
+    }
+    rings = [LineString(border) for border in _boundary_cleanup_paths(
+        component, cut_direction=cut_direction,
+    )]
+    contacts: dict[int, tuple[float, float]] = {}
+    result = AdaptivePocketLayers()
+    prior: BaseGeometry | None = None
+    safe = component.buffer(chord_tolerance * 1e-6)
+    for index, path in enumerate(paths):
+        circle = scoop_circles.get(id(path))
+        bordered = path
+        ring = None
+        current_contacts = None
+        if circle is not None and prior is not None:
+            owner = limb_owners[id(path)]
+            ring = min(rings, key=lambda boundary: max(
+                boundary.distance(Point(point)) for point in (path[1], path[-2])
+            ))
+            bordered, current_contacts = _scoop_border_leads(
+                path, circle=circle, ring=ring, prior=prior, safe=safe,
+                previous_contacts=contacts.get(owner),
+                maximum_cut_width=requested_cut_width,
+                chord_tolerance=chord_tolerance, coverage_quad_segs=coverage_quad_segs,
             )
-            for index in candidates:
-                endpoint = paths[index][-1]
-                distance = float(np.linalg.norm(endpoint - start_point))
-                if distance > 2 * tool_radius:
-                    break
-                cleared = cleared_after[index]
-                if not cleared.covers(fragment_line):
-                    continue
-                if index in proposed:
-                    continue
-                connector = _cleared_border_connector(
-                    ring,
-                    endpoint,
-                    start_point,
-                    component=component,
-                    cleared=cleared,
-                    maximum_distance=2 * tool_radius,
-                    chord_tolerance=chord_tolerance,
-                )
-                if connector is not None:
-                    extension = _extend_to_previous_border_touch(
-                        ring,
-                        fragment,
-                        paths[:index],
-                        component=component,
-                        cleared=cleared,
-                        maximum_distance=2 * tool_radius + maximum_cut_width,
-                        chord_tolerance=chord_tolerance,
-                    )
-                    if index + 1 < len(paths) and extension.shape[0] > fragment.shape[0]:
-                        original_path = np.vstack((paths[index], connector[1:], fragment[1:]))
-                        extended_path = np.vstack((paths[index], connector[1:], extension[1:]))
-                        safe_region = component.buffer(chord_tolerance * 1e-6)
-                        next_path = paths[index + 1]
-                        if (
-                            _build_keep_down_link(
-                                original_path,
-                                next_path,
-                                safe_region=safe_region,
-                                tool_diameter=2 * tool_radius,
-                                chord_tolerance=chord_tolerance,
-                            )
-                            is not None
-                            and _build_keep_down_link(
-                                extended_path,
-                                next_path,
-                                safe_region=safe_region,
-                                tool_diameter=2 * tool_radius,
-                                chord_tolerance=chord_tolerance,
-                            )
-                            is None
-                        ):
-                            extension = fragment
-                    proposed[index] = np.vstack((connector, extension[1:]))
-                    break
-            # A fragment without a cleared in-bounds connector is omitted;
-            # remaining stock below determines whether the loop stays.
+            contacts[owner] = current_contacts
+        result.append(bordered)
+        line = LineString(bordered)
+        prior = line if prior is None else unary_union([prior, line])
+        if index not in terminal_indices or circle is None or ring is None:
+            continue
+        cap = _forward_ring_segment(
+            ring, ring.project(Point(bordered[0])), ring.project(Point(bordered[-1])),
+        )
+        completion = _finish_scoop_focus(
+            cap, circle=circle, component=component, prior=prior,
+            maximum_cut_width=maximum_cut_width, chord_tolerance=chord_tolerance,
+            coverage_quad_segs=coverage_quad_segs, cut_direction=cut_direction,
+        )
+        if completion is None:
+            return AdaptivePocketLayers(paths + cleanup_paths)
+        for scoop in completion:
+            result.append(scoop)
+            prior = unary_union([prior, LineString(scoop)])
 
-    enriched = [
-        np.ascontiguousarray(np.vstack((path, proposed[index][1:])))
-        if index in proposed
-        else path
-        for index, path in enumerate(paths)
-    ]
-    coverage = unary_union(
-        [
-            LineString(path).buffer(tool_radius, quad_segs=coverage_quad_segs)
-            for path in enriched
-        ]
-    )
+    # A root spiral can expose a round cap behind its outgoing limbs. Finish
+    # that cap at the root, not after the descendants have been machined.
+    for path in paths:
+        if id(path) in limb_owners:
+            continue
+        root_reach = LineString(path).buffer(maximum_cut_width, quad_segs=coverage_quad_segs)
+        root_index = next(index for index, item in enumerate(result) if item is path)
+        for ring in rings:
+            missing = ring.difference(prior.buffer(max(MINIMUM_RADIUS, chord_tolerance * 1e-6)))
+            for part in getattr(missing, "geoms", [missing]):
+                if part.length <= maximum_cut_width or not root_reach.covers(part):
+                    continue
+                cap = np.ascontiguousarray(part.coords)
+                root_index += 1
+                result.insert(root_index, cap)
+                prior = unary_union([prior, part])
+
+    coverage = prior.buffer(tool_radius, quad_segs=coverage_quad_segs)
     residual = target_region.difference(coverage)
-    if residual.is_empty:
-        return enriched
-    return paths + cleanup_paths
+    # Buffer caps tessellate differently when a wall is split between scoops.
+    # Prove coverage of the center-region interior and its entire boundary;
+    # the latter's true cutter sweep covers the remaining reachable wall band.
+    if not residual.is_empty and (
+        not prior.buffer(max(MINIMUM_RADIUS, chord_tolerance * 1e-6)).covers(component.boundary)
+        or not coverage.covers(component)
+        or not residual.buffer(-chord_tolerance / 4).is_empty
+    ):
+        return AdaptivePocketLayers(paths + cleanup_paths)
+    return result
+
+
+def _scoop_border_leads(
+    path: np.ndarray,
+    *,
+    circle: MaximalInscribedCircle,
+    ring: LineString,
+    prior: BaseGeometry,
+    safe: BaseGeometry,
+    previous_contacts: tuple[float, float] | None,
+    maximum_cut_width: float,
+    chord_tolerance: float,
+    coverage_quad_segs: int,
+) -> tuple[np.ndarray, tuple[float, float]]:
+    start, end = (ring.project(Point(point)) for point in (path[1], path[-2]))
+    first, last = previous_contacts or tuple(
+        ring.project(Point(point)) for point in (path[0], path[-1])
+    )
+    reachable = prior.buffer(maximum_cut_width, quad_segs=coverage_quad_segs)
+    reached = ring.intersection(prior)
+    stations = [
+        ring.project(Point(coordinate))
+        for part in getattr(reached, "geoms", [reached])
+        for coordinate in part.coords
+    ]
+    if stations:
+        before = min(stations, key=lambda station: (start - station) % ring.length)
+        after = min(stations, key=lambda station: (station - end) % ring.length)
+        if reachable.covers(LineString(_forward_ring_segment(ring, before, start))):
+            first = before
+        if reachable.covers(LineString(_forward_ring_segment(ring, end, after))):
+            last = after
+    lead_in = _forward_ring_segment(ring, first, start)
+    lead_out = _forward_ring_segment(ring, end, last)
+    arc = path[1:-1]
+    allowed = safe.intersection(reachable.buffer(chord_tolerance))
+    incoming = _end_tangent(lead_in)
+    outgoing = _start_tangent(lead_out)
+    if incoming is None:
+        incoming = _end_tangent(_forward_ring_segment(
+            ring, (start - chord_tolerance) % ring.length, start,
+        ))
+    if outgoing is None:
+        outgoing = _start_tangent(_forward_ring_segment(
+            ring, end, (end + chord_tolerance) % ring.length,
+        ))
+    if incoming is None or outgoing is None:
+        return path, (start, end)
+    entry = _tangent_scoop_join(
+        lead_in[-1], incoming, arc, circle=circle,
+        allowed=allowed, chord_tolerance=chord_tolerance,
+    )
+    exit_join = _tangent_scoop_join(
+        lead_out[0], -outgoing, arc[::-1], circle=circle,
+        allowed=allowed, chord_tolerance=chord_tolerance,
+    )
+    if entry is None or exit_join is None:
+        return path, (start, end)
+    entry_points, first_arc_index = entry
+    exit_points, last_arc_index = exit_join
+    candidate = np.vstack((
+        lead_in, entry_points[1:], arc[first_arc_index + 1:len(arc) - last_arc_index],
+        exit_points[-2::-1], lead_out[1:],
+    ))
+    candidate = candidate[np.r_[True, np.linalg.norm(np.diff(candidate, axis=0), axis=1) > MINIMUM_RADIUS]]
+    # A backwards projection would wrap around the pocket. Reject it rather
+    # than replacing a local lead with a rim pass or reversing wall direction.
+    if (
+        LineString(lead_in).length <= LineString(path).length
+        and LineString(lead_out).length <= LineString(path).length
+        and safe.covers(LineString(candidate))
+        and reachable.buffer(chord_tolerance).covers(LineString(candidate))
+    ):
+        return np.ascontiguousarray(candidate), (start, end)
+    return path, (start, end)
+
+
+def _tangent_scoop_join(
+    start: np.ndarray,
+    tangent: np.ndarray,
+    arc: np.ndarray,
+    *,
+    circle: MaximalInscribedCircle,
+    allowed: BaseGeometry,
+    chord_tolerance: float,
+) -> tuple[np.ndarray, int] | None:
+    """Trim a scoop and meet its circle and the wall with matching tangents."""
+    if np.linalg.norm(start - arc[0]) <= MINIMUM_RADIUS:
+        return arc[:1], 0
+    radial = arc[:2] - np.asarray(circle.center)
+    direction = np.sign(radial[0, 0] * radial[1, 1] - radial[0, 1] * radial[1, 0])
+    for index in range(1, max(2, len(arc) // 3)):
+        end = arc[index]
+        radius = end - np.asarray(circle.center)
+        end_tangent = direction * np.asarray((-radius[1], radius[0])) / np.linalg.norm(radius)
+        chord = end - start
+        distance = float(np.linalg.norm(chord))
+        if np.dot(chord, tangent) <= 0 or np.dot(chord, end_tangent) <= 0:
+            continue
+        for scale in (1 / 3, 0.25, 0.5):
+            controls = np.asarray((
+                start, start + scale * distance * tangent,
+                end - scale * distance * end_tangent, end,
+            ))
+            # Nondecreasing control-polygon projections prohibit backwards
+            # hooks. Collision sampling is finer than emitted CL tessellation.
+            if np.any(np.diff(controls, axis=0) @ chord < -MINIMUM_RADIUS):
+                continue
+            collision_points = _sample_cubic_join(
+                controls, chord_tolerance=min(chord_tolerance / 1000, 1e-5),
+            )
+            if not allowed.covers(LineString(collision_points)):
+                continue
+            points = _sample_cubic_join(controls, chord_tolerance=chord_tolerance / 4)
+            if allowed.covers(LineString(points)):
+                return points, index
+    return None
+
+
+def _sample_cubic_join(controls: np.ndarray, *, chord_tolerance: float) -> np.ndarray:
+    """Tessellate a tangent cubic using its control-hull chord-error bound."""
+    points = [controls[0]]
+    pending = [controls]
+    while pending:
+        curve = pending.pop()
+        chord = curve[-1] - curve[0]
+        length_squared = float(np.dot(chord, chord))
+        if length_squared <= MINIMUM_RADIUS**2:
+            flatness = float(np.max(np.linalg.norm(curve - curve[0], axis=1)))
+        else:
+            fractions = np.clip((curve[1:3] - curve[0]) @ chord / length_squared, 0, 1)
+            projections = curve[0] + fractions[:, None] * chord
+            flatness = float(np.max(np.linalg.norm(curve[1:3] - projections, axis=1)))
+        tangents = np.asarray((curve[1] - curve[0], curve[3] - curve[2]))
+        tangent_lengths = np.linalg.norm(tangents, axis=1)
+        aligned = length_squared <= MINIMUM_RADIUS**2 or bool(np.all(
+            tangents @ chord >= math.cos(math.radians(1)) * tangent_lengths * math.sqrt(length_squared)
+        ))
+        if flatness <= chord_tolerance and aligned:
+            points.append(curve[-1])
+            continue
+        middle = (curve[:-1] + curve[1:]) / 2
+        inner = (middle[:-1] + middle[1:]) / 2
+        split = (inner[0] + inner[1]) / 2
+        pending.append(np.asarray((split, inner[1], middle[2], curve[3])))
+        pending.append(np.asarray((curve[0], middle[0], inner[0], split)))
+    return np.ascontiguousarray(points)
+
+
+def _finish_scoop_focus(
+    border: np.ndarray,
+    *,
+    circle: MaximalInscribedCircle,
+    component: Polygon,
+    prior: BaseGeometry,
+    maximum_cut_width: float,
+    chord_tolerance: float,
+    coverage_quad_segs: int,
+    cut_direction: Literal["climb", "conventional"],
+) -> list[np.ndarray] | None:
+    """Grow the last scoop front until its local border is within stepover."""
+    border_line = LineString(border)
+    radius = circle.radius
+    final_radius = max(math.dist(circle.center, point) for point in border)
+    count = max(1, math.ceil(max(0, final_radius - radius) / maximum_cut_width) + 1)
+    result: list[np.ndarray] = []
+    for _ in range(count):
+        reachable = prior.buffer(maximum_cut_width, quad_segs=coverage_quad_segs)
+        if reachable.covers(border_line):
+            result.append(border)
+            return result
+        radius += maximum_cut_width
+        disk = Point(circle.center).buffer(
+            radius, quad_segs=quad_segs_for_tolerance(radius, chord_tolerance / 4),
+        )
+        clipped = component.intersection(disk)
+        if not isinstance(clipped, Polygon):
+            return None
+        ring = LineString(orient(
+            clipped, sign=1 if cut_direction == "climb" else -1,
+        ).exterior.coords)
+        scoop = _forward_ring_segment(
+            ring, ring.project(Point(border[0])), ring.project(Point(border[-1])),
+        )
+        line = LineString(scoop)
+        if not reachable.buffer(chord_tolerance).covers(line):
+            return None
+        result.append(scoop)
+        prior = unary_union([prior, line])
+    return None
 
 
 def _forward_ring_segment(ring: LineString, first: float, last: float) -> np.ndarray:
     if last >= first:
-        return np.asarray(substring(ring, first, last).coords, dtype=np.float64)
+        points = np.asarray(substring(ring, first, last).coords, dtype=np.float64)
+        return points if len(points) > 1 else np.repeat(points, 2, axis=0)
     return np.vstack(
         (
             np.asarray(substring(ring, first, ring.length).coords, dtype=np.float64),
             np.asarray(substring(ring, 0, last).coords, dtype=np.float64)[1:],
         )
     )
-
-
-def _extend_to_previous_border_touch(
-    ring: LineString,
-    fragment: np.ndarray,
-    previous_paths: list[np.ndarray],
-    *,
-    component: Polygon,
-    cleared: BaseGeometry,
-    maximum_distance: float,
-    chord_tolerance: float,
-) -> np.ndarray:
-    """Continue contour to next prior pass's actual border contact when safe."""
-    end_station = ring.project(Point(fragment[-1]))
-    contacts = sorted(
-        {
-            ring.project(point)
-            for path in previous_paths
-            for coordinate in (path[0], path[-1])
-            if (point := Point(coordinate)).distance(ring) <= chord_tolerance
-        },
-        key=lambda station: (station - end_station) % ring.length,
-    )
-    safe_region = component.buffer(chord_tolerance * 1e-6)
-    for station in contacts:
-        advance = (station - end_station) % ring.length
-        if advance <= chord_tolerance:
-            continue
-        if advance > maximum_distance:
-            break
-        continuation = _forward_ring_segment(ring, end_station, station)
-        if (
-            safe_region.covers(LineString(continuation))
-            and cleared.covers(LineString(continuation))
-        ):
-            return np.vstack((fragment, continuation[1:]))
-    return fragment
-
-
-def _cleared_border_connector(
-    ring: LineString,
-    endpoint: np.ndarray,
-    start_point: np.ndarray,
-    *,
-    component: Polygon,
-    cleared: BaseGeometry,
-    maximum_distance: float,
-    chord_tolerance: float,
-) -> np.ndarray | None:
-    """Connect to contour through already-swept, in-bounds material."""
-    direct = np.vstack((endpoint, start_point))
-    safe_region = component.buffer(chord_tolerance * 1e-6)
-    if safe_region.covers(LineString(direct)) and cleared.covers(LineString(direct)):
-        return direct
-
-    first = ring.project(Point(endpoint))
-    last = ring.project(Point(start_point))
-    forward = (last - first) % ring.length
-    backward = (first - last) % ring.length
-    if min(forward, backward) > maximum_distance:
-        return None
-    border = (
-        _forward_ring_segment(ring, first, last)
-        if forward <= backward
-        else _forward_ring_segment(ring, last, first)[::-1]
-    )
-    connector = np.vstack((endpoint, border, start_point))
-    if safe_region.covers(LineString(connector)) and cleared.covers(LineString(connector)):
-        return connector
-    return None
-
-
-def _chain_nearest_paths(
-    paths: list[np.ndarray],
-    *,
-    maximum_link_distance: float,
-    tool_radius: float,
-    chord_tolerance: float,
-    coverage_quad_segs: int,
-) -> list[np.ndarray]:
-    """Prefer scoops within material already swept by earlier passes.
-
-    Paths are never reversed: a reversal flips the handedness of loop-like
-    scoops and the cleanup ring, switching them from climb to conventional
-    milling. Cleared paths take priority even across longer transfers; when
-    none remain, the nearest path is chosen within maximum_link_distance.
-    Otherwise the remaining depth-first order is kept.
-    """
-    if len(paths) < 2:
-        return list(paths)
-
-    ordered = [paths[0]]
-    remaining = list(paths[1:])
-    swept = LineString(paths[0]).buffer(tool_radius, quad_segs=coverage_quad_segs)
-    while remaining:
-        current_end = ordered[-1][-1]
-        best_index = 0
-        best_distance = float("inf")
-        safe_index: int | None = None
-        safe_distance = float("inf")
-        cleared = swept.buffer(chord_tolerance)
-        for index, path in enumerate(remaining):
-            start_distance = float(np.linalg.norm(current_end - path[0]))
-            if start_distance < best_distance:
-                best_distance = start_distance
-                best_index = index
-            if start_distance < safe_distance and cleared.covers(LineString(path)):
-                safe_index = index
-                safe_distance = start_distance
-        if safe_index is not None:
-            best_index = safe_index
-        elif best_distance > maximum_link_distance:
-            ordered.extend(remaining)
-            break
-        next_path = remaining.pop(best_index)
-        ordered.append(next_path)
-        swept = swept.union(LineString(next_path).buffer(tool_radius, quad_segs=coverage_quad_segs))
-    return ordered
 
 
 def _component_sort_key(
@@ -671,7 +780,7 @@ def _build_depth_first_scoop_paths(
     coverage_tolerance: float,
     coverage_quad_segs: int,
     cut_direction: Literal["climb", "conventional"],
-) -> list[np.ndarray]:
+) -> LimbScoopPaths:
     tree = nx.dfs_tree(
         graph,
         root_id,
@@ -683,7 +792,8 @@ def _build_depth_first_scoop_paths(
             ),
         ),
     )
-    paths: list[np.ndarray] = []
+    paths = LimbScoopPaths()
+    node_owners: dict[int, int] = {}
     pending = [
         (root_id, child_id) for child_id in reversed(list(tree.successors(root_id)))
     ]
@@ -704,19 +814,15 @@ def _build_depth_first_scoop_paths(
             circles,
             maximum_cut_width=maximum_cut_width,
         )
-        scoops = [
-            scoop
-            for first, second in transitions
-            if (
-                scoop := _scoop_path(first, second, chord_tolerance=chord_tolerance)
-            ).shape[0]
-            >= 2
-        ]
-        if cut_direction == "conventional":
-            # Mirror the whole branch: leaf-most scoop first, each path
-            # reversed, so travel runs along the medial chain in the opposite
-            # direction and every scoop cuts conventionally instead of climb.
-            scoops = [np.ascontiguousarray(scoop[::-1]) for scoop in reversed(scoops)]
+        scoops = []
+        for first, second in transitions:
+            scoop = _scoop_path(first, second, chord_tolerance=chord_tolerance)
+            if len(scoop) < 2:
+                continue
+            if cut_direction == "conventional":
+                scoop = np.ascontiguousarray(scoop[::-1])
+            scoops.append(scoop)
+            paths.circles[id(scoop)] = second
         spiral = _round_branch_spiral(
             circles,
             scoops,
@@ -726,10 +832,16 @@ def _build_depth_first_scoop_paths(
             coverage_tolerance=coverage_tolerance,
             coverage_quad_segs=coverage_quad_segs,
         )
-        if spiral is not None:
-            paths.append(spiral)
-        else:
-            paths.extend(scoops)
+        branch_paths = [spiral] if spiral is not None else scoops
+        if branch_paths:
+            owner = id(branch_paths[0])
+            paths.limb_parents[owner] = node_owners.get(branch_start_id)
+            node_owners[current_id] = owner
+            for path in branch_paths:
+                paths.limb_owners[id(path)] = owner
+        elif branch_start_id in node_owners:
+            node_owners[current_id] = node_owners[branch_start_id]
+        paths.extend(branch_paths)
 
         pending.extend(
             (current_id, child_id)

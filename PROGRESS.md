@@ -245,6 +245,24 @@ Stopped after three invalid variants and reverted all deferred-lap behavior. Roo
 
 Next valid design is two complete candidate plans per wall-adjacent root: full-root baseline and rootless-before-pruning. Run prune plus local integration independently. Select rootless only if no original cleanup path remains, no motion is shorter than 90% requested stepover, complete coverage/bounds/stepover proofs pass, and links are safe; otherwise use full-root baseline. This avoids mixing full-root pruning decisions with rootless local planning.
 
+### Residual-driven local wall finishing across tool diameters
+
+- [x] Use existing per-cutter-center-component reach and remaining-wall state during local focus completion; never use a later component's centerlines to justify an earlier cut.
+- [x] Subdivide unreachable focus fronts into bounded, validated MIC-radius increments; defer failed focus completion to remaining-wall candidates instead of immediately returning a full rim.
+- [x] Extend short, reachable wall remnants into their oriented owning path rather than emitting a standalone poke.
+- [x] Recheck the 25% stepover diameter sweep, maintained tests, bounds, and links.
+- [ ] Add a branch-local offset-derived fallback if a future geometry cannot be finished by these bounded MIC fronts.
+
+The 5 pocket assets at 10 evenly spaced diameters from 3 to 13 mm, both directions, now pass all 100 configurations: in-bounds cutting paths, residual coverage within existing stepover slack, no standalone short paths or full-rim cuts, and sampled in-bounds keep-down links. The first sweep's reported GEOS errors were checker errors from constructing a one-point `LineString` for empty (zero-distance) keep-down links; its other extra stepover reports compared disconnected cutter-center components. Corrected checker: `/tmp/adaptive_diameter_sweep_verified.py`. Remaining offset-derived fallback is unimplemented; tested intervals were resolved with safe incremental MIC fronts and oriented local wall extensions.
+
+### Constructively safe MIC/scoop generation
+
+- [x] Enforce interior MIC centers and whole-scoop containment before pruning; bound refinement along the medial branch.
+- [x] Rebuild unsafe leads from legal local border geometry, with fail-closed handling if no safe construction exists.
+- [x] Validate final cutting paths before CL emission; replay all five pocket assets in both directions and maintained checks.
+
+Unsafe bitangent transitions now refine along their sampled medial branch, rebuild through legal local wall leads, or fall back to a contained inscribed-circle arc for branch-local completion. Final generation rejects any cutting centerline outside the cutter-center region or beyond requested prior-centerline reach. D25/D50 no longer emit the known 0.198730/0.615886 mm violations or a 225.340927 mm full-rim fallback. Regression coverage checks both directions for bounds, stepover, swept coverage, keep-down links, and no full-rim fallback. All 30 A/B/C1/C2/D configurations pass at 25/30/50% stepover in climb and conventional mode; 102 maintained tests, focused Ruff, and `git diff --check` pass. Top-down diagnostic: `/tmp/pocketing-D-safe-top-down.png`.
+
 ### Pocketing asset sweep — current stable planner
 
 - [x] Generate all five `assets/operations/pocketing/*_drive_curve*.json` polylines at 25/30/50% stepover and both directions.
@@ -307,3 +325,11 @@ Run `27af87bf` had a 225.35 mm final rim loop, 86.72 mm² of material left after
 - [x] Validate cache replacement, restart, regeneration inputs, maintained tests, and frontend build.
 
 Backend uses atomic `mesh-cache/current.zip` replacement, stable cache ID on restart, version-checked mesh URLs, and disk deletion on explicit part removal. Existing browser STEP is migrated only when backend has no cached part; new uploads never enter browser storage. Browser keeps operation JSON and settings, not generated CL, frames, or simulation meshes. Maintained tests: 98 pass; frontend TypeScript/build pass. Full ESLint reports three pre-existing errors in unrelated components; App.tsx alone has zero errors and nine existing warnings.
+
+## RhinoCAM offset-pocket comparison
+
+- [ ] Commit current adaptive-pocketing work, merge it into `main`, and create `rhcam-comparison`.
+- [ ] Generate 25%-stepover offset-pocket G-code for every drive curve with OpenCAM.
+- [ ] Copy curves into remote Rhino document; generate matching plunge-entry RhinoCAM pockets.
+- [ ] Store both output sets under `rhcam-experiment/`; compare points and motion behavior.
+- [ ] Report algorithm differences and unresolved CAM-setting gaps.

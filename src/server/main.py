@@ -5,16 +5,19 @@ from tempfile import TemporaryDirectory
 
 from fastapi import Depends, FastAPI, File, HTTPException, Response, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
-from opencam.post_processing.duet3d.router import router as duet3d_post_processing_router
+
+from opencam.post_processing.duet3d.router import (
+    router as duet3d_post_processing_router,
+)
 from opencam.schemas.cam import GenerateToolpathRequest
 from opencam.schemas.cl_data import OperationRecord3D
 from opencam.schemas.mesh import Mesh
 from opencam.schemas.tools import Tool
 from opencam.services.cam_engine import cam_engine
 from opencam.services.mesh_cache import CachedMeshMetadata, get_mesh_cache
+from opencam.services.tool_library import ToolLibrary, get_tool_library
 from opencam.services.tool_mesh import build_tool
 from opencam.simulation.router import router as simulation_router
-from opencam.services.tool_library import ToolLibrary, get_tool_library
 from opencam.utilities.loader import step_to_mesh
 
 logger = logging.getLogger(__name__)
@@ -26,6 +29,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Toolpath-Run-Id"],
 )
 app.include_router(simulation_router)
 app.include_router(duet3d_post_processing_router)
@@ -112,9 +116,9 @@ async def cache_mesh(step: UploadFile = File(...)):
 
 
 @app.get("/cam/mesh/file")
-def get_cached_mesh_file():
+def get_cached_mesh_file(v: str | None = None):
     cached_mesh = get_mesh_cache().get_mesh()
-    if cached_mesh is None:
+    if cached_mesh is None or (v is not None and v != cached_mesh.version):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Mesh not found.")
     return Response(
         content=cached_mesh.mesh.model_dump_json(by_alias=True),
@@ -137,13 +141,15 @@ def server_cached_mesh_loader(cache_id: str) -> Mesh | None:
 
 
 @app.post("/cam/toolpath", response_model=OperationRecord3D)
-async def generate_cam_toolpath(request: GenerateToolpathRequest):
+async def generate_cam_toolpath(request: GenerateToolpathRequest, response: Response):
     try:
         operation = cam_engine(
             request.setup,
             request.operation,
             cached_mesh_loader=server_cached_mesh_loader,
         )
+        if operation._log_run_id is not None:
+            response.headers["X-Toolpath-Run-Id"] = operation._log_run_id
         return operation
     except ValueError as exc:
         logger.exception(

@@ -11,12 +11,14 @@ type SettingsStore = {
   stockRenderMode: ToolRenderMode;
   clearanceOffset: number;
   simulationDebugUiEnabled: boolean;
+  simulationCompletedToolpathOnly: boolean;
   setTheme: (theme: Theme) => void;
   setToolRenderMode: (mode: ToolRenderMode) => void;
   setPartRenderMode: (mode: ToolRenderMode) => void;
   setStockRenderMode: (mode: ToolRenderMode) => void;
   setClearanceOffset: (offset: number) => void;
   setSimulationDebugUiEnabled: (enabled: boolean) => void;
+  setSimulationCompletedToolpathOnly: (enabled: boolean) => void;
 };
 
 function applyTheme(theme: Theme) {
@@ -45,12 +47,14 @@ export const useSettingsStore = create<SettingsStore>()(
       stockRenderMode: "shaded",
       clearanceOffset: 10,
       simulationDebugUiEnabled: false,
+      simulationCompletedToolpathOnly: true,
       setTheme: (theme) => set({ theme }),
       setToolRenderMode: (toolRenderMode) => set({ toolRenderMode }),
       setPartRenderMode: (partRenderMode) => set({ partRenderMode }),
       setStockRenderMode: (stockRenderMode) => set({ stockRenderMode }),
       setClearanceOffset: (clearanceOffset) => set({ clearanceOffset }),
       setSimulationDebugUiEnabled: (simulationDebugUiEnabled) => set({ simulationDebugUiEnabled }),
+      setSimulationCompletedToolpathOnly: (simulationCompletedToolpathOnly) => set({ simulationCompletedToolpathOnly }),
     }),
     {
       name: "opencam.settings.v1",

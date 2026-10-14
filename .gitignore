@@ -58,9 +58,11 @@ htmlcov/
 
 # Generated simulation outputs
 output/
+/toolpath-runs/
 
 # Local backend data
 opencam-tinydb.json
+/mesh-cache/
 
 
 **/.DS_Store

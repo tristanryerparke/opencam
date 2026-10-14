@@ -27,14 +27,16 @@ class GcodeCommand:
 
 
 class GcodeMove:
-    """A G0/G1 move with optional axis words and a modal feed rate."""
+    """A G0/G1/G2/G3 move with optional axis words and a modal feed rate."""
 
     def __init__(
         self,
-        type: Literal["G0", "G1"],
+        type: Literal["G0", "G1", "G2", "G3"],
         x: float | None = None,
         y: float | None = None,
         z: float | None = None,
+        i: float | None = None,
+        j: float | None = None,
         feedrate: float | None = None,
         comment: str | None = None,
     ):
@@ -42,6 +44,8 @@ class GcodeMove:
         self.x = x
         self.y = y
         self.z = z
+        self.i = i
+        self.j = j
         self.feedrate = feedrate
         self.comment = comment
 
@@ -53,6 +57,10 @@ class GcodeMove:
             words.append(f"Y{fg(self.y)}")
         if self.z is not None:
             words.append(f"Z{fg(self.z)}")
+        if self.i is not None:
+            words.append(f"I{fg(self.i)}")
+        if self.j is not None:
+            words.append(f"J{fg(self.j)}")
         if self.feedrate is not None:
             words.append(f"F{fg(self.feedrate)}")
         line = " ".join(words)
@@ -70,7 +78,7 @@ def emit_gcode(
     """Turn G-code objects into lines.
 
     Removes axis words whose value is unchanged from the previous move
-    (if enable_axis_culling is True), removes G0/G1 prefixes when the
+    (if enable_axis_culling is True), removes repeated motion prefixes when the
     previous move was the same type, and skips fully culled no-op moves.
     Any non-move command resets the culling state.
     """

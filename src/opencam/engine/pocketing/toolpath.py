@@ -6,7 +6,12 @@ from opencam.engine.levels.layers import (
     duplicate_layers_at_heights,
     stitch_geometry_records,
 )
+from opencam.engine.pocketing.adaptive import build_adaptive_pocket_layers
 from opencam.engine.pocketing.layer import build_pocket_layers
+from opencam.engine.pocketing.linking import (
+    build_keep_down_links,
+    build_linked_cut_layers,
+)
 from opencam.schemas.cl_data import PositionRecord
 from opencam.schemas.operations.pocketing import Pocketing2dOp
 from opencam.schemas.tools import BallTool, CylindricalTool
@@ -31,26 +36,62 @@ def build_pocketing_records(
     if stepover.mode == "absolute":
         stepover_percent = stepover.value / operation.tool.diameter * 100
 
+    clearing_layer_builder = (
+        build_adaptive_pocket_layers
+        if operation.cut_parameters.clearing_strategy == "adaptive"
+        else build_pocket_layers
+    )
+
     record_groups: list[list[PositionRecord]] = []
     for geometry in operation.drive_geometry:
-        layers = build_pocket_layers(
-            geometry.to_numpy(),
+        polyline = geometry.to_numpy()
+        layer_options: dict[str, object] = {}
+        if clearing_layer_builder is build_adaptive_pocket_layers:
+            layer_options["cut_direction"] = operation.cut_parameters.cut_direction
+        layers = clearing_layer_builder(
+            polyline,
             tool_diameter=operation.tool.diameter,
             stepover_percent=stepover_percent,
             stock_to_leave=operation.cut_parameters.stock_to_leave,
             chord_tolerance=operation.advanced.chordal_tolerance,
+            **layer_options,
         )
         if not layers:
-            raise ValueError("Pocketing geometry is too small for the selected tool diameter and stock to leave.")
+            raise ValueError(
+                "Pocketing geometry is too small for the selected tool diameter and stock to leave."
+            )
 
-        cut_layers = duplicate_layers_at_heights(
-            layers,
-            compute_layer_heights(
-                operation.levels.z_bounds(geometry.z),
-                operation.levels.max_stepdown,
-            ),
-            feedrate=operation.feeds_and_speeds.cut_feedrate,
+        heights = compute_layer_heights(
+            operation.levels.z_bounds(geometry.z),
+            operation.levels.max_stepdown,
         )
+        if operation.cut_parameters.keep_tool_down:
+            links = build_keep_down_links(
+                layers,
+                polyline,
+                tool_diameter=operation.tool.diameter,
+                stock_to_leave=operation.cut_parameters.stock_to_leave,
+                chord_tolerance=operation.advanced.chordal_tolerance,
+            )
+            cut_layers = build_linked_cut_layers(
+                layers,
+                links,
+                heights,
+                feedrate=operation.feeds_and_speeds.cut_feedrate,
+            )
+        elif getattr(layers, "internal_links", None):
+            cut_layers = build_linked_cut_layers(
+                layers,
+                [None] * (len(layers) - 1),
+                heights,
+                feedrate=operation.feeds_and_speeds.cut_feedrate,
+            )
+        else:
+            cut_layers = duplicate_layers_at_heights(
+                layers,
+                heights,
+                feedrate=operation.feeds_and_speeds.cut_feedrate,
+            )
         record_groups.append(
             build_cut_record_sequence(
                 cut_layers,

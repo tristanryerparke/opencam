@@ -7,16 +7,17 @@ from dataclasses import dataclass, field
 from threading import Event, Lock, Thread
 from uuid import uuid4
 
-from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile
-from pydantic import ValidationError
 import numpy as np
 import rhino3dm
 import trimesh
+from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile
+from pydantic import ValidationError
 from trimesh.proximity import ProximityQuery
 
 from opencam.schemas.cl_data import OperationRecord3D, PositionRecord3D
 from opencam.services.mesh_cache import get_mesh_cache
 from opencam.services.tool_mesh import build_tool_mesh_glb_from_tool
+from opencam.services.toolpath_run_logs import ensure_logged_cl, log_simulation_frames
 from opencam.simulation.models import (
     SimulationChunkMapping,
     SimulationFrameMapping,
@@ -36,11 +37,12 @@ from opencam.simulation.swept_volume import (
     SimulationCancelledError,
     manifold_to_simplified_glb,
     map_positions_to_operation_progress,
+    map_progress_to_cl_record_indices,
     maybe_compress_glb,
     positions_match,
     prepare_simulation_chunks,
-    sample_operation_points_with_progress,
     resample_chunk_cl_data,
+    sample_operation_points_with_progress,
     simulate_chunk_focus_mesh,
     write_glb,
 )
@@ -72,6 +74,7 @@ class PreparedSimulationFrame:
     tool_position: PositionRecord3D
     chunk_step_count: int = 0
     active_mesh_index: int | None = None
+    cl_record_index: int = 0
 
 
 @dataclass
@@ -383,6 +386,7 @@ def _simulation_chunk_mappings(
             SimulationFrameMapping(
                 tool_position=frame.tool_position,
                 active_mesh_index=frame.active_mesh_index if frame.active_mesh_index is not None else frame.point_index,
+                cl_record_index=frame.cl_record_index,
             )
         )
     if current_chunk_index is not None:
@@ -473,6 +477,9 @@ def _build_animation_frames(
     if not mesh_frames or not sampled_points:
         return mesh_frames
 
+    cl_indices = map_progress_to_cl_record_indices(
+        operation, [progress for progress, _position in sampled_points]
+    )
     mesh_frame_progresses = map_positions_to_operation_progress(
         operation,
         [frame.tool_position for frame in mesh_frames],
@@ -490,7 +497,7 @@ def _build_animation_frames(
     mesh_frame_index = 0
     animation_frames: list[PreparedSimulationFrame] = []
 
-    for progress, position in sampled_points:
+    for (progress, position), cl_record_index in zip(sampled_points, cl_indices):
         while (
             mesh_frame_index < len(mesh_frames)
             and mesh_frame_progresses[mesh_frame_index] <= progress + 1e-6
@@ -504,6 +511,7 @@ def _build_animation_frames(
             tool_position=position,
             chunk_step_count=current_mesh_frame.chunk_step_count,
             active_mesh_index=current_mesh_frame.active_mesh_index,
+            cl_record_index=cl_record_index,
         )
         if (
             animation_frames
@@ -699,6 +707,7 @@ def _run_swept_simulation_task(
     task_id: str,
     mesh_bytes: bytes,
     parsed_operation: OperationRecord3D,
+    run_id: str,
     chunk_padding_x: float,
     chunk_padding_y: float,
     chunk_padding_z: float,
@@ -742,6 +751,11 @@ def _run_swept_simulation_task(
             raise SimulationCancelledError("Simulation generation cancelled.")
 
         simulation_id = str(uuid4())
+        log_simulation_frames(
+            run_id,
+            simulation_id,
+            [frame.cl_record_index for frame in simulation.frames],
+        )
         with SIMULATION_FRAME_BUFFER_LOCK:
             SIMULATION_FRAME_BUFFER[simulation_id] = simulation
         Thread(target=_run_comparison_mesh_build, args=(simulation,), daemon=True).start()
@@ -777,6 +791,7 @@ def _run_swept_simulation_task(
 async def simulate_swept(
     mesh: UploadFile | None = File(None),
     operation: str = Form(...),
+    run_id: str | None = Form(None),
     chunk_padding_x: float = Form(5.0),
     chunk_padding_y: float = Form(5.0),
     chunk_padding_z: float = Form(1.0),
@@ -787,6 +802,11 @@ async def simulate_swept(
     try:
         parsed_operation = OperationRecord3D.model_validate_json(operation)
     except ValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    try:
+        run_id = ensure_logged_cl(parsed_operation, run_id)
+    except (OSError, ValueError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     mesh_bytes = await mesh.read() if mesh is not None else None
@@ -814,6 +834,7 @@ async def simulate_swept(
             task_id,
             mesh_bytes,
             parsed_operation,
+            run_id,
             chunk_padding_x,
             chunk_padding_y,
             chunk_padding_z,

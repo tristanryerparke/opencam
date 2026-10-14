@@ -9,16 +9,22 @@ import tempfile
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from itertools import pairwise
 
 import numpy as np
 import trimesh
 from manifold3d import Error, Manifold, Mesh64, OpType
-
 from opencam._cgal_planar import remesh_planar_patches
+
+from opencam.engine.arc import linearize_arc_records, linearize_arc_records_with_indices
 from opencam.schemas.cl_data import OperationRecord3D, PositionRecord3D
-from opencam.services.tool_mesh import build_tool_mesh_glb_from_tool, build_tool_mesh_vertices_faces
+from opencam.services.tool_mesh import (
+    build_tool_mesh_glb_from_tool,
+    build_tool_mesh_vertices_faces,
+)
 
 SIM_STEPDISTANCE = 5
+ARC_SIMULATION_CHORD_TOLERANCE = 0.01
 SIMPLIFY_AFTER_EACH_CHUNK = False
 DEFAULT_MAX_SIM_DISTANCE = 20
 DEFAULT_CHUNK_PADDING = (5.0, 5.0, 1.0)
@@ -296,7 +302,11 @@ def load_tool_positions(operation: OperationRecord3D) -> list[np.ndarray]:
     positions: list[np.ndarray] = []
     previous: np.ndarray | None = None
 
-    for record in operation.records:
+    records = linearize_arc_records(
+        operation.records,
+        chord_tolerance=ARC_SIMULATION_CHORD_TOLERANCE,
+    )
+    for record in records:
         position = np.array([record.x, record.y, record.z], dtype=np.float64)
         if previous is not None and np.allclose(position, previous, atol=1e-9, rtol=0.0):
             continue
@@ -346,14 +356,18 @@ def sample_operation_points_with_progress(
     step_distance: float,
     rapid_frame_step_scale: float = 1.0,
 ) -> list[tuple[float, PositionRecord3D]]:
-    if not operation.records:
+    records = linearize_arc_records(
+        operation.records,
+        chord_tolerance=ARC_SIMULATION_CHORD_TOLERANCE,
+    )
+    if not records:
         return []
 
-    sampled_points: list[tuple[float, PositionRecord3D]] = [(0.0, operation.records[0])]
+    sampled_points: list[tuple[float, PositionRecord3D]] = [(0.0, records[0])]
     traversed_distance = 0.0
     distance_since_sample = 0.0
 
-    for segment_start, segment_end in zip(operation.records, operation.records[1:], strict=False):
+    for segment_start, segment_end in pairwise(records):
         dx = segment_end.x - segment_start.x
         dy = segment_end.y - segment_start.y
         dz = segment_end.z - segment_start.z
@@ -403,6 +417,37 @@ def sample_operation_points_with_progress(
     return sampled_points
 
 
+def map_progress_to_cl_record_indices(
+    operation: OperationRecord3D,
+    progresses: list[float],
+) -> list[int]:
+    """Map animation arclengths back to original CL moves, including whole arcs."""
+    if not progresses or not operation.records:
+        return []
+    linearized = linearize_arc_records_with_indices(
+        operation.records,
+        chord_tolerance=ARC_SIMULATION_CHORD_TOLERANCE,
+    )
+    boundaries: list[tuple[float, int]] = []
+    distance = 0.0
+    for (start, _), (end, source_index) in pairwise(linearized):
+        distance += math.dist((start.x, start.y, start.z), (end.x, end.y, end.z))
+        boundaries.append((distance, source_index))
+    if not boundaries:
+        return [0] * len(progresses)
+
+    result: list[int] = []
+    cursor = 0
+    for progress in progresses:
+        if progress <= 0:
+            result.append(0)
+            continue
+        while cursor < len(boundaries) - 1 and boundaries[cursor][0] < progress - 1e-9:
+            cursor += 1
+        result.append(boundaries[cursor][1])
+    return result
+
+
 def map_positions_to_operation_progress(
     operation: OperationRecord3D,
     positions: list[PositionRecord3D],
@@ -410,7 +455,11 @@ def map_positions_to_operation_progress(
     if not positions:
         return []
 
-    segments = list(zip(operation.records, operation.records[1:], strict=False))
+    records = linearize_arc_records(
+        operation.records,
+        chord_tolerance=ARC_SIMULATION_CHORD_TOLERANCE,
+    )
+    segments = list(pairwise(records))
     segment_lengths: list[float] = []
     cumulative_starts: list[float] = []
     cumulative_distance = 0.0

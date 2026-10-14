@@ -44,10 +44,11 @@ import {
   fitCameraToBox,
   getOverlayLift,
   getSceneBounds,
+  sceneBoundsEquals,
   updateCameraDepthRange,
 } from "./scene-utils";
 import { createSimulationStockMesh } from "./simulation";
-import type { MeshFaceSelection, PolylinePoint, PolylineViewerSceneProps, ToolRenderMode } from "./types";
+import type { MeshFaceSelection, PolylineDefinition, PolylinePoint, PolylineViewerSceneProps, ToolRenderMode } from "./types";
 
 type LoadedDisplayMesh = {
   group: THREE.Group;
@@ -240,6 +241,8 @@ export function usePolylineViewerScene(
   }: PolylineViewerSceneProps,
 ) {
   const currentPolylinesRef = useRef(polylines);
+  const renderedPolylinesRef = useRef<PolylineDefinition[]>([]);
+  const lastSceneBoundsRef = useRef<THREE.Box3 | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
@@ -1158,11 +1161,11 @@ export function usePolylineViewerScene(
 
     const render = () => {
       controls.update();
-      updateCameraDepthRange(
-        getSceneBounds(currentPolylinesRef.current, meshBoundsRef.current),
-        camera,
-        controls,
-      );
+      const sceneBounds = getSceneBounds(currentPolylinesRef.current, meshBoundsRef.current);
+      if (!lastSceneBoundsRef.current || !sceneBoundsEquals(sceneBounds, lastSceneBoundsRef.current)) {
+        lastSceneBoundsRef.current = sceneBounds.clone();
+        updateCameraDepthRange(sceneBounds, camera, controls);
+      }
       renderer.clear();
       renderer.render(scene, camera);
 
@@ -1190,10 +1193,8 @@ export function usePolylineViewerScene(
         }
       }
 
-      if (polylineGroup.children.length > 0) {
-        renderer.clearDepth();
-        renderer.render(polylineGroup, camera);
-      }
+      renderer.clearDepth();
+      renderer.render(polylineGroup, camera);
 
       animationFrame = window.requestAnimationFrame(render);
     };
@@ -1223,6 +1224,7 @@ export function usePolylineViewerScene(
       cameraRef.current = null;
       controlsRef.current = null;
       polylineGroupRef.current = null;
+      renderedPolylinesRef.current = [];
       meshGroupRef.current = null;
       secondaryMeshGroupRef.current = null;
       tertiaryMeshGroupRef.current = null;
@@ -1460,30 +1462,74 @@ export function usePolylineViewerScene(
       return;
     }
 
-    clearGroup(polylineGroup);
-    polylineMaterialsRef.current = [];
-
-    const bounds = getSceneBounds(polylines, meshBoundsRef.current);
+    const visiblePolylines = polylines.filter((polyline) => polyline.points.length >= 2);
+    const previousPolylines = renderedPolylinesRef.current;
+    const overlayLift = getOverlayLift(meshBoundsRef.current ?? getSceneBounds(polylines, null));
     const camera = cameraRef.current;
     const controls = controlsRef.current;
 
-    if (!hasUserInteractedRef.current && camera && controls) {
-      fitCameraToBox(bounds, camera, controls);
+    const structureChanged =
+      previousPolylines.length !== visiblePolylines.length ||
+      previousPolylines.some((polyline, index) => polyline.id !== visiblePolylines[index]?.id);
+
+    if (structureChanged) {
+      console.debug("[polylines] full rebuild", {
+        previous: previousPolylines.map((polyline) => polyline.id),
+        next: visiblePolylines.map((polyline) => polyline.id),
+      });
+      clearGroup(polylineGroup);
+      polylineMaterialsRef.current = [];
+
+      const bounds = getSceneBounds(polylines, meshBoundsRef.current);
+      if (!hasUserInteractedRef.current && camera && controls) {
+        fitCameraToBox(bounds, camera, controls);
+      }
     }
 
-    const overlayLift = getOverlayLift(bounds);
+    const reusableLines = structureChanged
+      ? []
+      : polylineGroup.children.filter((child): child is Line2 => child instanceof Line2);
 
-    polylines.forEach((polyline, index) => {
+    visiblePolylines.forEach((polyline, index) => {
       const color = polyline.color ?? POLYLINE_COLORS[index % POLYLINE_COLORS.length];
       const isClearanceMove = polyline.kind === "rapid";
+      const previous = structureChanged ? undefined : previousPolylines[index];
 
-      if (polyline.points.length < 2) {
+      if (
+        !structureChanged &&
+        previous &&
+        previous !== polyline &&
+        reusableLines[index] &&
+        previous.points.length === polyline.points.length
+      ) {
+        const positions = polyline.points.flatMap(([x, y, z]) => [x, y, z + overlayLift]);
+        const line = reusableLines[index];
+        line.geometry.dispose();
+        const lineGeometry = new LineGeometry();
+        lineGeometry.setPositions(positions);
+        lineGeometry.computeBoundingSphere();
+        line.geometry = lineGeometry;
+        line.computeLineDistances();
         return;
+      }
+
+      if (!structureChanged && previous === polyline && reusableLines[index]) {
+        return;
+      }
+
+      if (!structureChanged) {
+        console.debug("[polylines] replace", {
+          index,
+          previousPoints: previous?.points.length ?? 0,
+          nextPoints: polyline.points.length,
+          id: polyline.id,
+        });
       }
 
       const positions = polyline.points.flatMap(([x, y, z]) => [x, y, z + overlayLift]);
       const lineGeometry = new LineGeometry();
       lineGeometry.setPositions(positions);
+      lineGeometry.computeBoundingSphere();
 
       const lineMaterial = new LineMaterial({
         color,
@@ -1493,18 +1539,39 @@ export function usePolylineViewerScene(
         depthTest: false,
         depthWrite: false,
       });
-      lineMaterial.alphaToCoverage = true;
+      lineMaterial.alphaToCoverage = false;
       lineMaterial.resolution.set(
         renderer.domElement.clientWidth,
         renderer.domElement.clientHeight,
       );
 
       const line = new Line2(lineGeometry, lineMaterial);
+      line.computeLineDistances();
       line.renderOrder = isClearanceMove ? 41 : 40;
       line.frustumCulled = false;
+
+      if (!structureChanged && reusableLines[index]) {
+        const old = reusableLines[index];
+        polylineGroup.remove(old);
+        old.geometry.dispose();
+        const oldMaterial = old.material;
+        if (!Array.isArray(oldMaterial)) {
+          oldMaterial.dispose();
+        }
+        const materialIndex = polylineMaterialsRef.current.indexOf(oldMaterial as LineMaterial);
+        if (materialIndex >= 0) {
+          polylineMaterialsRef.current.splice(materialIndex, 1);
+        }
+        polylineGroup.add(line);
+        polylineMaterialsRef.current.push(lineMaterial);
+        return;
+      }
+
       polylineGroup.add(line);
       polylineMaterialsRef.current.push(lineMaterial);
     });
+
+    renderedPolylinesRef.current = visiblePolylines;
   }, [polylines]);
 
   useEffect(() => {

@@ -7,6 +7,7 @@ from opencam.schemas.cl_data import PositionRecord3D
 class SimulationFrameMapping(CamelBaseModel):
     tool_position: PositionRecord3D
     active_mesh_index: int
+    cl_record_index: int
 
 
 class SimulationChunkMapping(CamelBaseModel):

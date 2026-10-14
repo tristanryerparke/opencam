@@ -33,6 +33,7 @@ import { useShallow } from "zustand/react/shallow";
 import type { ClosedPolyline2D } from "@/generated_schemas/geometry_2d";
 import type { ClosedPolyline25D } from "@/generated_schemas/geometry_2_5d";
 import {
+  linearizeOperationRecords,
   sampleOperationRecords,
   type OperationRecord3D,
   type PositionRecord3D,
@@ -49,6 +50,7 @@ type ToolPositionResponse = {
 type SimulationChunkFrameResponse = {
   toolPosition: ToolPositionResponse;
   activeMeshIndex: number;
+  clRecordIndex: number;
 };
 
 type SimulationChunkResponse = {
@@ -88,28 +90,47 @@ type SimulationDisplayFrame = {
   activeMeshKey: string;
   cachedMeshUrl: string;
   chunkIndex: number;
+  sourceFrameIndex: number;
   toolPosition: ToolPositionResponse;
+  clRecordIndex: number;
 };
 
 const CUT_PATH_COLOR = "#1d4ed8";
+const LINK_PATH_COLOR = "#eab308";
 const CLEARANCE_PATH_COLOR = "#dc2626";
 
-function createDisplayPolylines(records: ReadonlyArray<PositionRecord3D>): PolylineDefinition[] {
+type DisplayPathRole = "cutting" | "linking" | "travel";
+
+function displayPathRole(record: PositionRecord3D): DisplayPathRole {
+  if (record.motionRole === "linking") return "linking";
+  if (record.motionRole === "travel" || record.feedType === "rapid") return "travel";
+  return "cutting";
+}
+
+function createDisplayPolylines(sourceRecords: ReadonlyArray<PositionRecord3D>): PolylineDefinition[] {
+  const records = linearizeOperationRecords(sourceRecords);
   const polylines: PolylineDefinition[] = [];
   let points: PolylinePoint[] = [];
-  let feedType: PositionRecord3D["feedType"] | null = null;
+  let role: DisplayPathRole | null = null;
 
   for (let index = 1; index < records.length; index += 1) {
     const start = records[index - 1];
     const end = records[index];
-    if (feedType !== end.feedType) {
+    const nextRole = displayPathRole(end);
+    if (role !== nextRole) {
       points = [[start.x, start.y, start.z], [end.x, end.y, end.z]];
-      feedType = end.feedType;
+      role = nextRole;
+      const name = role === "travel" ? "Rapid moves" : role === "linking" ? "Linking moves" : "Cutting moves";
+      const color = role === "travel"
+        ? CLEARANCE_PATH_COLOR
+        : role === "linking"
+          ? LINK_PATH_COLOR
+          : CUT_PATH_COLOR;
       polylines.push({
         id: `record-${index}`,
-        name: feedType === "rapid" ? "Rapid moves" : "Feed moves",
-        color: feedType === "rapid" ? CLEARANCE_PATH_COLOR : CUT_PATH_COLOR,
-        kind: feedType,
+        name,
+        color,
+        kind: role === "travel" ? "rapid" : "feed_rate",
         points,
       });
     } else {
@@ -118,6 +139,68 @@ function createDisplayPolylines(records: ReadonlyArray<PositionRecord3D>): Polyl
   }
 
   return polylines;
+}
+
+function createSimulationFrameRecords(
+  sourceRecords: ReadonlyArray<PositionRecord3D>,
+  frames: ReadonlyArray<SimulationDisplayFrame>,
+): PositionRecord3D[] {
+  const records = linearizeOperationRecords(sourceRecords);
+  if (records.length === 0) {
+    return [];
+  }
+
+  const positionTolerance = 1e-5;
+  const positionToleranceSq = positionTolerance * positionTolerance;
+  let segmentCursor = 0;
+  let template = records[0];
+
+  return frames.map((frame) => {
+    const position = frame.toolPosition;
+    for (let index = segmentCursor; index < records.length - 1; index += 1) {
+      const start = records[index];
+      const end = records[index + 1];
+      const dx = end.x - start.x;
+      const dy = end.y - start.y;
+      const dz = end.z - start.z;
+      const segmentLengthSq = dx * dx + dy * dy + dz * dz;
+      if (segmentLengthSq <= positionToleranceSq) {
+        continue;
+      }
+
+      const parameter = (
+        (position.x - start.x) * dx +
+        (position.y - start.y) * dy +
+        (position.z - start.z) * dz
+      ) / segmentLengthSq;
+      if (parameter < -positionTolerance || parameter > 1 + positionTolerance) {
+        continue;
+      }
+
+      const clampedParameter = Math.max(0, Math.min(parameter, 1));
+      const projectedX = start.x + dx * clampedParameter;
+      const projectedY = start.y + dy * clampedParameter;
+      const projectedZ = start.z + dz * clampedParameter;
+      const projectionDistanceSq =
+        (position.x - projectedX) ** 2 +
+        (position.y - projectedY) ** 2 +
+        (position.z - projectedZ) ** 2;
+      if (projectionDistanceSq > positionToleranceSq) {
+        continue;
+      }
+
+      segmentCursor = index;
+      template = end;
+      break;
+    }
+
+    return {
+      ...template,
+      x: position.x,
+      y: position.y,
+      z: position.z,
+    };
+  });
 }
 
 type PendingSimulationPresentation = {
@@ -292,44 +375,6 @@ function readCachedMeshFromLocalStorage() {
   return null;
 }
 
-function readFileAsDataUrl(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === "string") {
-        resolve(reader.result);
-        return;
-      }
-
-      reject(new Error("Failed to read STEP for browser cache."));
-    };
-    reader.onerror = () => reject(reader.error ?? new Error("Failed to read STEP for browser cache."));
-    reader.readAsDataURL(file);
-  });
-}
-
-async function saveMeshToLocalStorage(file: File, shouldSave: () => boolean = () => true) {
-  const dataUrl = await readFileAsDataUrl(file);
-  const payload = {
-    name: file.name,
-    dataUrl,
-  } satisfies LocalCachedMeshPayload;
-
-  if (typeof window === "undefined" || !shouldSave()) {
-    return { payload, saved: false };
-  }
-
-  try {
-    // ponytail: localStorage only fits small STEP files; use IndexedDB if large files need browser persistence.
-    window.localStorage.setItem(LOCAL_MESH_STORAGE_KEY, JSON.stringify(payload));
-    return { payload, saved: true };
-  } catch (error: unknown) {
-    console.error("Failed to cache STEP in localStorage", error);
-    removeCachedMeshFromLocalStorage();
-    return { payload, saved: false };
-  }
-}
-
 async function uploadStepToBackend(step: Blob, name: string, signal?: AbortSignal) {
   const upload = new FormData();
   upload.append("step", step, name);
@@ -436,13 +481,16 @@ function buildSimulationDisplayFrames(
   simulationId: string,
   chunks: ReadonlyArray<SimulationChunkResponse>,
 ): SimulationDisplayFrame[] {
+  let sourceFrameIndex = 0;
   return chunks.flatMap((chunk, chunkIndex) =>
     chunk.frames.map((frame) => ({
       activeMeshUrl: `/simulate/${simulationId}/chunks/${chunkIndex}/active-meshes/${frame.activeMeshIndex}.glb`,
       activeMeshKey: `${chunkIndex}:${frame.activeMeshIndex}`,
       cachedMeshUrl: chunk.cachedMeshUrl,
       chunkIndex,
+      sourceFrameIndex: sourceFrameIndex++,
       toolPosition: frame.toolPosition,
+      clRecordIndex: frame.clRecordIndex,
     })),
   );
 }
@@ -554,6 +602,7 @@ function App() {
 
   const {
     simulationDebugUiEnabled,
+    simulationCompletedToolpathOnly,
     toolRenderMode,
     partRenderMode,
     stockRenderMode,
@@ -658,10 +707,13 @@ function App() {
       return;
     }
 
+    // Hydration updates Zustand during the first effect, but this effect's
+    // initial render still closes over empty defaults (including in StrictMode).
+    const current = useCamStore.getState();
     const payload: SidebarSettingsPayload = {
-      selectedOperationId,
-      selectedTreeNodeId,
-      operations,
+      selectedOperationId: current.selection.selectedOperationId,
+      selectedTreeNodeId: current.selection.selectedTreeNodeId,
+      operations: current.workspace.operations,
     };
 
     try {
@@ -681,53 +733,55 @@ function App() {
     meshUploadRequestRef.current = requestId;
 
     void (async () => {
-      const localMesh = readCachedMeshFromLocalStorage();
-      if (localMesh) {
-        if (cancelled || meshUploadRequestRef.current !== requestId) {
-          return;
-        }
-
-        setMeshName(localMesh.name);
-        setMeshUrl(null);
-        setMeshMaxZ(null);
-        setMeshCacheState("saving");
-        setMeshCacheMessage("Restoring STEP in backend memory...");
-
-        restoreController = new AbortController();
-        meshRestoreAbortRef.current = restoreController;
-        try {
-          const restoredMesh = await uploadLocalStorageMeshToBackend(localMesh, restoreController.signal);
-          if (!cancelled && meshUploadRequestRef.current === requestId) {
-            setMeshUrl(resolveBackendAssetUrl(restoredMesh.meshUrl));
-            setMeshMaxZ(restoredMesh.maxZ);
-            setCachedMeshVersion(restoredMesh.version);
-            setMeshCacheState("ready");
-            setMeshCacheMessage("STEP and mesh cached in backend memory.");
-          }
-        } catch (error: unknown) {
-          if (!cancelled && meshUploadRequestRef.current === requestId) {
-            console.error("Failed to restore STEP to backend cache", error);
-            setMeshCacheMessage("Cached in browser localStorage. Backend cache unavailable.");
-          }
-        } finally {
-          if (meshRestoreAbortRef.current === restoreController) {
-            meshRestoreAbortRef.current = null;
-          }
-        }
-        return;
-      }
-
       const cachedMesh = await fetchCachedMesh();
-      if (cancelled || meshUploadRequestRef.current !== requestId || !cachedMesh) {
+      if (cancelled || meshUploadRequestRef.current !== requestId) {
+        return;
+      }
+      if (cachedMesh) {
+        removeCachedMeshFromLocalStorage();
+        setMeshName(cachedMesh.name);
+        setMeshUrl(resolveBackendAssetUrl(cachedMesh.meshUrl));
+        setMeshMaxZ(cachedMesh.maxZ);
+        setCachedMeshVersion(cachedMesh.version);
+        setMeshCacheState("ready");
+        setMeshCacheMessage("STEP and mesh cached in backend.");
         return;
       }
 
-      setMeshName(cachedMesh.name);
-      setMeshUrl(resolveBackendAssetUrl(cachedMesh.meshUrl));
-      setMeshMaxZ(cachedMesh.maxZ);
-      setCachedMeshVersion(cachedMesh.version);
-      setMeshCacheState("ready");
-      setMeshCacheMessage("Cached in backend memory.");
+      // Migrate the old browser STEP once if no backend cache exists. New uploads
+      // are never saved in browser storage; failed migration preserves old data.
+      const localMesh = readCachedMeshFromLocalStorage();
+      if (!localMesh) {
+        return;
+      }
+      setMeshName(localMesh.name);
+      setMeshUrl(null);
+      setMeshMaxZ(null);
+      setMeshCacheState("saving");
+      setMeshCacheMessage("Migrating STEP to backend cache...");
+      restoreController = new AbortController();
+      meshRestoreAbortRef.current = restoreController;
+      try {
+        const restoredMesh = await uploadLocalStorageMeshToBackend(localMesh, restoreController.signal);
+        if (!cancelled && meshUploadRequestRef.current === requestId) {
+          setMeshUrl(resolveBackendAssetUrl(restoredMesh.meshUrl));
+          setMeshMaxZ(restoredMesh.maxZ);
+          setCachedMeshVersion(restoredMesh.version);
+          setMeshCacheState("ready");
+          setMeshCacheMessage("STEP and mesh cached in backend.");
+          removeCachedMeshFromLocalStorage();
+        }
+      } catch (error: unknown) {
+        if (!cancelled && meshUploadRequestRef.current === requestId) {
+          console.error("Failed to migrate STEP to backend cache", error);
+          setMeshCacheState("error");
+          setMeshCacheMessage("Backend cache unavailable; old browser STEP preserved.");
+        }
+      } finally {
+        if (meshRestoreAbortRef.current === restoreController) {
+          meshRestoreAbortRef.current = null;
+        }
+      }
     })().catch((error: unknown) => {
       if (cancelled || meshUploadRequestRef.current !== requestId) {
         return;
@@ -838,15 +892,71 @@ function App() {
     return createDisplayPolylines(generatedRecords);
   }, [generatedRecords]);
 
+  const otherOperationRecords = useMemo<PositionRecord3D[]>(() => {
+    return visibleOperations.flatMap((operation) =>
+      operation.id && operation.id !== simulationOperationId
+        ? (generatedOperationsById[operation.id]?.records ?? [])
+        : [],
+    );
+  }, [generatedOperationsById, visibleOperations, simulationOperationId]);
+
+  const otherOperationPolylines = useMemo<PolylineDefinition[]>(() => {
+    return createDisplayPolylines(otherOperationRecords);
+  }, [otherOperationRecords]);
+
+  const simulationClippingEligible = Boolean(
+    isSimulationMode &&
+      simulationCompletedToolpathOnly &&
+      simulationOperationId &&
+      (generatedOperationsById[simulationOperationId]?.records?.length ?? 0) >= 2,
+  );
+
+  const simulationFrameRecords = useMemo<PositionRecord3D[] | null>(() => {
+    if (!simulationClippingEligible || !simulationOperationId) {
+      return null;
+    }
+    const operationRecords = generatedOperationsById[simulationOperationId]?.records;
+    if (!operationRecords) {
+      return null;
+    }
+    return createSimulationFrameRecords(operationRecords, simulationDisplayFrames);
+  }, [generatedOperationsById, simulationClippingEligible, simulationDisplayFrames, simulationOperationId]);
+
+  const simulationCompletedPolylines = useMemo<PolylineDefinition[] | null>(() => {
+    if (!simulationFrameRecords) {
+      return simulationClippingEligible ? [] : null;
+    }
+    if (displayedSimulationFrameIndex == null) {
+      return [];
+    }
+    const displayedFrame = visibleSimulationFrames[displayedSimulationFrameIndex];
+    if (!displayedFrame) {
+      return [];
+    }
+    return createDisplayPolylines(
+      simulationFrameRecords.slice(0, displayedFrame.sourceFrameIndex + 1),
+    );
+  }, [
+    displayedSimulationFrameIndex,
+    simulationClippingEligible,
+    simulationFrameRecords,
+    visibleSimulationFrames,
+  ]);
+
   const viewportPolylines = useMemo<PolylineDefinition[]>(() => {
+    const clippingActive = simulationCompletedPolylines !== null;
+    const basePolylines = clippingActive
+      ? [...otherOperationPolylines, ...simulationCompletedPolylines]
+      : operationPolylines;
+
     if (!simulationDebugUiEnabled || !isSimulationMode || simulationChunkToolpathPoints.length < 2) {
-      return operationPolylines;
+      return basePolylines;
     }
 
     const startPoint = simulationChunkToolpathPoints[0];
     const endPoint = simulationChunkToolpathPoints[simulationChunkToolpathPoints.length - 1];
     return [
-      ...operationPolylines,
+      ...basePolylines,
       {
         id: "simulation-current-chunk-toolpath",
         name: "Current chunk toolpath",
@@ -857,7 +967,14 @@ function App() {
       ...createPointMarkerPolylines("simulation-current-chunk-start", "Chunk start", startPoint, CHUNK_START_MARKER_COLOR),
       ...createPointMarkerPolylines("simulation-current-chunk-end", "Chunk end", endPoint, CHUNK_END_MARKER_COLOR),
     ];
-  }, [isSimulationMode, operationPolylines, simulationChunkToolpathPoints, simulationDebugUiEnabled]);
+  }, [
+    isSimulationMode,
+    operationPolylines,
+    otherOperationPolylines,
+    simulationCompletedPolylines,
+    simulationChunkToolpathPoints,
+    simulationDebugUiEnabled,
+  ]);
 
   useEffect(() => {
     const nextFrameCount = visibleSimulationFrames.length;
@@ -1859,6 +1976,8 @@ function App() {
       const operation = (await response.json()) as GeneratedOperationResponse;
       const simulationRequest = new FormData();
       simulationRequest.append("operation", JSON.stringify(operation));
+      const runId = response.headers.get("X-Toolpath-Run-Id");
+      if (runId) simulationRequest.append("run_id", runId);
       simulationRequest.append("chunk_padding_x", String(CHUNK_PADDING_X));
       simulationRequest.append("chunk_padding_y", String(CHUNK_PADDING_Y));
       simulationRequest.append("chunk_padding_z", String(CHUNK_PADDING_Z));
@@ -1926,93 +2045,66 @@ function App() {
     meshUploadRequestRef.current = requestId;
     meshRestoreAbortRef.current?.abort();
     meshRestoreAbortRef.current = null;
-    removeCachedMeshFromLocalStorage();
-    queuedGenerationOperationsRef.current = [];
 
-    setMeshName(null);
-    setMeshUrl(null);
-    setMeshCacheState(file ? "saving" : "idle");
-    setMeshCacheMessage("");
-    setMeshMaxZ(null);
-    setCachedMeshVersion(null);
-    setSelectedMeshFace(null);
-    setOperations([]);
-    setGeneratingOperationId(null);
-    setSelectedOperationId(null);
-    setSelectedTreeNodeId("setup-1");
-    setGeneratedOperation(null);
-    setGeneratedOperationsById({});
-    resetSimulationPlaybackState();
-    setRequestState("idle");
-    setRequestMessage("");
-    setIsSimulationMode(false);
-    setFaceSelectionMode(false);
-    setIsOperationTypeDialogOpen(false);
-    setIsOperationDialogOpen(false);
-    setResumeOperationDialogAfterSelection(false);
-    setOperationDraft(null);
+    function clearWorkspace() {
+      queuedGenerationOperationsRef.current = [];
+      setMeshName(null);
+      setMeshUrl(null);
+      setMeshMaxZ(null);
+      setCachedMeshVersion(null);
+      setSelectedMeshFace(null);
+      setOperations([]);
+      setGeneratingOperationId(null);
+      setSelectedOperationId(null);
+      setSelectedTreeNodeId("setup-1");
+      setGeneratedOperation(null);
+      setGeneratedOperationsById({});
+      resetSimulationPlaybackState();
+      setRequestState("idle");
+      setRequestMessage("");
+      setIsSimulationMode(false);
+      setFaceSelectionMode(false);
+      setIsOperationTypeDialogOpen(false);
+      setIsOperationDialogOpen(false);
+      setResumeOperationDialogAfterSelection(false);
+      setOperationDraft(null);
+    }
 
     if (!file) {
+      clearWorkspace();
+      removeCachedMeshFromLocalStorage();
+      setMeshCacheState("idle");
+      setMeshCacheMessage("");
       void fetch(`${getBackendUrl()}/cam/mesh`, { method: "DELETE" }).catch(() => undefined);
       return;
     }
 
+    setMeshCacheState("saving");
+    setMeshCacheMessage("Processing STEP in backend...");
     try {
-      const localMesh = await saveMeshToLocalStorage(
-        file,
-        () => meshUploadRequestRef.current === requestId,
-      );
+      const cachedMesh = await uploadStepToBackend(file, file.name);
       if (meshUploadRequestRef.current !== requestId) {
         return;
       }
 
-      setMeshName(localMesh.payload.name);
-      setMeshUrl(null);
-      setMeshMaxZ(null);
-      setMeshCacheState("saving");
-      setMeshCacheMessage(
-        localMesh.saved
-          ? "Cached in browser localStorage. Processing STEP in backend..."
-          : "Processing STEP in backend...",
-      );
-
-      try {
-        const cachedMesh = await uploadStepToBackend(file, file.name);
-        if (meshUploadRequestRef.current !== requestId) {
-          return;
-        }
-
-        setMeshUrl(resolveBackendAssetUrl(cachedMesh.meshUrl));
-        setMeshMaxZ(cachedMesh.maxZ);
-        setCachedMeshVersion(cachedMesh.version);
-        setMeshCacheState("ready");
-        setMeshCacheMessage(
-          localMesh.saved
-            ? "STEP and mesh cached in browser and backend memory."
-            : "STEP and mesh cached in backend memory.",
-        );
-      } catch (error: unknown) {
-        if (meshUploadRequestRef.current !== requestId) {
-          return;
-        }
-
-        console.error("Failed to cache STEP in backend", error);
-        setMeshCacheState("error");
-        setMeshCacheMessage("Backend STEP processing unavailable.");
-      }
-    } catch (error) {
+      clearWorkspace();
+      removeCachedMeshFromLocalStorage();
+      setMeshName(cachedMesh.name);
+      setMeshUrl(resolveBackendAssetUrl(cachedMesh.meshUrl));
+      setMeshMaxZ(cachedMesh.maxZ);
+      setCachedMeshVersion(cachedMesh.version);
+      setMeshCacheState("ready");
+      setMeshCacheMessage("STEP and mesh cached in backend.");
+    } catch (error: unknown) {
       if (meshUploadRequestRef.current !== requestId) {
         return;
       }
 
+      console.error("Failed to cache STEP in backend", error);
       setMeshCacheState("error");
-      setMeshCacheMessage(
-        error instanceof Error ? error.message : "Failed to cache STEP in browser.",
-      );
+      setMeshCacheMessage("Backend STEP processing unavailable; previous mesh and operations preserved.");
       setRequestState("error");
-      setRequestMessage(
-        error instanceof Error ? error.message : "Failed to cache STEP in browser.",
-      );
+      setRequestMessage(error instanceof Error ? error.message : "Failed to cache STEP in backend.");
     }
   }
 
@@ -2094,6 +2186,10 @@ function App() {
 
                 <SimulationDebugOverlay
                   visible={simulationDebugUiEnabled && Boolean(simulationId)}
+                  simulationId={simulationId}
+                  clRecordIndex={displayedSimulationFrameIndex == null
+                    ? null
+                    : visibleSimulationFrames[displayedSimulationFrameIndex]?.clRecordIndex ?? null}
                   chunkIndex={simulationChunkIndex}
                   chunkCount={simulationChunkCount}
                   stepIndex={simulationChunkStepIndex}

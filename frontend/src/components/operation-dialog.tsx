@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { Button } from "t-components/button";
+import { Checkbox } from "t-components/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -423,21 +424,21 @@ function SchemaFields({ rootSchema, schema, value, path, onChange, onStartGeomet
 
   if (resolved.type === "boolean") {
     const checked = typeof value === "boolean" ? value : Boolean(resolved.default);
+    const id = `schema-field-${path.join("-")}`;
     return (
-      <label className="flex items-center justify-between gap-3 rounded-md border p-2">
-        <div>
-          <div className="text-sm font-medium">{label}</div>
+      <div className="flex items-center gap-2">
+        <Checkbox
+          id={id}
+          checked={checked}
+          onCheckedChange={(nextChecked) => onChange(path, nextChecked === true)}
+        />
+        <div className="space-y-0.5">
+          <Label htmlFor={id}>{label}</Label>
           {resolved.description ? (
             <p className="text-xs leading-5 text-muted-foreground">{resolved.description}</p>
           ) : null}
         </div>
-        <input
-          type="checkbox"
-          checked={checked}
-          onChange={(event) => onChange(path, event.target.checked)}
-          className="h-4 w-4"
-        />
-      </label>
+      </div>
     );
   }
 

@@ -127,7 +127,7 @@ export const camSchemaBundle = {
           },
           "depthOfCut": {
             "default": 5,
-            "exclusiveMinimum": 0,
+            "minimum": 0,
             "title": "Depth of cut",
             "type": "number",
             "x-opencam": {
@@ -1253,7 +1253,7 @@ export const camSchemaBundle = {
           },
           "depthOfCut": {
             "default": 5,
-            "exclusiveMinimum": 0,
+            "minimum": 0,
             "title": "Depth of cut",
             "type": "number",
             "x-opencam": {
@@ -1815,7 +1815,7 @@ export const camSchemaBundle = {
           },
           "depthOfCut": {
             "default": 5,
-            "exclusiveMinimum": 0,
+            "minimum": 0,
             "title": "Depth of cut",
             "type": "number",
             "x-opencam": {
@@ -2378,7 +2378,7 @@ export const camSchemaBundle = {
           },
           "depthOfCut": {
             "default": 5,
-            "exclusiveMinimum": 0,
+            "minimum": 0,
             "title": "Depth of cut",
             "type": "number",
             "x-opencam": {

@@ -1,0 +1,147 @@
+[
+  {
+    "name": "A",
+    "opencam": {
+      "cut_xy_points": 90,
+      "cut_path_groups": 2,
+      "cut_length_mm": 657.0570883548706,
+      "rapid_xy_length_mm": 184.85331918245043,
+      "interpath_rapid_xy_length_mm": 32.22386748979706,
+      "plunges": 2,
+      "retracts": 3,
+      "arcs": 0,
+      "median_segment_mm": 2.2579814658273456,
+      "uncovered_area_mm2": 24.233687339231768,
+      "overcut_area_mm2": 0.006599569238142693
+    },
+    "rhinocam": {
+      "cut_xy_points": 140,
+      "cut_path_groups": 2,
+      "cut_length_mm": 694.4323113022964,
+      "rapid_xy_length_mm": 327.9863061348261,
+      "interpath_rapid_xy_length_mm": 28.800977709098692,
+      "plunges": 2,
+      "retracts": 3,
+      "arcs": 0,
+      "median_segment_mm": 0.36303167905845907,
+      "uncovered_area_mm2": 24.233694088112138,
+      "overcut_area_mm2": 0.006432305078762279
+    }
+  },
+  {
+    "name": "B",
+    "opencam": {
+      "cut_xy_points": 1111,
+      "cut_path_groups": 3,
+      "cut_length_mm": 1156.5005655655164,
+      "rapid_xy_length_mm": 266.26412473025596,
+      "interpath_rapid_xy_length_mm": 59.39906707913886,
+      "plunges": 3,
+      "retracts": 4,
+      "arcs": 0,
+      "median_segment_mm": 0.46463103641493614,
+      "uncovered_area_mm2": 24.213262729412364,
+      "overcut_area_mm2": 0.010603949676161057
+    },
+    "rhinocam": {
+      "cut_xy_points": 953,
+      "cut_path_groups": 3,
+      "cut_length_mm": 1323.1267200436162,
+      "rapid_xy_length_mm": 449.4242143013565,
+      "interpath_rapid_xy_length_mm": 51.25366058044855,
+      "plunges": 3,
+      "retracts": 4,
+      "arcs": 45,
+      "median_segment_mm": 0.3869431482789342,
+      "uncovered_area_mm2": 24.220815126809743,
+      "overcut_area_mm2": 0.012041351831520304
+    }
+  },
+  {
+    "name": "C",
+    "opencam": {
+      "cut_xy_points": 106,
+      "cut_path_groups": 2,
+      "cut_length_mm": 2343.796,
+      "rapid_xy_length_mm": 300.0031493297368,
+      "interpath_rapid_xy_length_mm": 24.05000000000001,
+      "plunges": 2,
+      "retracts": 3,
+      "arcs": 0,
+      "median_segment_mm": 22.299999999999997,
+      "uncovered_area_mm2": 17.31292402605869,
+      "overcut_area_mm2": 0.0
+    },
+    "rhinocam": {
+      "cut_xy_points": 106,
+      "cut_path_groups": 2,
+      "cut_length_mm": 2343.788,
+      "rapid_xy_length_mm": 611.0427743079949,
+      "interpath_rapid_xy_length_mm": 48.89883689823307,
+      "plunges": 2,
+      "retracts": 3,
+      "arcs": 0,
+      "median_segment_mm": 19.125,
+      "uncovered_area_mm2": 17.31292402605869,
+      "overcut_area_mm2": 0.0
+    }
+  },
+  {
+    "name": "D",
+    "opencam": {
+      "cut_xy_points": 2276,
+      "cut_path_groups": 2,
+      "cut_length_mm": 1221.303018535466,
+      "rapid_xy_length_mm": 424.52815954451944,
+      "interpath_rapid_xy_length_mm": 29.85199619790943,
+      "plunges": 2,
+      "retracts": 3,
+      "arcs": 0,
+      "median_segment_mm": 0.42613905701178745,
+      "uncovered_area_mm2": 12.694313829889778,
+      "overcut_area_mm2": 0.024324444980116967
+    },
+    "rhinocam": {
+      "cut_xy_points": 2494,
+      "cut_path_groups": 2,
+      "cut_length_mm": 1306.1171847652124,
+      "rapid_xy_length_mm": 798.6029687231321,
+      "interpath_rapid_xy_length_mm": 24.653210926773834,
+      "plunges": 2,
+      "retracts": 3,
+      "arcs": 41,
+      "median_segment_mm": 0.2703442219549176,
+      "uncovered_area_mm2": 12.697368777110684,
+      "overcut_area_mm2": 0.08325284805517151
+    }
+  },
+  {
+    "name": "E",
+    "opencam": {
+      "cut_xy_points": 236,
+      "cut_path_groups": 1,
+      "cut_length_mm": 490.87216065399474,
+      "rapid_xy_length_mm": 474.4701036440547,
+      "interpath_rapid_xy_length_mm": 0,
+      "plunges": 1,
+      "retracts": 2,
+      "arcs": 0,
+      "median_segment_mm": 0.46740346596918375,
+      "uncovered_area_mm2": 17.31292402606131,
+      "overcut_area_mm2": 0.0010777502793179344
+    },
+    "rhinocam": {
+      "cut_xy_points": 622,
+      "cut_path_groups": 1,
+      "cut_length_mm": 636.9208496899772,
+      "rapid_xy_length_mm": 955.0814803389328,
+      "interpath_rapid_xy_length_mm": 0,
+      "plunges": 1,
+      "retracts": 2,
+      "arcs": 0,
+      "median_segment_mm": 0.08415461959988299,
+      "uncovered_area_mm2": 17.312924024633208,
+      "overcut_area_mm2": 0.0012857716470909915
+    }
+  }
+]

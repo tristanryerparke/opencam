@@ -45,16 +45,13 @@ def build_pocketing_records(
     record_groups: list[list[PositionRecord]] = []
     for geometry in operation.drive_geometry:
         polyline = geometry.to_numpy()
-        layer_options: dict[str, object] = {}
-        if clearing_layer_builder is build_adaptive_pocket_layers:
-            layer_options["cut_direction"] = operation.cut_parameters.cut_direction
         layers = clearing_layer_builder(
             polyline,
             tool_diameter=operation.tool.diameter,
             stepover_percent=stepover_percent,
             stock_to_leave=operation.cut_parameters.stock_to_leave,
             chord_tolerance=operation.advanced.chordal_tolerance,
-            **layer_options,
+            cut_direction=operation.cut_parameters.cut_direction,
         )
         if not layers:
             raise ValueError(
@@ -96,6 +93,7 @@ def build_pocketing_records(
             build_cut_record_sequence(
                 cut_layers,
                 clearance_plane_height=clearance_plane_height,
+                plunge_feedrate=operation.feeds_and_speeds.plunge_feedrate,
             )
         )
 

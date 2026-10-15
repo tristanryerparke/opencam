@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+from typing import Literal
 
 import numpy as np
 from shapely.geometry import Polygon
@@ -25,6 +26,7 @@ def build_pocket_layers(
     stepover_percent: float,
     stock_to_leave: float,
     chord_tolerance: float,
+    cut_direction: Literal["climb", "conventional"] = "climb",
 ) -> list[np.ndarray]:
     if not 0 < stepover_percent <= 100:
         raise ValueError("Stepover must be greater than 0% and no more than 100%.")
@@ -40,6 +42,7 @@ def build_pocket_layers(
         stepover_percent=stepover_percent,
         stock_to_leave=stock_to_leave,
         chord_tolerance=chord_tolerance,
+        cut_direction=cut_direction,
     )
     if not ordered_nodes:
         return []

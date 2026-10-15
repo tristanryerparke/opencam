@@ -1,0 +1,2422 @@
+{
+  "tool": {
+    "id": "rhcam-comparison-quarter-inch-flat",
+    "name": "1/4 inch flat end mill",
+    "toolNumber": 1,
+    "manualChange": false,
+    "diameter": 6.35,
+    "cuttingHeight": 25.4,
+    "shoulderHeight": 25.4,
+    "numFlutes": 2.0,
+    "type": "cylinder"
+  },
+  "toolAxis": [
+    0.0,
+    0.0,
+    1.0
+  ],
+  "preComments": [],
+  "postComments": [],
+  "spindleRpm": 12000,
+  "clearancePlaneHeight": 11.0,
+  "records": [
+    {
+      "type": "position_3d",
+      "x": 148.97407838435853,
+      "y": 450.47578472538254,
+      "z": 11.0,
+      "comment": "start at clearance plane",
+      "motionRole": "travel",
+      "feedType": "rapid"
+    },
+    {
+      "type": "position_3d",
+      "x": 148.97407838435853,
+      "y": 450.47578472538254,
+      "z": 1.0,
+      "comment": "plunge to cut",
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 250.0
+    },
+    {
+      "type": "position_3d",
+      "x": 148.97407838435853,
+      "y": 450.47578472538254,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 148.6854966930489,
+      "y": 450.2142295264333,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 148.3966416149935,
+      "y": 450.00000000000006,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 148.68549669304892,
+      "y": 449.7857704735668,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 149.2626600756682,
+      "y": 449.2626600756683,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 149.7857704735667,
+      "y": 448.685496693049,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 150.0,
+      "y": 448.39664161499354,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 150.21422952643326,
+      "y": 448.68549669304895,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 150.73733992433176,
+      "y": 449.26266007566824,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 151.31450330695105,
+      "y": 449.7857704735667,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 151.60335838500652,
+      "y": 450.0,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 151.31450330695102,
+      "y": 450.2142295264333,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 150.73733992433174,
+      "y": 450.7373399243318,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 150.21422952643323,
+      "y": 451.3145033069511,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 149.99999999999997,
+      "y": 451.6033583850065,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 149.78577047356669,
+      "y": 451.31450330695105,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 149.26266007566818,
+      "y": 450.73733992433176,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 148.97407838435853,
+      "y": 450.47578472538254,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 147.6783973544391,
+      "y": 451.44138362114666,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 147.17787097967442,
+      "y": 451.07016796187884,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 146.64336927884506,
+      "y": 450.749799971388,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 146.08003979551827,
+      "y": 450.48336496855336,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 145.4933077005658,
+      "y": 450.2734288681005,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 144.88882354480236,
+      "y": 450.1220134694395,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 144.27240884109267,
+      "y": 450.03057698563157,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 143.6500000000011,
+      "y": 450.00000000000006,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 144.2724088410927,
+      "y": 449.96942301436854,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 144.8888235448024,
+      "y": 449.8779865305606,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 145.49330770056582,
+      "y": 449.7265711318996,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 146.0800397955183,
+      "y": 449.51663503144675,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 146.64336927884506,
+      "y": 449.25020002861214,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 147.17787097967445,
+      "y": 448.9298320381213,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 147.6783973544391,
+      "y": 448.55861637885346,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 148.14012806053455,
+      "y": 448.14012806053466,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 148.55861637885334,
+      "y": 447.67839735443926,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 148.92983203812113,
+      "y": 447.17787097967454,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 149.25020002861203,
+      "y": 446.64336927884517,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 149.51663503144664,
+      "y": 446.0800397955184,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 149.7265711318995,
+      "y": 445.49330770056594,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 149.8779865305605,
+      "y": 444.8888235448025,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 149.96942301436843,
+      "y": 444.2724088410928,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 149.99999999999997,
+      "y": 443.65,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 150.0305769856315,
+      "y": 444.27240884109267,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 150.12201346943945,
+      "y": 444.8888235448024,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 150.27342886810044,
+      "y": 445.4933077005658,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 150.4833649685533,
+      "y": 446.0800397955183,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 150.74979997138792,
+      "y": 446.64336927884506,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 151.0701679618788,
+      "y": 447.1778709796745,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 151.4413836211466,
+      "y": 447.67839735443914,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 151.8598719394654,
+      "y": 448.14012806053455,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 152.32160264556083,
+      "y": 448.55861637885334,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 152.82212902032552,
+      "y": 448.92983203812116,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 153.3566307211549,
+      "y": 449.250200028612,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 153.91996020448167,
+      "y": 449.51663503144664,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 154.50669229943415,
+      "y": 449.7265711318995,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 155.11117645519758,
+      "y": 449.8779865305605,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 155.72759115890727,
+      "y": 449.96942301436843,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 156.34999999999994,
+      "y": 450.0,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 155.72759115890722,
+      "y": 450.03057698563157,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 155.11117645519752,
+      "y": 450.12201346943954,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 154.50669229943412,
+      "y": 450.2734288681005,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 153.91996020448164,
+      "y": 450.48336496855336,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 153.35663072115486,
+      "y": 450.749799971388,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 152.82212902032546,
+      "y": 451.0701679618789,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 152.3216026455608,
+      "y": 451.44138362114666,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 151.8598719394654,
+      "y": 451.85987193946545,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 151.44138362114657,
+      "y": 452.32160264556086,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 151.0701679618788,
+      "y": 452.8221290203256,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 150.74979997138792,
+      "y": 453.35663072115494,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 150.4833649685533,
+      "y": 453.9199602044817,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 150.27342886810044,
+      "y": 454.5066922994342,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 150.12201346943945,
+      "y": 455.1111764551976,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 150.0305769856315,
+      "y": 455.72759115890733,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 149.99999999999997,
+      "y": 456.35,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 149.96942301436843,
+      "y": 455.72759115890733,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 149.8779865305605,
+      "y": 455.1111764551976,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 149.7265711318995,
+      "y": 454.5066922994342,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 149.51663503144664,
+      "y": 453.9199602044817,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 149.25020002861203,
+      "y": 453.35663072115494,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 148.92983203812113,
+      "y": 452.8221290203255,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 148.55861637885334,
+      "y": 452.32160264556086,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 148.14012806053455,
+      "y": 451.85987193946545,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 147.6783973544391,
+      "y": 451.44138362114666,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 148.41249999999997,
+      "y": 443.6500000000001,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 148.41250000000002,
+      "y": 423.0125,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 151.58750000000003,
+      "y": 423.0125,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 151.58749999999998,
+      "y": 443.65,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 151.61043273922363,
+      "y": 444.1168066308195,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 151.6790101020796,
+      "y": 444.5791176586018,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 151.79257165107532,
+      "y": 445.03248077542435,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 151.95002372641497,
+      "y": 445.47252984663874,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 152.1498499785409,
+      "y": 445.8950269591338,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 152.3901259714091,
+      "y": 446.2959032347558,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 152.66853771585994,
+      "y": 446.67129801582934,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 152.98240395459902,
+      "y": 447.0175960454009,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 153.3287019841706,
+      "y": 447.33146228414,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 153.70409676524412,
+      "y": 447.60987402859087,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 154.10497304086616,
+      "y": 447.850150021459,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 154.52747015336124,
+      "y": 448.049976273585,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 154.9675192245756,
+      "y": 448.2074283489246,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 155.42088234139817,
+      "y": 448.32098989792036,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 155.88319336918045,
+      "y": 448.3895672607763,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 156.34999999999997,
+      "y": 448.41249999999997,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 176.98749999999998,
+      "y": 448.4124999999999,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 176.98749999999998,
+      "y": 451.5874999999999,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 156.34999999999994,
+      "y": 451.58750000000003,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 155.88319336918042,
+      "y": 451.6104327392237,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 155.42088234139814,
+      "y": 451.67901010207964,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 154.96751922457557,
+      "y": 451.7925716510754,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 154.5274701533612,
+      "y": 451.95002372641505,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 154.10497304086613,
+      "y": 452.149849978541,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 153.7040967652441,
+      "y": 452.39012597140913,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 153.32870198417058,
+      "y": 452.66853771586,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 152.98240395459902,
+      "y": 452.9824039545991,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 152.6685377158599,
+      "y": 453.32870198417066,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 152.39012597140908,
+      "y": 453.7040967652442,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 152.1498499785409,
+      "y": 454.10497304086624,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 151.95002372641497,
+      "y": 454.52747015336126,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 151.79257165107532,
+      "y": 454.96751922457565,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 151.6790101020796,
+      "y": 455.4208823413982,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 151.61043273922363,
+      "y": 455.8831933691805,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 151.58749999999998,
+      "y": 456.35,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 151.58749999999992,
+      "y": 476.9875,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 148.4124999999999,
+      "y": 476.9875,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 148.41249999999997,
+      "y": 456.35,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 148.38956726077632,
+      "y": 455.8831933691805,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 148.32098989792036,
+      "y": 455.4208823413982,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 148.20742834892462,
+      "y": 454.96751922457565,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 148.04997627358497,
+      "y": 454.52747015336126,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 147.85015002145903,
+      "y": 454.1049730408662,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 147.60987402859084,
+      "y": 453.7040967652442,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 147.33146228414,
+      "y": 453.32870198417066,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 147.01759604540092,
+      "y": 452.9824039545991,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 146.67129801582934,
+      "y": 452.66853771586,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 146.29590323475583,
+      "y": 452.39012597140913,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 145.8950269591338,
+      "y": 452.149849978541,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 145.4725298466387,
+      "y": 451.950023726415,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 145.03248077542435,
+      "y": 451.7925716510754,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 144.57911765860177,
+      "y": 451.67901010207964,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 144.1168066308195,
+      "y": 451.6104327392237,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 143.64999999999998,
+      "y": 451.58750000000003,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 123.01249999999997,
+      "y": 451.5875000000001,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 123.01249999999996,
+      "y": 448.4125000000001,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 143.64999999999998,
+      "y": 448.4125000000001,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 144.1168066308195,
+      "y": 448.3895672607764,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 144.57911765860177,
+      "y": 448.32098989792047,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 145.03248077542435,
+      "y": 448.20742834892474,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 145.4725298466387,
+      "y": 448.0499762735851,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 145.8950269591338,
+      "y": 447.8501500214591,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 146.29590323475583,
+      "y": 447.609874028591,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 146.67129801582934,
+      "y": 447.3314622841401,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 147.01759604540092,
+      "y": 447.01759604540104,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 147.33146228414,
+      "y": 446.67129801582945,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 147.60987402859084,
+      "y": 446.29590323475594,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 147.85015002145903,
+      "y": 445.89502695913393,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 148.04997627358497,
+      "y": 445.47252984663885,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 148.20742834892462,
+      "y": 445.03248077542446,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 148.32098989792036,
+      "y": 444.5791176586019,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 148.38956726077632,
+      "y": 444.1168066308196,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 148.41249999999997,
+      "y": 443.6500000000001,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 146.825,
+      "y": 443.6500000000001,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 146.82500000000005,
+      "y": 421.425,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 153.175,
+      "y": 421.425,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 153.17499999999995,
+      "y": 443.65,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 153.19028849281574,
+      "y": 443.9612044205463,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 153.23600673471972,
+      "y": 444.2694117724012,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 153.3117144340502,
+      "y": 444.57165385028287,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 153.41668248427663,
+      "y": 444.8650198977591,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 153.54989998569394,
+      "y": 445.1466846394225,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 153.71008398093937,
+      "y": 445.41393548983723,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 153.89569181057328,
+      "y": 445.66419867721953,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 154.10493596973268,
+      "y": 445.8950640302673,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 154.33580132278038,
+      "y": 446.10430818942666,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 154.58606451016274,
+      "y": 446.28991601906057,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 154.85331536057743,
+      "y": 446.45010001430603,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 155.1349801022408,
+      "y": 446.5833175157233,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 155.42834614971704,
+      "y": 446.68828556594974,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 155.73058822759876,
+      "y": 446.76399326528025,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 156.03879557945362,
+      "y": 446.8097115071842,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 156.34999999999997,
+      "y": 446.825,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 178.57499999999996,
+      "y": 446.82499999999993,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 178.575,
+      "y": 453.1749999999999,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 156.34999999999997,
+      "y": 453.175,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 156.03879557945362,
+      "y": 453.1902884928158,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 155.73058822759876,
+      "y": 453.23600673471975,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 155.42834614971704,
+      "y": 453.31171443405026,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 155.1349801022408,
+      "y": 453.4166824842767,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 154.85331536057743,
+      "y": 453.54989998569397,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 154.58606451016274,
+      "y": 453.71008398093943,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 154.33580132278038,
+      "y": 453.89569181057334,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 154.10493596973268,
+      "y": 454.1049359697327,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 153.89569181057328,
+      "y": 454.33580132278047,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 153.71008398093937,
+      "y": 454.58606451016277,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 153.54989998569394,
+      "y": 454.8533153605775,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 153.41668248427663,
+      "y": 455.1349801022409,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 153.3117144340502,
+      "y": 455.42834614971713,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 153.23600673471972,
+      "y": 455.7305882275988,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 153.19028849281574,
+      "y": 456.0387955794537,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 153.17499999999995,
+      "y": 456.35,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 153.1749999999999,
+      "y": 478.575,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 146.82499999999993,
+      "y": 478.575,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 146.825,
+      "y": 456.35,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 146.8097115071842,
+      "y": 456.0387955794537,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 146.76399326528022,
+      "y": 455.73058822759884,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 146.68828556594974,
+      "y": 455.42834614971713,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 146.5833175157233,
+      "y": 455.1349801022409,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 146.450100014306,
+      "y": 454.8533153605775,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 146.28991601906057,
+      "y": 454.58606451016277,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 146.10430818942666,
+      "y": 454.33580132278047,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 145.89506403026726,
+      "y": 454.1049359697327,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 145.66419867721956,
+      "y": 453.89569181057334,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 145.4139354898372,
+      "y": 453.71008398093943,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 145.14668463942252,
+      "y": 453.54989998569397,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 144.86501989775914,
+      "y": 453.4166824842767,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 144.5716538502829,
+      "y": 453.31171443405026,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 144.26941177240118,
+      "y": 453.23600673471975,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 143.96120442054632,
+      "y": 453.1902884928158,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 143.64999999999998,
+      "y": 453.175,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 121.42499999999998,
+      "y": 453.17500000000007,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 121.42499999999995,
+      "y": 446.8250000000001,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 143.64999999999998,
+      "y": 446.8250000000001,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 143.96120442054632,
+      "y": 446.8097115071843,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 144.26941177240118,
+      "y": 446.76399326528036,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 144.5716538502829,
+      "y": 446.68828556594985,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 144.86501989775914,
+      "y": 446.5833175157234,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 145.14668463942252,
+      "y": 446.45010001430614,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 145.4139354898372,
+      "y": 446.2899160190607,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 145.66419867721956,
+      "y": 446.1043081894268,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 145.89506403026726,
+      "y": 445.8950640302674,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 146.10430818942666,
+      "y": 445.66419867721964,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 146.28991601906057,
+      "y": 445.41393548983734,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 146.450100014306,
+      "y": 445.14668463942263,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 146.5833175157233,
+      "y": 444.8650198977592,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 146.68828556594974,
+      "y": 444.571653850283,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 146.76399326528022,
+      "y": 444.26941177240127,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 146.8097115071842,
+      "y": 443.96120442054644,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 146.825,
+      "y": 443.6500000000001,
+      "z": 1.0,
+      "comment": null,
+      "motionRole": "cutting",
+      "feedType": "feed_rate",
+      "feedrate": 500.0
+    },
+    {
+      "type": "position_3d",
+      "x": 146.825,
+      "y": 443.6500000000001,
+      "z": 11.0,
+      "comment": "return to clearance plane",
+      "motionRole": "travel",
+      "feedType": "rapid"
+    }
+  ]
+}

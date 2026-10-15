@@ -3,13 +3,17 @@ import math
 import numpy as np
 from shapely import (
     GeometryType,
-    boundary as shapely_boundary,
-    buffer as shapely_buffer,
     get_coordinates,
     get_parts,
     get_type_id,
     linearrings,
     polygons,
+)
+from shapely import (
+    boundary as shapely_boundary,
+)
+from shapely import (
+    buffer as shapely_buffer,
 )
 
 from opencam.engine.closed_polyline.cleanup import dedup, simplify
@@ -96,6 +100,11 @@ def offset(
 
         # A valid closed polyline needs at least 4 rows: A, B, C, A.
         if ring.shape[0] >= 4:
-            result.append(simplify(dedup(ring)))
+            try:
+                result.append(simplify(dedup(ring)))
+            except ValueError:
+                # A final inward offset can collapse to fewer than three
+                # distinct vertices. It contributes no machinable loop.
+                continue
 
     return result

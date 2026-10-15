@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Literal
+
 import numpy as np
 from shapely.geometry import Polygon
 
@@ -14,6 +16,7 @@ def build_ordered_pocket_nodes(
     stepover_percent: float,
     stock_to_leave: float,
     chord_tolerance: float = DEFAULT_BUFFER_CHORD_TOLERANCE,
+    cut_direction: Literal["climb", "conventional"] = "climb",
 ) -> list[PocketTreeNode]:
     node_layers = build_offset_node_layers(
         base_polyline,
@@ -21,6 +24,7 @@ def build_ordered_pocket_nodes(
         stepover_percent=stepover_percent,
         stock_to_leave=stock_to_leave,
         chord_tolerance=chord_tolerance,
+        cut_direction=cut_direction,
     )
     if not node_layers:
         return []
@@ -40,6 +44,7 @@ def build_offset_node_layers(
     stepover_percent: float,
     stock_to_leave: float,
     chord_tolerance: float = DEFAULT_BUFFER_CHORD_TOLERANCE,
+    cut_direction: Literal["climb", "conventional"] = "climb",
 ) -> list[list[PocketTreeNode]]:
     first_offset_distance = tool_diameter / 2 + stock_to_leave
     stepover_distance = tool_diameter * (stepover_percent / 100)
@@ -57,7 +62,7 @@ def build_offset_node_layers(
 
         layer = [
             PocketTreeNode(
-                polyline=polyline,
+                polyline=_orient_for_cut_direction(polyline, cut_direction),
                 polygon=Polygon(polyline),
             )
             for polyline in polylines
@@ -67,6 +72,20 @@ def build_offset_node_layers(
         offset_distance += stepover_distance
 
     return node_layers
+
+
+def _orient_for_cut_direction(
+    polyline: np.ndarray,
+    cut_direction: Literal["climb", "conventional"],
+) -> np.ndarray:
+    signed_area = float(np.sum(
+        polyline[:-1, 0] * polyline[1:, 1]
+        - polyline[1:, 0] * polyline[:-1, 1]
+    ))
+    is_counterclockwise = signed_area > 0
+    if is_counterclockwise == (cut_direction == "climb"):
+        return polyline
+    return np.ascontiguousarray(polyline[::-1])
 
 
 def build_tree(node_layers: list[list[PocketTreeNode]]) -> list[PocketTreeNode]:

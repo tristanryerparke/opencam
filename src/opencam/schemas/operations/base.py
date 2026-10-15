@@ -4,11 +4,10 @@ from collections.abc import Iterable
 from typing import Annotated, Literal
 from uuid import uuid4
 
-from pydantic import ConfigDict, Field
+from pydantic import Field
 
 from opencam.schemas.base import CamelBaseModel
 from opencam.schemas.tools import Tool
-
 
 DEFAULT_CLEARANCE_OFFSET = 10.0
 
@@ -62,7 +61,7 @@ ClearanceSettings = Annotated[
 
 class CAMLevels(CamelBaseModel):
     drive_geometry_position: Literal["at_top", "at_bottom"] = Field(default="at_bottom", title="Drive geometry at")
-    depth_of_cut: float = Field(default=5.0, gt=0, title="Depth of cut", json_schema_extra=ui_metadata(unit="mm"))
+    depth_of_cut: float = Field(default=5.0, ge=0, title="Depth of cut", json_schema_extra=ui_metadata(unit="mm"))
     max_stepdown: float = Field(default=20.0, gt=0, title="Max stepdown", json_schema_extra=ui_metadata(unit="mm"))
 
     def z_bounds(self, geometry_z: float) -> tuple[float, float]:

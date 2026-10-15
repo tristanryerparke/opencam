@@ -1,0 +1,124 @@
+{
+  "document_name": "test_mcp.3dm",
+  "document_units": "Millimeters",
+  "object_count": 6,
+  "tool_diameter_inches": 0.25,
+  "tool_diameter_document_units": 6.35,
+  "depth_inches": 0.0,
+  "depth_document_units": 0.0,
+  "control_z_document_units": 1.0,
+  "stepover_percent": 25.0,
+  "stepover_document_units": 1.5875,
+  "stock_to_leave_document_units": 0.0,
+  "tolerance_document_units": 0.01,
+  "cut_direction": "climb",
+  "cut_pattern": "offset",
+  "entry": "vertical",
+  "operations": [
+    {
+      "name": "A",
+      "operation_name": "RhinoCAM_A_offset_climb",
+      "control_guids": [
+        "9d37e330-0b66-470b-bd97-668e26d6b89f"
+      ],
+      "top_z_document_units": 1.0,
+      "total_cut_depth_document_units": 0.0,
+      "cut_geometry_location": 1,
+      "stepover_percent": 25.0,
+      "stock_to_leave_document_units": 0.0,
+      "tolerance_document_units": 0.01,
+      "cut_direction": "CONTOUR_CLIMB",
+      "cut_type": "CONTOUR_OFFSET",
+      "keep_tool_down": true,
+      "engage_type": "CONTOUR_ENGRET_VERTICAL",
+      "regenerated": true,
+      "posted": true,
+      "remote_nc_path": "/Users/tristan-desktop/Documents/RhinoCAM-Post/test_mcp_RhinoCAM_A_offset_climb.nc"
+    },
+    {
+      "name": "B",
+      "operation_name": "RhinoCAM_B_offset_climb",
+      "control_guids": [
+        "c645b019-310a-4326-8427-446eb1f5ac05"
+      ],
+      "top_z_document_units": 1.0,
+      "total_cut_depth_document_units": 0.0,
+      "cut_geometry_location": 1,
+      "stepover_percent": 25.0,
+      "stock_to_leave_document_units": 0.0,
+      "tolerance_document_units": 0.01,
+      "cut_direction": "CONTOUR_CLIMB",
+      "cut_type": "CONTOUR_OFFSET",
+      "keep_tool_down": true,
+      "engage_type": "CONTOUR_ENGRET_VERTICAL",
+      "regenerated": true,
+      "posted": true,
+      "remote_nc_path": "/Users/tristan-desktop/Documents/RhinoCAM-Post/test_mcp_RhinoCAM_B_offset_climb.nc"
+    },
+    {
+      "name": "C",
+      "operation_name": "RhinoCAM_C_offset_climb",
+      "control_guids": [
+        "dbe5517c-eccd-4166-a699-519c8351c6e1",
+        "14f8f0ca-8ce8-44bf-a0f0-7f6f23bd29a7"
+      ],
+      "top_z_document_units": 1.0,
+      "total_cut_depth_document_units": 0.0,
+      "cut_geometry_location": 1,
+      "stepover_percent": 25.0,
+      "stock_to_leave_document_units": 0.0,
+      "tolerance_document_units": 0.01,
+      "cut_direction": "CONTOUR_CLIMB",
+      "cut_type": "CONTOUR_OFFSET",
+      "keep_tool_down": true,
+      "engage_type": "CONTOUR_ENGRET_VERTICAL",
+      "regenerated": true,
+      "posted": true,
+      "remote_nc_path": "/Users/tristan-desktop/Documents/RhinoCAM-Post/test_mcp_RhinoCAM_C_offset_climb.nc"
+    },
+    {
+      "name": "D",
+      "operation_name": "RhinoCAM_D_offset_climb",
+      "control_guids": [
+        "3a0d7433-db69-49d1-bf51-f584b78c6162"
+      ],
+      "top_z_document_units": 1.0,
+      "total_cut_depth_document_units": 0.0,
+      "cut_geometry_location": 1,
+      "stepover_percent": 25.0,
+      "stock_to_leave_document_units": 0.0,
+      "tolerance_document_units": 0.01,
+      "cut_direction": "CONTOUR_CLIMB",
+      "cut_type": "CONTOUR_OFFSET",
+      "keep_tool_down": true,
+      "engage_type": "CONTOUR_ENGRET_VERTICAL",
+      "regenerated": true,
+      "posted": true,
+      "remote_nc_path": "/Users/tristan-desktop/Documents/RhinoCAM-Post/test_mcp_RhinoCAM_D_offset_climb.nc"
+    },
+    {
+      "name": "E",
+      "operation_name": "RhinoCAM_E_offset_climb",
+      "control_guids": [
+        "a204607c-6b3a-48b8-88bd-89bca6587e85"
+      ],
+      "top_z_document_units": 1.0,
+      "total_cut_depth_document_units": 0.0,
+      "cut_geometry_location": 1,
+      "stepover_percent": 25.0,
+      "stock_to_leave_document_units": 0.0,
+      "tolerance_document_units": 0.01,
+      "cut_direction": "CONTOUR_CLIMB",
+      "cut_type": "CONTOUR_OFFSET",
+      "keep_tool_down": true,
+      "engage_type": "CONTOUR_ENGRET_VERTICAL",
+      "regenerated": true,
+      "posted": true,
+      "remote_nc_path": "/Users/tristan-desktop/Documents/RhinoCAM-Post/test_mcp_RhinoCAM_E_offset_climb.nc"
+    }
+  ],
+  "active_post_processor": "C:\\ProgramData\\MecSoft Corporation\\RhinoCAM 2026 for Rhino 8.0\\Posts\\Mill\\SPM\\GRBL-MM.spm",
+  "setup_count": 1,
+  "setup_name": "RhinoCAM Comparison",
+  "operation_count": 5
+}

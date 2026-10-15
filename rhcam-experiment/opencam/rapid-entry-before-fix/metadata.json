@@ -1,0 +1,58 @@
+{
+  "units": "mm",
+  "tool_diameter_mm": 6.35,
+  "tool_diameter_inches": 0.25,
+  "depth_mm": 0.0,
+  "drive_geometry_z_mm": 1.0,
+  "drive_geometry_position": "at_bottom",
+  "clearing_strategy": "offset",
+  "stepover_percent": 25.0,
+  "stepover_mm": 1.5875,
+  "cut_direction": "climb",
+  "keep_tool_down": true,
+  "post_processor": "OpenCAM Duet 3D baseline",
+  "files": [
+    {
+      "name": "A",
+      "source": "assets/operations/pocketing/pocketing_A_drive_curve.json",
+      "gcode": "rhcam-experiment/opencam/opencam_A_offset_climb.nc",
+      "records": "rhcam-experiment/opencam/opencam_A_offset_climb.records.json",
+      "record_count": 98
+    },
+    {
+      "name": "B",
+      "source": "assets/operations/pocketing/pocketing_B_drive_curve.json",
+      "gcode": "rhcam-experiment/opencam/opencam_B_offset_climb.nc",
+      "records": "rhcam-experiment/opencam/opencam_B_offset_climb.records.json",
+      "record_count": 1121
+    },
+    {
+      "name": "C_1",
+      "source": "assets/operations/pocketing/pocketing_C_drive_curve_1.json",
+      "gcode": "rhcam-experiment/opencam/opencam_C_1_offset_climb.nc",
+      "records": "rhcam-experiment/opencam/opencam_C_1_offset_climb.records.json",
+      "record_count": 57
+    },
+    {
+      "name": "C_2",
+      "source": "assets/operations/pocketing/pocketing_C_drive_curve_2.json",
+      "gcode": "rhcam-experiment/opencam/opencam_C_2_offset_climb.nc",
+      "records": "rhcam-experiment/opencam/opencam_C_2_offset_climb.records.json",
+      "record_count": 57
+    },
+    {
+      "name": "D",
+      "source": "assets/operations/pocketing/pocketing_D_drive_curve.json",
+      "gcode": "rhcam-experiment/opencam/opencam_D_offset_climb.nc",
+      "records": "rhcam-experiment/opencam/opencam_D_offset_climb.records.json",
+      "record_count": 2283
+    },
+    {
+      "name": "E",
+      "source": "assets/operations/pocketing/pocketing_E_drive_curve.json",
+      "gcode": "rhcam-experiment/opencam/opencam_E_offset_climb.nc",
+      "records": "rhcam-experiment/opencam/opencam_E_offset_climb.records.json",
+      "record_count": 240
+    }
+  ]
+}

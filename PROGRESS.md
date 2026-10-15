@@ -328,8 +328,32 @@ Backend uses atomic `mesh-cache/current.zip` replacement, stable cache ID on res
 
 ## RhinoCAM offset-pocket comparison
 
-- [ ] Commit current adaptive-pocketing work, merge it into `main`, and create `rhcam-comparison`.
-- [ ] Generate 25%-stepover offset-pocket G-code for every drive curve with OpenCAM.
-- [ ] Copy curves into remote Rhino document; generate matching plunge-entry RhinoCAM pockets.
-- [ ] Store both output sets under `rhcam-experiment/`; compare points and motion behavior.
-- [ ] Report algorithm differences and unresolved CAM-setting gaps.
+- [x] Commit current adaptive-pocketing work, merge it into `main`, and create `rhcam-comparison`.
+- [x] Make offset-pocket loop winding honor OpenCAM `cut_direction`.
+- [x] Generate 25%-stepover offset-pocket G-code for every drive curve with OpenCAM.
+- [x] Copy curves into remote Rhino document; generate matching plunge-entry RhinoCAM pockets.
+- [x] Store both output sets under `rhcam-experiment/`; compare points and motion behavior.
+- [x] Render and report algorithm differences and unresolved CAM-setting gaps.
+
+Zero depth regenerates only after setting rough depth, rough depth per cut, and finish depth to zero. Crash diagnosis after clean-document retry: cleanup deleted the only MOp setup, then the operation script called `Create2AxPocketingMOp()` without recreating and activating a setup. Earlier successful zero-depth probe still had an active setup. RhinoCAM's native API terminated Rhino instead of returning a Python error; no Rhino crash dump or result sentinel was produced. Fixed by creating and explicitly activating fresh `RhinoCAM Comparison` setup before any MOp; operation A then regenerated successfully. A second crash came from hard-coding the post directory as `C:\\users\\...`; the proven `winepath.exe -w` path (`Z:\\Users\\...`) posts all six operations reliably. On every Windows Rhino restart, dismiss RhinoCAM's blocked-internet dialog before starting Script Server, then verify server with a ping script.
+
+RhinoCAM defaults (`0.635 mm` stock, `0.1 mm` tolerance) were detected and excluded; final operations explicitly use `0 mm` stock and `0.01 mm` tolerance. OpenCAM offset entry was also corrected from rapid descent to configured feed plunge. Final matched comparison: core centerlines and swept coverage nearly coincide; OpenCAM traverses inner-to-outer and keeps B/D continuous, while RhinoCAM traverses outer-to-inner, uses more fitted arcs, and splits B/D into extra plunge groups. Artifacts and full metrics are in `rhcam-experiment/README.md`; 102 maintained tests, focused Ruff, diff check, and frontend build pass. Root-level pytest still collects two stale `old-demos/` files whose removed `opencam.services.mesh` imports fail before maintained tests run.
+
+### RhinoCAM inner-to-outer rerun
+
+- [x] Identify and verify documented RhinoCAM traversal setting.
+- [ ] Update all six existing MOps to inner-to-outer, regenerate, and re-post.
+- [x] Regenerate OpenCAM with keep-tool-down disabled.
+- [x] Preserve prior NC files; retrieve rerun outputs separately.
+- [ ] Rebuild metrics, images, and findings against matched traversal/linking settings.
+
+RhinoCAM manual documents `SetPocketOffsetType(PocketOffsetType.CONTOUR_START_INSIDE)`, but the installed `MecSoftCAM.Objects.Cut2AxPocketingMOp` does not expose `SetPocketOffsetType` or `GetPocketOffsetType`. Both Python `dir(mop)` and .NET reflection confirm only spatial `SetStartPoint(ContourStartPointType)` is available. No Rhino MOp changed during the failed setter call; prior outputs were restored. OpenCAM rerun now has `keep_tool_down=false`, with prior keep-down files preserved under `rhcam-experiment/opencam/inner-to-outer-keep-tool-down/`. Rhino inner-to-outer requires manual UI configuration or an updated RhinoCAM API binding before matched rerun can finish.
+
+### Combined C pocket operation
+
+- [x] Generate one OpenCAM C operation containing both C drive curves.
+- [x] Replace RhinoCAM C_1/C_2 MOps with one C MOp using both control GUIDs.
+- [x] Update comparison analysis and graphics to treat C as one multi-curve operation.
+- [x] Add combined-drive-geometry coverage to maintained pocketing tests.
+
+Combined C now uses two drive geometries in one OpenCAM operation and two selected control GUIDs in one RhinoCAM MOp. Both outputs produce 106 XY cut points, two cutting groups, two plunges, and 2343.8 mm cutting length. OpenCAM inter-pocket rapid is 24.1 mm versus RhinoCAM 48.9 mm due to different seam/start choices. With OpenCAM keep-tool-down disabled, aggregate path groups, plunges, and retracts now match RhinoCAM exactly; updated plots and metrics are under `rhcam-experiment/`.

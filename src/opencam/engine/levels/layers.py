@@ -81,6 +81,7 @@ def build_cut_record_sequence(
     cut_layers: list[list[FeedRatePositionRecord3D | ArcPositionRecord3D]],
     *,
     clearance_plane_height: float,
+    plunge_feedrate: float | None = None,
 ) -> list[PositionRecord]:
     records: list[PositionRecord] = []
     current: PositionRecord3D | None = None
@@ -88,13 +89,27 @@ def build_cut_record_sequence(
     for cut_layer in cut_layers:
         if not cut_layer:
             continue
-        records.extend(
-            build_rapid_records(
-                current,
-                cut_layer[0],
-                clearance_plane_height=clearance_plane_height,
-            )
+        approach = build_rapid_records(
+            current,
+            cut_layer[0],
+            clearance_plane_height=clearance_plane_height,
         )
+        if (
+            plunge_feedrate is not None
+            and len(approach) >= 2
+            and approach[-1].x == approach[-2].x
+            and approach[-1].y == approach[-2].y
+            and approach[-1].z < approach[-2].z
+        ):
+            target = approach[-1]
+            approach[-1] = FeedRatePositionRecord3D(
+                x=target.x,
+                y=target.y,
+                z=target.z,
+                feedrate=plunge_feedrate,
+                comment="plunge to cut",
+            )
+        records.extend(approach)
         records.extend(cut_layer)
         current = cut_layer[-1]
 

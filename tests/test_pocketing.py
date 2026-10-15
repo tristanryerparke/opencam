@@ -15,14 +15,20 @@ from opencam.engine.pocketing.layer import (
     last_coordinate,
     node_to_layer_polyline,
 )
-from opencam.engine.pocketing.seams import longest_straight_edge_midpoint_length_near_initial_seam
+from opencam.engine.pocketing.seams import (
+    longest_straight_edge_midpoint_length_near_initial_seam,
+)
 from opencam.engine.pocketing.tree import build_ordered_pocket_nodes
 from opencam.schemas.cam import CAMSetup
 from opencam.schemas.cl_data import FeedRatePositionRecord3D, RapidPositionRecord3D
 from opencam.schemas.geometry_2_5d import ClosedPolyline25D
 from opencam.schemas.geometry_2d import Point2D
 from opencam.schemas.operations.base import AbsoluteClearance, CAMLevels, FeedsAndSpeeds
-from opencam.schemas.operations.pocketing import Pocketing2dOp, PocketingCutSettings, StepoverMode
+from opencam.schemas.operations.pocketing import (
+    Pocketing2dOp,
+    PocketingCutSettings,
+    StepoverMode,
+)
 from opencam.schemas.tools import CylindricalTool
 from opencam.services.cam_engine import cam_engine
 from opencam.services.tool_mesh import build_tool
@@ -64,20 +70,29 @@ def generate_pocket(*, tmp_path, depth_of_cut: float):
 
 def test_pocketing_reuses_cut_geometry_across_layers(tmp_path):
     records = generate_pocket(tmp_path=tmp_path, depth_of_cut=2.0).records
-    cuts = [record for record in records if isinstance(record, FeedRatePositionRecord3D)]
+    plunges = [
+        record
+        for record in records
+        if isinstance(record, FeedRatePositionRecord3D) and record.comment == "plunge to cut"
+    ]
+    cuts = [
+        record
+        for record in records
+        if isinstance(record, FeedRatePositionRecord3D) and record.comment != "plunge to cut"
+    ]
 
     expected_xy = [
         (5.0, 2.0),
-        (2.0, 2.0),
-        (2.0, 4.0),
-        (8.0, 4.0),
         (8.0, 2.0),
+        (8.0, 4.0),
+        (2.0, 4.0),
+        (2.0, 2.0),
         (5.0, 2.0),
         (5.0, 1.0),
-        (1.0, 1.0),
-        (1.0, 5.0),
-        (9.0, 5.0),
         (9.0, 1.0),
+        (9.0, 5.0),
+        (1.0, 5.0),
+        (1.0, 1.0),
         (5.0, 1.0),
     ]
 
@@ -87,28 +102,110 @@ def test_pocketing_reuses_cut_geometry_across_layers(tmp_path):
     assert [(record.x, record.y) for record in first_layer] == expected_xy
     assert [(record.x, record.y) for record in second_layer] == expected_xy
     assert {record.feedrate for record in cuts} == {100.0}
+    assert [(record.x, record.y, record.z) for record in plunges] == [
+        (5.0, 2.0, -1.0),
+        (5.0, 2.0, -2.0),
+    ]
+    assert {record.feedrate for record in plunges} == {250.0}
     assert isinstance(records[0], RapidPositionRecord3D)
     assert isinstance(records[-1], RapidPositionRecord3D)
 
 
 def test_pocketing_starts_first_loop_at_midpoint_of_longest_nearby_edge(tmp_path):
     records = generate_pocket(tmp_path=tmp_path, depth_of_cut=1.0).records
-    cuts = [record for record in records if isinstance(record, FeedRatePositionRecord3D)]
+    plunges = [
+        record
+        for record in records
+        if isinstance(record, FeedRatePositionRecord3D) and record.comment == "plunge to cut"
+    ]
+    cuts = [
+        record
+        for record in records
+        if isinstance(record, FeedRatePositionRecord3D) and record.comment != "plunge to cut"
+    ]
 
+    assert [(record.x, record.y, record.z, record.feedrate) for record in plunges] == [
+        (5.0, 2.0, -1.0, 250.0),
+    ]
     assert [(record.x, record.y, record.z) for record in cuts] == [
         (5.0, 2.0, -1.0),
-        (2.0, 2.0, -1.0),
-        (2.0, 4.0, -1.0),
-        (8.0, 4.0, -1.0),
         (8.0, 2.0, -1.0),
+        (8.0, 4.0, -1.0),
+        (2.0, 4.0, -1.0),
+        (2.0, 2.0, -1.0),
         (5.0, 2.0, -1.0),
         (5.0, 1.0, -1.0),
-        (1.0, 1.0, -1.0),
-        (1.0, 5.0, -1.0),
-        (9.0, 5.0, -1.0),
         (9.0, 1.0, -1.0),
+        (9.0, 5.0, -1.0),
+        (1.0, 5.0, -1.0),
+        (1.0, 1.0, -1.0),
         (5.0, 1.0, -1.0),
     ]
+
+
+def test_pocketing_combines_multiple_drive_curves_in_one_operation():
+    tool = build_tool(
+        CylindricalTool(
+            id="tool-1",
+            name="1/4in flat end mill",
+            tool_number=1,
+            diameter=6.35,
+            cutting_height=20.0,
+            shoulder_height=10.0,
+        )
+    )
+    drive_geometry = []
+    for suffix in ("1", "2"):
+        points = json.loads(
+            Path(
+                f"assets/operations/pocketing/pocketing_C_drive_curve_{suffix}.json"
+            ).read_text()
+        )
+        drive_geometry.append(
+            ClosedPolyline25D(
+                z=1.0,
+                vertices=[Point2D(x=float(x), y=float(y)) for x, y, _ in points],
+            )
+        )
+    operation = Pocketing2dOp(
+        tool=tool,
+        clearance=AbsoluteClearance(absolute_height=11.0),
+        levels=CAMLevels(
+            drive_geometry_position="at_bottom",
+            depth_of_cut=0.0,
+            max_stepdown=1.0,
+        ),
+        drive_geometry=drive_geometry,
+        cut_parameters=PocketingCutSettings(
+            clearing_strategy="offset",
+            keep_tool_down=False,
+            cut_direction="climb",
+            stepover=StepoverMode(
+                mode="percentage_of_tool_diameter",
+                value=25.0,
+            ),
+        ),
+    )
+
+    records = cam_engine(CAMSetup(), operation).records
+    plunges = [
+        record
+        for record in records
+        if isinstance(record, FeedRatePositionRecord3D)
+        and record.comment == "plunge to cut"
+    ]
+    between_pockets = [
+        record
+        for record in records
+        if isinstance(record, RapidPositionRecord3D)
+        and record.comment == "travel to next pocket"
+    ]
+
+    assert len(plunges) == 2
+    assert all(plunge.z == 1.0 for plunge in plunges)
+    assert plunges[0].y < 250.0 < plunges[1].y
+    assert len(between_pockets) == 1
+    assert between_pockets[0].z == 11.0
 
 
 def test_pocketing_preserves_branch_seam_trajectory_between_rings():

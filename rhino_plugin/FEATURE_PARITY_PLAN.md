@@ -16,9 +16,9 @@ counterpart and gives a dependency order.
 | Adaptive pocketing settings | same operation JSON controls as browser | Planned (no Rhino algorithm fork) |
 | Tool library CRUD | panel -> Python -> `/cam/tools` | Planned |
 | Toolpath viewport | Python `DisplayConduit`, records grouped by rapid/cut/link, no duplicate document geometry | Implemented; interactive viewport check pending |
-| Simulation start/status/frame | Python adapter to current `/simulate/*` routes; lazy frame cache and conduit | Blocked on API probe |
-| Simulation playback | WebView timeline drives Python display request; C# only forwards message | Blocked on frame probe |
-| Stock/result comparison | backend comparison endpoints plus Rhino mesh/color conduit | Blocked on API probe |
+| Simulation start/status/frame | Python adapter to current `/simulate/*` routes; lazy frame cache and conduit | Implemented; end-to-end host test + live mesh-layer probe pass, interactive viewport check pending |
+| Simulation playback | WebView timeline drives Python display request; C# only forwards message | Frameworked (◀/▶ stepping); interactive check pending |
+| Stock/result comparison | backend comparison endpoints plus Rhino mesh/color conduit | Implemented (vertex-colored GLB); interactive check pending |
 | Post processing | backend post endpoint/download; Eto save dialog only for user-selected output target | Planned |
 | Operation/setup tree | TypeScript state projection from persisted Python document state | Planned |
 | Save/reopen | C# JSON archive bridge; references and settings only | Frameworked |
@@ -40,11 +40,13 @@ counterpart and gives a dependency order.
   command event handler. User actions explicitly start it and UI-thread code
   applies results after it completes.
 
-## Required API probes before enabling simulation/compare
+## API contract notes (verified against source and an end-to-end host test)
 
-The historical C# prototype calls obsolete-looking `/simulate/swept` multipart
-routes while the current web viewer uses the simulation router's newer data
-model. Capture real request/response samples from the browser for: start,
-status, cancellation, tool mesh, stock mesh, final mesh, active-frame mesh,
-and comparison. Freeze those as JSON fixtures, then implement Python adapters
-and a lazy Rhino conduit against the fixtures. Do not guess the endpoint shape.
+`rhino_plugin/tests/test_simulation_meshes.py` drives the real FastAPI app:
+`POST /cam/toolpath` → `POST /simulate` (multipart stock STL + CL JSON) →
+`GET /simulate/{task}/status` → tool/chunk-cached/active-frame/final GLBs →
+`GET /simulate/{sim}/comparison` → vertex-colored comparison GLB. All mesh
+endpoints parse with the plugin's stdlib GLB reader (`glb.py`), which also runs
+inside Rhino's Python 3.9 runtime. The backend additionally offers
+`.rhino.json` variants for the tool and chunk-cached meshes (rhino3dm-encoded);
+the plugin currently uses the GLB endpoints uniformly for all layers.

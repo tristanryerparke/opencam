@@ -45,9 +45,13 @@ aggregated here; no background watcher is required.
    handlers. Critically, generate in one document, switch to a second open
    document, and confirm no preview draws there; return and confirm the first
    document still shows its own preview.
-4. Probe the current simulation router with a Rhino-generated mesh and CL
-   payload. Record the exact start/status/frame/compare responses before
-   enabling the currently disabled panel controls.
+4. ~~Probe the current simulation router~~ Done: the host integration test in
+   `tests/test_simulation_meshes.py` drives the real app end to end, and a
+   live Rhino probe confirmed the mesh layers (rest/active/tool/comparison)
+   draw document-keyed and clear cleanly. Remaining interactive checks:
+   run Simulate from the panel against the real backend and watch the frame
+   stepping, Compare vertex colors, and Final stock rendering in shaded mode;
+   confirm mesh previews do not appear in another open document.
 
 ## Acceptance before shipping
 

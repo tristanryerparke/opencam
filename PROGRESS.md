@@ -82,3 +82,16 @@ Combined C now uses two drive geometries in one OpenCAM operation and two select
 ### Keep-down link stock engagement
 
 Keep-down links now compare cutter sweeps with material removed by prior paths. Links entering uncut stock emit cutting motion role; already-cleared links retain linking role for a future rapid-only policy. Offset B regression uses 1/4-inch tool and B drive curve; adaptive regression verifies both roles. Maintained suite: 104 passed.
+
+## Rhino integration
+
+- [x] Inspect existing pocketing APIs, demo conventions, and toolpath display colors.
+- [x] Add Rhino Python 3 demo script with sticky curve selection, Duet G-code export, and persistent conduit.
+- [x] Validate script syntax and generated output path assumptions.
+
+### Terminal-driven Rhino demo
+
+- [x] Inspect Tack run-in-rhino test configuration and Rhino execution conventions.
+- [x] Add editable local `run-in-rhino` dependency for its `rhino-watch` CLI.
+- [x] Adapt the Rhino pocketing demo to run OpenCAM locally while run-in-rhino selects geometry and refreshes the conduit.
+- [ ] Run the terminal integration path and verify Rhino-visible output.

@@ -78,13 +78,15 @@ def emit_gcode(
     """Turn G-code objects into lines.
 
     Removes axis words whose value is unchanged from the previous move
-    (if enable_axis_culling is True), removes repeated motion prefixes when the
-    previous move was the same type, and skips fully culled no-op moves.
+    (if enable_axis_culling is True), removes repeated motion prefixes only
+    within uninterrupted sequences of the same move type, and skips fully
+    culled no-op moves.
     Any non-move command resets the culling state.
     """
     gcode_strings: list[str] = []
 
     running: dict[str, str | None] = {"x": None, "y": None, "z": None, "f": None}
+    pending_feedrate: str | None = None
     previous_move_type: str | None = None
     for obj in gcode_objects:
         if isinstance(obj, GcodeMove):
@@ -105,7 +107,28 @@ def emit_gcode(
                 if running["f"] == formatted["f"]:
                     obj.feedrate = None
 
-            skip_prefix = previous_move_type == obj.type
+            # A feedrate-only CL record establishes a pending modal feed. Fold
+            # it into the following physical move rather than writing `F800`
+            # as its own line.
+            if (
+                obj.feedrate is not None
+                and obj.x is None
+                and obj.y is None
+                and obj.z is None
+                and obj.i is None
+                and obj.j is None
+            ):
+                pending_feedrate = formatted["f"]
+                previous_move_type = None
+                continue
+
+            if pending_feedrate is not None:
+                obj.feedrate = float(pending_feedrate)
+                formatted["f"] = pending_feedrate
+                pending_feedrate = None
+
+            # Reassert motion when a move itself changes the modal feed.
+            skip_prefix = previous_move_type == obj.type and running["f"] == formatted["f"]
             line = obj.out(skip_prefix=skip_prefix)
             if line:
                 gcode_strings.append(line)
@@ -117,5 +140,6 @@ def emit_gcode(
             gcode_strings.append(obj.out())
             previous_move_type = None
             running = {"x": None, "y": None, "z": None, "f": None}
+            pending_feedrate = None
 
     return gcode_strings

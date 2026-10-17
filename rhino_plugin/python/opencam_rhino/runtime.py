@@ -169,6 +169,34 @@ def show_mesh_layer(doc, role: str, glb_bytes: bytes):
     return len(meshes)
 
 
+def apply_stock_and_part(doc, document_state):
+    """Sync the stock-box and part-mesh layers with the current selection.
+
+    Visibility is a draw-time gate inside the conduit, so toggles never need
+    to rebuild or drop cached geometry.
+    """
+    from .display import build_rhino_mesh, stock_box_edges
+
+    conduit = ensure_conduit()
+    serial = int(doc.RuntimeSerialNumber)
+    if document_state.part is not None:
+        conduit.set_stock_box(
+            serial,
+            stock_box_edges(document_state.part.stock_box.min, document_state.part.stock_box.max),
+        )
+        conduit.set_mesh_layer(serial, "part", [build_rhino_mesh(document_state.part.mesh)])
+    else:
+        conduit.set_stock_box(serial, [])
+        conduit.set_mesh_layer(serial, "part", [])
+    doc.Views.Redraw()
+
+
+def set_visibility(doc, flags: dict):
+    conduit = ensure_conduit()
+    conduit.set_layer_visibility(int(doc.RuntimeSerialNumber), flags)
+    doc.Views.Redraw()
+
+
 def clear_meshes(doc):
     conduit = active_conduit()
     if conduit is None:

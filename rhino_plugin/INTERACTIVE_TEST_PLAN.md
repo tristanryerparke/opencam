@@ -17,6 +17,19 @@ aggregated here; no background watcher is required.
 4. Install development mode, restart Rhino, start Script Server, and start the
    backend: `uv run uvicorn src.server.main:app --port 9090`.
 
+## Panel UI checks (after the C# WebView host is installed)
+
+1. Operation tree: ＋ Setup / ＋ Operation (dialog with per-type fields),
+   per-row ▶ Generate and ✕ Delete, click-to-select highlighting.
+2. Visibility toggles Stock / Part / Toolpath / Tool hide exactly their layers
+   without dropping cached simulation meshes; re-enabling restores instantly.
+3. Simulate → polling status → transport ◀ ▶/⏸ ▶|, timeline scrubbing, and
+   0.25–4× speed playback stepping frames with the tool mesh following.
+4. Compare (vertex-colored mesh) and Final stock render in shaded viewport
+   modes; toggling Part off is useful to see them without occlusion.
+5. Debug panel: backend URL Set applies without restart; event log shows
+   request results and errors truncated.
+
 ## Geometry probes
 
 1. Open `assets/CAM_Demos.3dm`; run **OpenCam**.

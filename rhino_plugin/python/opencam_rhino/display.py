@@ -107,11 +107,24 @@ def _mesh_style(role):
         "tool": (System.Drawing.Color.FromArgb(70, 80, 95), 0.0),
         "final": (System.Drawing.Color.FromArgb(96, 205, 133), 0.15),
         "comparison": (System.Drawing.Color.White, 0.0),
+        "part": (System.Drawing.Color.FromArgb(148, 163, 184), 0.55),
     }
     return styles.get(role, (System.Drawing.Color.FromArgb(160, 160, 160), 0.0))
 
 
-CONDUIT_VERSION = 2
+def stock_box_edges(min_point, max_point):
+    """Twelve world-axis box edges as point pairs for the stock preview."""
+    x0, y0, z0 = min_point
+    x1, y1, z1 = max_point
+    bottom = [(x0, y0, z0), (x1, y0, z0), (x1, y1, z0), (x0, y1, z0)]
+    top = [(x0, y0, z1), (x1, y0, z1), (x1, y1, z1), (x0, y1, z1)]
+    ring = lambda pts: list(zip(pts, pts[1:] + pts[:1]))
+    return ring(bottom) + ring(top) + list(zip(bottom, top))
+
+
+CONDUIT_VERSION = 4
+
+DEFAULT_LAYER_VISIBILITY = {"stock": True, "part": True, "toolpath": True, "tool": True}
 
 
 class OpenCamToolpathConduit:
@@ -127,14 +140,21 @@ class OpenCamToolpathConduit:
                 super().__init__()
                 inner.toolpaths: dict[int, ToolpathPreview] = {}
                 inner.mesh_layers: dict[int, dict[str, list]] = {}
+                inner.stock_boxes: dict[int, list] = {}
+                inner.layer_visibility: dict[int, dict] = {}
+
+            def _visibility(inner, serial):
+                return inner.layer_visibility.setdefault(serial, dict(DEFAULT_LAYER_VISIBILITY))
 
             def _doc_serial(inner, event):
                 doc = getattr(event, "RhinoDoc", None)
                 return None if doc is None else int(doc.RuntimeSerialNumber)
 
             def _refresh_enabled(inner):
-                inner.Enabled = bool(inner.toolpaths) or any(
-                    layers for layers in inner.mesh_layers.values()
+                inner.Enabled = (
+                    bool(inner.toolpaths)
+                    or any(layers for layers in inner.mesh_layers.values())
+                    or bool(inner.stock_boxes)
                 )
 
             def CalculateBoundingBox(inner, event):
@@ -156,12 +176,21 @@ class OpenCamToolpathConduit:
                         box = mesh.GetBoundingBox(True)
                         if box.IsValid:
                             event.IncludeBoundingBox(box)
+                for start, end in inner.stock_boxes.get(serial, []):
+                    event.IncludeBoundingBox(
+                        Rhino.Geometry.BoundingBox(
+                            Rhino.Geometry.Point3d(*start), Rhino.Geometry.Point3d(*end)
+                        )
+                    )
 
             def PostDrawObjects(inner, event):
                 serial = inner._doc_serial(event)
                 if serial is None:
                     return
+                visibility = inner._visibility(serial)
                 for role, meshes in inner.mesh_layers.get(serial, {}).items():
+                    if role in {"tool", "part"} and not visibility.get(role, True):
+                        continue
                     color, transparency = _mesh_style(role)
                     material = Rhino.Display.DisplayMaterial(color, transparency)
                     for mesh in meshes:
@@ -170,6 +199,19 @@ class OpenCamToolpathConduit:
             def DrawOverlay(inner, event):
                 serial = inner._doc_serial(event)
                 if serial is None:
+                    return
+                visibility = inner._visibility(serial)
+                if visibility.get("stock", True):
+                    import System.Drawing
+
+                    stock_color = System.Drawing.Color.FromArgb(120, 113, 108)
+                    for start, end in inner.stock_boxes.get(serial, []):
+                        event.Display.DrawDottedLine(
+                            Rhino.Geometry.Point3d(*start),
+                            Rhino.Geometry.Point3d(*end),
+                            stock_color,
+                        )
+                if not visibility.get("toolpath", True):
                     return
                 preview = inner.toolpaths.get(serial)
                 if preview is None:
@@ -219,13 +261,31 @@ class OpenCamToolpathConduit:
         self._conduit.mesh_layers.pop(int(document_serial), None)
         self._conduit._refresh_enabled()
 
+    def set_layer_visibility(self, document_serial: int, flags: dict):
+        serial = int(document_serial)
+        merged = dict(self._conduit.layer_visibility.get(serial, DEFAULT_LAYER_VISIBILITY))
+        merged.update({key: bool(value) for key, value in flags.items() if key in merged})
+        self._conduit.layer_visibility[serial] = merged
+
+    def set_stock_box(self, document_serial: int, edges):
+        serial = int(document_serial)
+        if edges:
+            self._conduit.stock_boxes[serial] = list(edges)
+        else:
+            self._conduit.stock_boxes.pop(serial, None)
+        self._conduit._refresh_enabled()
+
     def forget_document(self, document_serial: int):
         serial = int(document_serial)
         self._conduit.toolpaths.pop(serial, None)
         self._conduit.mesh_layers.pop(serial, None)
+        self._conduit.stock_boxes.pop(serial, None)
+        self._conduit.layer_visibility.pop(serial, None)
         self._conduit._refresh_enabled()
 
     def clear(self):
         self._conduit.toolpaths.clear()
         self._conduit.mesh_layers.clear()
+        self._conduit.stock_boxes.clear()
+        self._conduit.layer_visibility.clear()
         self._conduit.Enabled = False

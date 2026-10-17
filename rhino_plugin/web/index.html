@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>OpenCAM</title>
+<style>
+:root { color-scheme: dark; font: 12px/1.45 -apple-system, "Segoe UI", sans-serif; }
+body { margin: 0; background: #1c1c1e; color: #e5e5ea; }
+main { display: flex; flex-direction: column; gap: 6px; padding: 8px; }
+.row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+h1 { font-size: 14px; margin: 0 8px 0 0; }
+.meta { color: #98989d; }
+.status { color: #30d158; margin-left: auto; }
+.status.bad { color: #ff453a; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+button { background: #2c2c2e; color: #e5e5ea; border: 1px solid #3a3a3c; border-radius: 4px; padding: 3px 8px; cursor: pointer; }
+button:disabled { opacity: 0.4; cursor: default; }
+.toggles label { display: inline-flex; gap: 3px; align-items: center; margin-right: 8px; }
+.tree { border: 1px solid #3a3a3c; border-radius: 4px; padding: 4px; min-height: 60px; max-height: 240px; overflow-y: auto; background: #242426; }
+.setup { font-weight: 600; margin: 4px 0; }
+.op { display: flex; align-items: center; gap: 6px; padding: 2px 4px 2px 12px; border-radius: 3px; }
+.op.selected { background: #3a2f50; }
+.op-name { flex: 1; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.badge { font-size: 10px; background: #3a3a3c; color: #98989d; border-radius: 3px; padding: 1px 5px; }
+.empty { color: #98989d; margin: 6px; }
+input[type="range"] { flex: 1; }
+select, input[type="text"], input[type="number"] { background: #2c2c2e; color: #e5e5ea; border: 1px solid #3a3a3c; border-radius: 4px; padding: 2px 4px; }
+.debug summary { cursor: pointer; color: #98989d; }
+.debug pre { background: #111112; border-radius: 4px; padding: 6px; max-height: 160px; overflow: auto; white-space: pre-wrap; }
+.dialog-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: grid; place-items: center; }
+.dialog { background: #2c2c2e; border: 1px solid #3a3a3c; border-radius: 6px; padding: 12px; width: 260px; display: flex; flex-direction: column; gap: 6px; }
+.dialog label { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 6px; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script src="dist/panel.js"></script>
+</body>
+</html>

@@ -4,7 +4,16 @@ from __future__ import annotations
 
 import json
 
-from .contracts import DocumentState, PartSelection, PlanarRegion, StockBox
+from .contracts import (
+    DEFAULT_VISIBILITY,
+    DOCUMENT_SCHEMA_VERSION,
+    DocumentState,
+    OperationSpec,
+    PartSelection,
+    PlanarRegion,
+    SetupSpec,
+    StockBox,
+)
 
 _BRIDGE = None
 
@@ -34,13 +43,30 @@ def load(doc) -> DocumentState:
         stock_box=StockBox(**part_data["stock_box"]),
     )
     region = None if not region_data else PlanarRegion(**region_data)
+    setups = [
+        SetupSpec(
+            id=setup["id"],
+            name=setup.get("name", "Setup"),
+            operations=[
+                OperationSpec(
+                    id=operation["id"],
+                    name=operation.get("name", operation.get("type", "Operation")),
+                    type=operation["type"],
+                    params=dict(operation.get("params", {})),
+                )
+                for operation in setup.get("operations", [])
+            ],
+        )
+        for setup in value.get("setups", [])
+    ]
     return DocumentState(
-        schema_version=int(value.get("schema_version", 1)),
+        schema_version=int(value.get("schema_version", DOCUMENT_SCHEMA_VERSION)),
         backend_url=str(value.get("backend_url", "http://127.0.0.1:9090")),
         part=part,
         region=region,
-        setup=dict(value.get("setup", {})),
-        operations=list(value.get("operations", [])),
+        setups=setups,
+        selected_operation_id=value.get("selected_operation_id"),
+        visibility=dict(value.get("visibility") or DEFAULT_VISIBILITY),
         results=dict(value.get("results", {})),
     )
 

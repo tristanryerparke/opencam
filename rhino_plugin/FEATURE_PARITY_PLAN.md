@@ -16,11 +16,14 @@ counterpart and gives a dependency order.
 | Adaptive pocketing settings | same operation JSON controls as browser | Planned (no Rhino algorithm fork) |
 | Tool library CRUD | panel -> Python -> `/cam/tools` | Planned |
 | Toolpath viewport | Python `DisplayConduit`, records grouped by rapid/cut/link, no duplicate document geometry | Implemented; interactive viewport check pending |
+| Layer visibility (stock/part/toolpath/tool) | draw-time gates inside the conduit; persisted per document | Implemented; interactive check pending |
 | Simulation start/status/frame | Python adapter to current `/simulate/*` routes; lazy frame cache and conduit | Implemented; end-to-end host test + live mesh-layer probe pass, interactive viewport check pending |
-| Simulation playback | WebView timeline drives Python display request; C# only forwards message | Frameworked (◀/▶ stepping); interactive check pending |
+| Simulation playback | WebView transport (⏮◀/play▶), timeline scrubber, speed 0.25–4× | Implemented; interactive check pending |
 | Stock/result comparison | backend comparison endpoints plus Rhino mesh/color conduit | Implemented (vertex-colored GLB); interactive check pending |
 | Post processing | backend post endpoint/download; Eto save dialog only for user-selected output target | Planned |
-| Operation/setup tree | TypeScript state projection from persisted Python document state | Planned |
+| Operation/setup tree | TypeScript state projection from persisted Python document state | Implemented (add setup/operation, per-op generate/delete, selection) |
+| Operation editing | typed Add-Operation dialog (pocket/profile/parallel finishing) mapping 1:1 to API params | Implemented; schema-driven forms deferred |
+| Debug panel | WebView collapsible debug: backend URL editor, event log, state echo | Implemented |
 | Save/reopen | C# JSON archive bridge; references and settings only | Frameworked |
 | Undo/Redo / deleted sources | command-end reconciliation and stable GUID validation, never auto-regenerate | Planned |
 

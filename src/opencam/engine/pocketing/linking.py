@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from itertools import pairwise, product
+from typing import Literal
 
 import numpy as np
 from shapely.geometry import LineString, Polygon
@@ -18,6 +19,7 @@ MINIMUM_DISTANCE = 1e-9
 @dataclass(frozen=True)
 class LinearLinkMove2D:
     target: tuple[float, float]
+    motion_role: Literal["cutting", "linking"] = "linking"
 
 
 @dataclass(frozen=True)
@@ -25,6 +27,7 @@ class ArcLinkMove2D:
     target: tuple[float, float]
     center: tuple[float, float]
     clockwise: bool
+    motion_role: Literal["cutting", "linking"] = "cutting"
 
 
 @dataclass(frozen=True)
@@ -75,7 +78,7 @@ def build_keep_down_links(
         return [None] * (len(paths) - 1)
 
     safe_region = center_region.buffer(max(MINIMUM_DISTANCE, chord_tolerance * 1e-6))
-    return [
+    links = [
         _build_keep_down_link(
             current,
             next_path,
@@ -85,6 +88,14 @@ def build_keep_down_links(
         )
         for current, next_path in pairwise(paths)
     ]
+    return _classify_keep_down_link_engagement(
+        paths,
+        links,
+        polyline=polyline,
+        tool_diameter=tool_diameter,
+        stock_to_leave=stock_to_leave,
+        chord_tolerance=chord_tolerance,
+    )
 
 
 def build_linked_cut_layers(
@@ -142,14 +153,14 @@ def _append_link_records(
                     center_offset_x=move.center[0] - start.x,
                     center_offset_y=move.center[1] - start.y,
                     clockwise=move.clockwise, feedrate=feedrate,
-                    comment="keep tool down", motion_role="linking",
+                    comment="keep tool down", motion_role=move.motion_role,
                 )
             )
         else:
             records.append(
                 FeedRatePositionRecord3D(
                     x=move.target[0], y=move.target[1], z=height,
-                    feedrate=feedrate, comment="keep tool down", motion_role="linking",
+                    feedrate=feedrate, comment="keep tool down", motion_role=move.motion_role,
                 )
             )
 
@@ -182,6 +193,124 @@ def _path_records(
             )
         )
     return records
+
+
+def _classify_keep_down_link_engagement(
+    paths: list[np.ndarray],
+    links: list[KeepDownLink | None],
+    *,
+    polyline: np.ndarray,
+    tool_diameter: float,
+    stock_to_leave: float,
+    chord_tolerance: float,
+) -> list[KeepDownLink | None]:
+    """Mark only cleared linear link primitives for future rapid policy."""
+    tool_radius = tool_diameter / 2
+    quad_segs = quad_segs_for_tolerance(tool_radius, chord_tolerance / 4)
+    cuttable_stock = Polygon(validate_closed_polyline(polyline)).buffer(
+        -stock_to_leave,
+        quad_segs=quad_segs_for_tolerance(stock_to_leave, chord_tolerance),
+    )
+    if cuttable_stock.is_empty:
+        return links
+
+    internal_links: dict[int, list[InternalContourLink]] = getattr(paths, "internal_links", {})
+    removed_stock: BaseGeometry | None = None
+    classified: list[KeepDownLink | None] = []
+    for index, path in enumerate(paths):
+        path_sweep = _path_centerline(
+            path,
+            internal_links=internal_links.get(index, []),
+            chord_tolerance=chord_tolerance,
+        ).buffer(tool_radius, quad_segs=quad_segs).intersection(cuttable_stock)
+        removed_stock = path_sweep if removed_stock is None else removed_stock.union(path_sweep)
+        if index == len(links):
+            continue
+
+        link = links[index]
+        if link is None or not link.moves:
+            classified.append(link)
+            continue
+
+        classified_moves: list[LinearLinkMove2D | ArcLinkMove2D] = []
+        move_start = np.asarray(path[-1], dtype=np.float64)
+        for move in link.moves:
+            move_sweep = _link_centerline(
+                KeepDownLink(moves=(move,)),
+                move_start,
+                chord_tolerance=chord_tolerance,
+            ).buffer(tool_radius, quad_segs=quad_segs).intersection(cuttable_stock)
+            uncut_stock = move_sweep.difference(removed_stock)
+            if isinstance(move, LinearLinkMove2D) and (
+                not uncut_stock.is_empty and uncut_stock.area > MINIMUM_DISTANCE
+            ):
+                move = replace(move, motion_role="cutting")
+            classified_moves.append(move)
+            removed_stock = removed_stock.union(move_sweep)
+            move_start = np.asarray(move.target, dtype=np.float64)
+        classified.append(replace(link, moves=tuple(classified_moves)))
+
+    return classified
+
+
+def _path_centerline(
+    path: np.ndarray,
+    *,
+    internal_links: list[InternalContourLink],
+    chord_tolerance: float,
+) -> LineString:
+    points = [np.asarray(path[0], dtype=np.float64)]
+    links = {item.start_index: item for item in internal_links}
+    index = 0
+    while index < len(path) - 1:
+        internal = links.get(index)
+        if internal is not None:
+            points.extend(
+                _link_points(
+                    internal.link, points[-1], chord_tolerance=chord_tolerance
+                )[1:]
+            )
+            index = internal.end_index
+            continue
+        index += 1
+        points.append(path[index])
+    return LineString(points)
+
+
+def _link_centerline(
+    link: KeepDownLink,
+    start: np.ndarray,
+    *,
+    chord_tolerance: float,
+) -> LineString:
+    return LineString(_link_points(link, start, chord_tolerance=chord_tolerance))
+
+
+def _link_points(
+    link: KeepDownLink,
+    start: np.ndarray,
+    *,
+    chord_tolerance: float,
+) -> list[np.ndarray]:
+    points = [np.asarray(start, dtype=np.float64)]
+    for move in link.moves:
+        target = np.asarray(move.target, dtype=np.float64)
+        if isinstance(move, ArcLinkMove2D):
+            center = np.asarray(move.center, dtype=np.float64)
+            points.extend(
+                _sample_arc(
+                    points[-1],
+                    target,
+                    center,
+                    sweep=_arc_sweep(
+                        points[-1], target, center, clockwise=move.clockwise,
+                    ),
+                    chord_tolerance=chord_tolerance / 10,
+                )[1:]
+            )
+        else:
+            points.append(target)
+    return points
 
 
 def _build_keep_down_link(

@@ -232,3 +232,19 @@ def test_adaptive_concave_scoops_are_constructively_safe(
         link is None or safe.covers(_link_centerline(link, paths[index][-1]))
         for index, link in enumerate(links)
     )
+    link_roles = {
+        move.motion_role
+        for link in links
+        if link is not None
+        for move in link.moves
+    }
+    assert link_roles == {"cutting", "linking"}
+    arc_links = [
+        move
+        for link in links
+        if link is not None
+        for move in link.moves
+        if isinstance(move, ArcLinkMove2D)
+    ]
+    assert arc_links
+    assert {move.motion_role for move in arc_links} == {"cutting"}

@@ -208,6 +208,53 @@ def test_pocketing_combines_multiple_drive_curves_in_one_operation():
     assert between_pockets[0].z == 11.0
 
 
+def test_pocketing_b_offset_keep_down_links_cut_uncut_stock():
+    points = json.loads(
+        Path("assets/operations/pocketing/pocketing_B_drive_curve.json").read_text()
+    )
+    tool = build_tool(
+        CylindricalTool(
+            id="tool-1",
+            name="1/4in flat end mill",
+            tool_number=1,
+            diameter=6.35,
+            cutting_height=20.0,
+            shoulder_height=10.0,
+        )
+    )
+    operation = Pocketing2dOp(
+        tool=tool,
+        clearance=AbsoluteClearance(absolute_height=11.0),
+        levels=CAMLevels(
+            drive_geometry_position="at_bottom",
+            depth_of_cut=0.0,
+            max_stepdown=1.0,
+        ),
+        drive_geometry=[
+            ClosedPolyline25D(
+                z=1.0,
+                vertices=[Point2D(x=float(x), y=float(y)) for x, y, _ in points],
+            )
+        ],
+        cut_parameters=PocketingCutSettings(
+            clearing_strategy="offset",
+            keep_tool_down=True,
+            stepover=StepoverMode(
+                mode="percentage_of_tool_diameter",
+                value=25.0,
+            ),
+        ),
+    )
+
+    records = cam_engine(CAMSetup(), operation).records
+    keep_down_records = [
+        record for record in records if record.comment == "keep tool down"
+    ]
+
+    assert keep_down_records
+    assert {record.motion_role for record in keep_down_records} == {"cutting"}
+
+
 def test_pocketing_preserves_branch_seam_trajectory_between_rings():
     polyline = validate_closed_polyline(
         np.array(

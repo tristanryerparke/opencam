@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, LoaderCircle, X } from "lucide-react";
 
 import { SidebarMenuButton } from "t-components/sidebar";
 import {
@@ -17,7 +17,29 @@ export type OperationTreeItemData = {
   needsAttention?: boolean;
   progressPercent?: number;
   simulationComplete?: boolean;
+  status?: "not-generated" | "generating-gcode" | "generated" | "simulating" | "simulated";
 };
+
+function OperationStatusIcon({
+  status,
+}: {
+  status: NonNullable<OperationTreeItemData["status"]>;
+}) {
+  const className = "ml-auto h-4 w-4 shrink-0";
+
+  switch (status) {
+    case "generating-gcode":
+      return <LoaderCircle className={`${className} animate-spin text-green-500`} aria-label="Generating G-code" />;
+    case "generated":
+      return <Check className={`${className} text-green-500`} aria-label="G-code generated" />;
+    case "simulating":
+      return <LoaderCircle className={`${className} animate-spin text-blue-500`} aria-label="Simulating" />;
+    case "simulated":
+      return <Check className={`${className} text-blue-500`} aria-label="Simulation complete" />;
+    default:
+      return <X className={`${className} text-red-500`} aria-label="Not generated" />;
+  }
+}
 
 type OperationTreeItemProps = TreeNodeRenderProps<OperationTreeItemData> & {
   onEdit: (operationId: string) => void;
@@ -31,7 +53,6 @@ type OperationTreeItemProps = TreeNodeRenderProps<OperationTreeItemData> & {
   simulatableOperationIds: ReadonlySet<string>;
   comparableOperationIds: ReadonlySet<string>;
   downloadableOperationIds: ReadonlySet<string>;
-  isSimulationGenerating: boolean;
 };
 
 export function OperationTreeItem({
@@ -53,7 +74,6 @@ export function OperationTreeItem({
   simulatableOperationIds,
   comparableOperationIds,
   downloadableOperationIds,
-  isSimulationGenerating,
 }: OperationTreeItemProps) {
   const operationId = node.data.operationId;
   const content = (
@@ -68,7 +88,7 @@ export function OperationTreeItem({
       <SidebarMenuButton
         type="button"
         isActive={isSelected}
-        className={cn("h-auto items-center gap-1.5 py-1")}
+        className={cn("h-7 items-center gap-1.5 border-border bg-background/90 py-1 shadow backdrop-blur")}
         onClick={(event) => {
           event.stopPropagation();
           select(event);
@@ -80,15 +100,7 @@ export function OperationTreeItem({
             <span className="truncate text-xs font-normal text-sidebar-foreground/65">{node.data.fileName}</span>
           ) : null}
         </span>
-        {node.data.simulationComplete ? (
-          <span className="ml-auto shrink-0 text-xs text-sidebar-foreground/65">Simulated</span>
-        ) : node.data.progressPercent != null ? (
-          <span className="ml-auto shrink-0 text-xs tabular-nums text-sidebar-foreground/65">
-            {isSimulationGenerating ? `Simulating ${Math.round(node.data.progressPercent)}%` : "Generating"}
-          </span>
-        ) : node.data.needsAttention ? (
-          <span className="ml-auto h-2 w-2 shrink-0 rounded-full bg-destructive" aria-label="Needs STEP file" />
-        ) : null}
+        <OperationStatusIcon status={node.data.status ?? "not-generated"} />
         {hasChildren ? (
           <span
             className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center"

@@ -41,19 +41,19 @@ export function SetupTreeItem({
           <SidebarMenuButton
             type="button"
             isActive={isSelected}
-            className={cn("h-auto items-center gap-1.5 py-1")}
+            className={cn("h-7 items-center gap-1.5 border-border bg-background/90 py-1 shadow backdrop-blur")}
             onClick={(event) => {
               event.stopPropagation();
               select(event);
             }}
           >
-            <Move3d className="mt-0.5 h-4 w-4 shrink-0" />
+            <Move3d className="h-4 w-4 shrink-0" />
             <span className="flex min-w-0 flex-1 items-center gap-1.5 font-medium">
               <span className="truncate">{node.data.label}</span>
             </span>
             {hasChildren ? (
               <span
-                className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center"
+                className="flex h-4 w-4 shrink-0 items-center justify-center"
                 onClick={(event) => {
                   event.stopPropagation();
                   toggle();

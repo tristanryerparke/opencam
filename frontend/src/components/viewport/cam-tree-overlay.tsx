@@ -1,7 +1,6 @@
-import { useRef, type CSSProperties } from "react";
+import { useRef } from "react";
 
 import { Button } from "t-components/button";
-import { Sidebar, SidebarContent } from "t-components/sidebar";
 import { TreeView, type TreeNodeNested } from "@/components/tree-view/tree-view";
 import { OperationTreeItem, type OperationTreeItemData } from "@/components/sidebar/operation-tree-item";
 import { PartTreeItem } from "@/components/sidebar/part-tree-item";
@@ -10,7 +9,7 @@ import { useCamStore } from "@/state/cam-store";
 
 export type RequestState = "idle" | "submitting" | "success" | "error";
 
-type AppSidebarProps = {
+type CamTreeOverlayProps = {
   simulatableOperationIds: ReadonlySet<string>;
   comparableOperationIds: ReadonlySet<string>;
   downloadableOperationIds: ReadonlySet<string>;
@@ -33,7 +32,7 @@ type AppSidebarProps = {
   onCancelGeneration: () => void;
 };
 
-export function AppSidebar({
+export function CamTreeOverlay({
   simulatableOperationIds,
   comparableOperationIds,
   downloadableOperationIds,
@@ -54,7 +53,7 @@ export function AppSidebar({
   canManageOperations,
   canCancelGeneration,
   onCancelGeneration,
-}: AppSidebarProps) {
+}: CamTreeOverlayProps) {
   const meshName = useCamStore((state) => state.workspace.meshName);
   const meshUrl = useCamStore((state) => state.workspace.meshUrl);
   const operations = useCamStore((state) => state.workspace.operations);
@@ -86,14 +85,22 @@ export function AppSidebar({
               ? generatingOperationProgressPercent
               : undefined,
           simulationComplete: operation.id ? comparableOperationIds.has(operation.id) : false,
+          status: operation.id && comparableOperationIds.has(operation.id)
+            ? "simulated"
+            : operation.id === generatingOperationId && isSimulationGenerating
+              ? "simulating"
+              : operation.id === generatingOperationId && isToolpathGenerating
+                ? "generating-gcode"
+                : operation.id && downloadableOperationIds.has(operation.id)
+                  ? "generated"
+                  : "not-generated",
         },
       })),
     },
   ];
 
   return (
-    <Sidebar style={{ "--sidebar-width": "13.5rem" } as CSSProperties}>
-      <SidebarContent className="gap-3 p-2">
+    <section className="pointer-events-none absolute left-2 top-2 z-20 flex max-h-[calc(100%-1rem)] w-48 flex-col gap-1 overflow-y-auto">
         <input
           ref={fileInputRef}
           type="file"
@@ -105,7 +112,12 @@ export function AppSidebar({
           }}
         />
 
-        <Button type="button" className="w-full" onClick={onAddOperation} disabled={!meshLoaded}>
+        <Button
+          type="button"
+          className="pointer-events-auto h-7 w-full border-border shadow"
+          onClick={onAddOperation}
+          disabled={!meshLoaded}
+        >
           Add Operation
         </Button>
 
@@ -150,19 +162,23 @@ export function AppSidebar({
                 simulatableOperationIds={simulatableOperationIds}
                 comparableOperationIds={comparableOperationIds}
                 downloadableOperationIds={downloadableOperationIds}
-                isSimulationGenerating={isSimulationGenerating}
               />
             );
           }}
           aria-label="CAM setup tree"
+          className="pointer-events-auto flex flex-col gap-1"
         />
 
         {canCancelGeneration ? (
-          <Button type="button" variant="outline" onClick={onCancelGeneration}>
+          <Button
+            type="button"
+            variant="outline"
+            className="pointer-events-auto bg-background/90 shadow backdrop-blur"
+            onClick={onCancelGeneration}
+          >
             Cancel generation
           </Button>
         ) : null}
-      </SidebarContent>
-    </Sidebar>
+    </section>
   );
 }

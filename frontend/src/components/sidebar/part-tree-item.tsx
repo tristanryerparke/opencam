@@ -44,17 +44,17 @@ export function PartTreeItem({
           <SidebarMenuButton
             type="button"
             isActive={isSelected}
-            className={cn("h-auto items-center gap-1.5 py-1")}
+            className={cn("h-7 items-center gap-1.5 border-border bg-background/90 py-1 shadow backdrop-blur")}
             onClick={(event) => {
               event.stopPropagation();
               select(event);
             }}
           >
-            <SquareRoundCorner className="mt-0.5 h-4 w-4 shrink-0" />
+            <SquareRoundCorner className="h-4 w-4 shrink-0" />
             <span className="flex min-w-0 flex-1 items-center gap-1.5 font-medium">
-              <span className="truncate">{node.data.label}</span>
+              <span className="shrink-0">{node.data.label}</span>
               {node.data.fileName ? (
-                <span className="truncate text-xs font-normal text-sidebar-foreground/65">{node.data.fileName}</span>
+                <span className="min-w-0 flex-1 truncate text-xs font-normal text-sidebar-foreground/65">{node.data.fileName}</span>
               ) : null}
             </span>
             {node.data.needsAttention ? (
@@ -62,7 +62,7 @@ export function PartTreeItem({
             ) : null}
             {hasChildren ? (
               <span
-                className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center"
+                className="flex h-4 w-4 shrink-0 items-center justify-center"
                 onClick={(event) => {
                   event.stopPropagation();
                   toggle();

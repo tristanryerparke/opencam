@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { AppSidebar, type RequestState } from "@/components/app-sidebar";
+import { CamTreeOverlay, type RequestState } from "@/components/viewport/cam-tree-overlay";
 import { SettingsDialog } from "@/components/settings-dialog";
 import { OperationDialog } from "@/components/operation-dialog";
 import { OperationTypeDialog } from "@/components/operation-type-dialog";
@@ -16,7 +16,6 @@ import type {
 } from "@/components/polyline-viewer/types";
 import { Button } from "t-components/button";
 import { X } from "lucide-react";
-import { SidebarProvider, SidebarTrigger } from "t-components/sidebar";
 import { getOpenCamBootstrap, sendRhinoUiDebug } from "@/bootstrap";
 import type { DraftObject, Operation, OperationType } from "@/lib/cam-schema";
 import {
@@ -2109,42 +2108,14 @@ function App() {
   }
 
   return (
-    <SidebarProvider defaultOpen>
-      <div className="flex h-svh w-full flex-col overflow-hidden bg-background text-foreground">
-        <header className="flex shrink-0 items-center justify-between gap-3 border-b px-2 py-1.5 md:px-2">
-          <div className="flex items-center gap-2">
-            <SidebarTrigger />
-            <h2 className="text-sm font-semibold md:text-base">OpenCAM Viewer</h2>
-          </div>
+    <div className="flex h-svh w-full flex-col overflow-hidden bg-background text-foreground">
+      <header className="flex shrink-0 items-center justify-between gap-3 border-b px-2 py-1.5 md:px-2">
+        <h2 className="text-sm font-semibold md:text-base">OpenCAM Viewer</h2>
 
-          <SettingsDialog />
-        </header>
+        <SettingsDialog />
+      </header>
 
-        <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
-          <AppSidebar
-            simulatableOperationIds={simulatableOperationIds}
-            comparableOperationIds={comparableOperationIds}
-            downloadableOperationIds={downloadableOperationIds}
-            generatingOperationId={generatingOperationId}
-            generatingOperationProgressPercent={simulationProgressPercent}
-            isToolpathGenerating={generatedOperation === null && requestState === "submitting"}
-            isSimulationGenerating={generatedOperation !== null && requestState === "submitting"}
-            onMeshUpload={handleMeshUpload}
-            onAddOperation={handleAddOperation}
-            onEditOperation={handleEditOperation}
-            onRegenerateOperation={handleRegenerateOperation}
-            onDeleteOperation={handleDeleteOperation}
-            onSimulateOperation={handleSimulateOperation}
-            onCompareOperation={handleCompareOperation}
-            onDownloadOperationClData={handleDownloadOperationClData}
-            onPostProcessOperation={handlePostProcessOperation}
-            onPostProcessSetup={handlePostProcessSetup}
-            canManageOperations={requestState !== "submitting" || generatedOperation !== null}
-            canCancelGeneration={requestState === "submitting" && simulationTaskId !== null}
-            onCancelGeneration={handleCancelGeneration}
-          />
-
-          <main className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
+      <main className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
                 <PolylineViewer
                   meshUrl={meshUrl}
                   secondaryMeshUrl={secondaryMeshUrl}
@@ -2182,21 +2153,46 @@ function App() {
                   className="h-full min-h-0 flex-1 rounded-none border-0 shadow-none"
                 />
 
-                <VisibilityBar />
+        <div className="pointer-events-none absolute right-2 top-2 z-20 flex w-64 flex-col items-end gap-2">
+          <VisibilityBar />
 
-                <SimulationDebugOverlay
-                  visible={simulationDebugUiEnabled && Boolean(simulationId)}
-                  simulationId={simulationId}
-                  clRecordIndex={displayedSimulationFrameIndex == null
-                    ? null
-                    : visibleSimulationFrames[displayedSimulationFrameIndex]?.clRecordIndex ?? null}
-                  chunkIndex={simulationChunkIndex}
-                  chunkCount={simulationChunkCount}
-                  stepIndex={simulationChunkStepIndex}
-                  stepCount={simulationChunkStepCount}
-                  focusMeshRequestMs={simulationFocusMeshRequestMs}
-                  chunkFetchMs={simulationChunkFetchMs}
-                />
+          <SimulationDebugOverlay
+            visible={simulationDebugUiEnabled && isSimulationMode && Boolean(simulationId) && simulationFrameCount > 0}
+            simulationId={simulationId}
+            clRecordIndex={displayedSimulationFrameIndex == null
+              ? null
+              : visibleSimulationFrames[displayedSimulationFrameIndex]?.clRecordIndex ?? null}
+            chunkIndex={simulationChunkIndex}
+            chunkCount={simulationChunkCount}
+            stepIndex={simulationChunkStepIndex}
+            stepCount={simulationChunkStepCount}
+            focusMeshRequestMs={simulationFocusMeshRequestMs}
+            chunkFetchMs={simulationChunkFetchMs}
+          />
+        </div>
+
+        <CamTreeOverlay
+          simulatableOperationIds={simulatableOperationIds}
+          comparableOperationIds={comparableOperationIds}
+          downloadableOperationIds={downloadableOperationIds}
+          generatingOperationId={generatingOperationId}
+          generatingOperationProgressPercent={simulationProgressPercent}
+          isToolpathGenerating={generatedOperation === null && requestState === "submitting"}
+          isSimulationGenerating={generatedOperation !== null && requestState === "submitting"}
+          onMeshUpload={handleMeshUpload}
+          onAddOperation={handleAddOperation}
+          onEditOperation={handleEditOperation}
+          onRegenerateOperation={handleRegenerateOperation}
+          onDeleteOperation={handleDeleteOperation}
+          onSimulateOperation={handleSimulateOperation}
+          onCompareOperation={handleCompareOperation}
+          onDownloadOperationClData={handleDownloadOperationClData}
+          onPostProcessOperation={handlePostProcessOperation}
+          onPostProcessSetup={handlePostProcessSetup}
+          canManageOperations={requestState !== "submitting" || generatedOperation !== null}
+          canCancelGeneration={requestState === "submitting" && simulationTaskId !== null}
+          onCancelGeneration={handleCancelGeneration}
+        />
 
             <AnimationBar
               disabled={requestState === "submitting"}
@@ -2217,10 +2213,9 @@ function App() {
                 </div>
               </div>
             ) : null}
-          </main>
-        </div>
+      </main>
 
-        <OperationTypeDialog
+      <OperationTypeDialog
           open={isOperationTypeDialogOpen}
           onOpenChange={setIsOperationTypeDialogOpen}
           onSelectPocketing={() => handleAddTypedOperation("pocketing_2d")}
@@ -2228,24 +2223,23 @@ function App() {
           onSelectParallelFinishing={() => handleAddTypedOperation("parallel_finishing")}
         />
 
-        <OperationDialog
-          open={isOperationDialogOpen}
-          draft={operationDraft}
-          mode={operationDialogMode}
-          rootSchema={getOperationSchema(operationDraft)}
-          onDraftChange={setOperationDraft}
-          onOpenChange={(open) => {
-            setIsOperationDialogOpen(open);
-            if (!open) {
-              setResumeOperationDialogAfterSelection(false);
-              setOperationDraft(null);
-            }
-          }}
-          onSave={handleOperationDialogSave}
-          onStartGeometrySelection={handleStartDialogGeometrySelection}
-        />
-      </div>
-    </SidebarProvider>
+      <OperationDialog
+        open={isOperationDialogOpen}
+        draft={operationDraft}
+        mode={operationDialogMode}
+        rootSchema={getOperationSchema(operationDraft)}
+        onDraftChange={setOperationDraft}
+        onOpenChange={(open) => {
+          setIsOperationDialogOpen(open);
+          if (!open) {
+            setResumeOperationDialogAfterSelection(false);
+            setOperationDraft(null);
+          }
+        }}
+        onSave={handleOperationDialogSave}
+        onStartGeometrySelection={handleStartDialogGeometrySelection}
+      />
+    </div>
   );
 }
 

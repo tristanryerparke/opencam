@@ -6,7 +6,7 @@ from itertools import pairwise, product
 from typing import Literal
 
 import numpy as np
-from shapely.geometry import LineString, Polygon
+from shapely.geometry import LineString, Point, Polygon
 from shapely.geometry.base import BaseGeometry
 
 from opencam.engine.closed_polyline.offset import quad_segs_for_tolerance
@@ -85,8 +85,10 @@ def build_keep_down_links(
             safe_region=safe_region,
             tool_diameter=tool_diameter,
             chord_tolerance=chord_tolerance,
+            start_support_radius=getattr(paths, "link_support_radii", {}).get(index, (None, None))[1],
+            end_support_radius=getattr(paths, "link_support_radii", {}).get(index + 1, (None, None))[0],
         )
-        for current, next_path in pairwise(paths)
+        for index, (current, next_path) in enumerate(pairwise(paths))
     ]
     return _classify_keep_down_link_engagement(
         paths,
@@ -135,6 +137,94 @@ def build_linked_cut_layers(
         layers.append(current)
 
     return layers
+
+
+def build_tangent_lead_in_layers(
+    cut_layers: list[list[FeedRatePositionRecord3D | ArcPositionRecord3D]],
+    *,
+    polyline: np.ndarray,
+    tool_diameter: float,
+    stock_to_leave: float,
+    chord_tolerance: float,
+    feedrate: float,
+) -> list[list[FeedRatePositionRecord3D | ArcPositionRecord3D]]:
+    safe_region = build_tool_center_region(
+        polyline,
+        tool_diameter=tool_diameter,
+        stock_to_leave=stock_to_leave,
+        chord_tolerance=chord_tolerance,
+    ).buffer(max(MINIMUM_DISTANCE, chord_tolerance * 1e-6))
+    maximum_radius = tool_diameter * 0.15
+    result: list[list[FeedRatePositionRecord3D | ArcPositionRecord3D]] = []
+    for records in cut_layers:
+        lead_in = _build_tangent_lead_in(
+            records,
+            safe_region=safe_region,
+            maximum_radius=maximum_radius,
+            chord_tolerance=chord_tolerance,
+        )
+        if lead_in is None:
+            result.append(records)
+            continue
+        entry, arc = lead_in
+        result.append([
+            FeedRatePositionRecord3D(
+                x=float(entry[0]), y=float(entry[1]), z=records[0].z,
+                feedrate=feedrate, comment="lead in",
+            ),
+            ArcPositionRecord3D(
+                x=records[0].x, y=records[0].y, z=records[0].z,
+                center_offset_x=float(arc.center[0] - entry[0]),
+                center_offset_y=float(arc.center[1] - entry[1]),
+                clockwise=arc.clockwise, feedrate=feedrate, comment="lead in",
+            ),
+            *records[1:],
+        ])
+    return result
+
+
+def _build_tangent_lead_in(
+    records: list[FeedRatePositionRecord3D | ArcPositionRecord3D],
+    *,
+    safe_region: BaseGeometry,
+    maximum_radius: float,
+    chord_tolerance: float,
+) -> tuple[np.ndarray, ArcLinkMove2D] | None:
+    if len(records) < 2:
+        return None
+    target = np.asarray((records[0].x, records[0].y), dtype=np.float64)
+    tangent = None
+    for record in records[1:]:
+        tangent = _unit_vector(np.asarray((record.x, record.y)) - target)
+        if tangent is not None:
+            break
+    if tangent is None:
+        return None
+
+    radius = maximum_radius
+    left = _left_normal(tangent)
+    candidates: list[tuple[float, np.ndarray, ArcLinkMove2D]] = []
+    for clockwise in (False, True):
+        center = target + (-1 if clockwise else 1) * radius * left
+        end_angle = math.atan2(target[1] - center[1], target[0] - center[0])
+        start_angle = end_angle + (math.pi / 2 if clockwise else -math.pi / 2)
+        entry = center + radius * np.asarray(
+            (math.cos(start_angle), math.sin(start_angle)), dtype=np.float64
+        )
+        arc = ArcLinkMove2D(
+            target=(float(target[0]), float(target[1])),
+            center=(float(center[0]), float(center[1])),
+            clockwise=clockwise,
+        )
+        centerline = _link_centerline(
+            KeepDownLink(moves=(arc,)), entry, chord_tolerance=chord_tolerance
+        )
+        if safe_region.covers(centerline):
+            candidates.append((safe_region.boundary.distance(Point(entry)), entry, arc))
+    if not candidates:
+        return None
+    _, entry, arc = max(candidates, key=lambda item: item[0])
+    return entry, arc
 
 
 def _append_link_records(
@@ -320,6 +410,8 @@ def _build_keep_down_link(
     safe_region: BaseGeometry,
     tool_diameter: float,
     chord_tolerance: float,
+    start_support_radius: float | None = None,
+    end_support_radius: float | None = None,
 ) -> KeepDownLink | None:
     if current.shape[0] == 0 or next_path.shape[0] == 0:
         return None
@@ -333,7 +425,15 @@ def _build_keep_down_link(
     start_tangent = _end_tangent(current)
     end_tangent = _start_tangent(next_path)
     if start_tangent is not None and end_tangent is not None:
-        maximum_radius = min(distance / 3, tool_diameter * 0.15)
+        maximum_radius = min(
+            distance / 3,
+            tool_diameter * 0.15,
+            *(
+                0.9 * radius
+                for radius in (start_support_radius, end_support_radius)
+                if radius is not None
+            ),
+        )
         for scale in (1.0, 0.5, 0.25, 0.125):
             radius = maximum_radius * scale
             candidates = [

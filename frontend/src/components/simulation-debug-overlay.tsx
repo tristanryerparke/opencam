@@ -26,7 +26,7 @@ export function SimulationDebugOverlay({
   }
 
   return (
-    <div className="pointer-events-auto absolute left-2 top-14 z-20 max-w-xs rounded-md border bg-background/90 p-2 text-xs shadow backdrop-blur">
+    <div className="pointer-events-auto w-full rounded-md border bg-background/90 p-2 text-xs shadow backdrop-blur">
       <div className="mb-1 font-medium">Simulation debug</div>
       <div className="grid grid-cols-[auto_auto] gap-x-3 gap-y-1 tabular-nums">
         <span className="text-muted-foreground">Simulation ID</span>

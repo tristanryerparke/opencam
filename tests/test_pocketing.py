@@ -20,7 +20,11 @@ from opencam.engine.pocketing.seams import (
 )
 from opencam.engine.pocketing.tree import build_ordered_pocket_nodes
 from opencam.schemas.cam import CAMSetup
-from opencam.schemas.cl_data import FeedRatePositionRecord3D, RapidPositionRecord3D
+from opencam.schemas.cl_data import (
+    ArcPositionRecord3D,
+    FeedRatePositionRecord3D,
+    RapidPositionRecord3D,
+)
 from opencam.schemas.geometry_2_5d import ClosedPolyline25D
 from opencam.schemas.geometry_2d import Point2D
 from opencam.schemas.operations.base import AbsoluteClearance, CAMLevels, FeedsAndSpeeds
@@ -78,11 +82,20 @@ def test_pocketing_reuses_cut_geometry_across_layers(tmp_path):
     cuts = [
         record
         for record in records
-        if isinstance(record, FeedRatePositionRecord3D) and record.comment != "plunge to cut"
+        if isinstance(record, FeedRatePositionRecord3D) and record.comment is None
+    ]
+    lead_entries = [
+        record
+        for record in records
+        if isinstance(record, FeedRatePositionRecord3D) and record.comment == "lead in"
+    ]
+    lead_arcs = [
+        record
+        for record in records
+        if isinstance(record, ArcPositionRecord3D) and record.comment == "lead in"
     ]
 
     expected_xy = [
-        (5.0, 2.0),
         (8.0, 2.0),
         (8.0, 4.0),
         (2.0, 4.0),
@@ -103,10 +116,20 @@ def test_pocketing_reuses_cut_geometry_across_layers(tmp_path):
     assert [(record.x, record.y) for record in second_layer] == expected_xy
     assert {record.feedrate for record in cuts} == {100.0}
     assert [(record.x, record.y, record.z) for record in plunges] == [
-        (5.0, 2.0, -1.0),
-        (5.0, 2.0, -2.0),
+        (4.7, 2.3, -1.0),
+        (4.7, 2.3, -2.0),
     ]
     assert {record.feedrate for record in plunges} == {250.0}
+    assert [(record.x, record.y) for record in lead_entries] == [
+        (4.7, 2.3),
+        (4.7, 2.3),
+    ]
+    assert [(record.x, record.y) for record in lead_arcs] == [
+        (5.0, 2.0),
+        (5.0, 2.0),
+    ]
+    assert {record.feedrate for record in lead_entries} == {500.0}
+    assert {record.feedrate for record in lead_arcs} == {500.0}
     assert isinstance(records[0], RapidPositionRecord3D)
     assert isinstance(records[-1], RapidPositionRecord3D)
 
@@ -121,14 +144,13 @@ def test_pocketing_starts_first_loop_at_midpoint_of_longest_nearby_edge(tmp_path
     cuts = [
         record
         for record in records
-        if isinstance(record, FeedRatePositionRecord3D) and record.comment != "plunge to cut"
+        if isinstance(record, FeedRatePositionRecord3D) and record.comment is None
     ]
 
     assert [(record.x, record.y, record.z, record.feedrate) for record in plunges] == [
-        (5.0, 2.0, -1.0, 250.0),
+        (4.7, 2.3, -1.0, 250.0),
     ]
     assert [(record.x, record.y, record.z) for record in cuts] == [
-        (5.0, 2.0, -1.0),
         (8.0, 2.0, -1.0),
         (8.0, 4.0, -1.0),
         (2.0, 4.0, -1.0),

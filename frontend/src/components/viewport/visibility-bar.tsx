@@ -15,7 +15,7 @@ export function VisibilityBar() {
   const setShowTool = useCamStore((state) => state.actions.setShowTool);
 
   return (
-    <div className="pointer-events-auto absolute left-2 top-2 z-20 flex items-center gap-1 rounded-md border bg-background/90 p-1 shadow backdrop-blur">
+    <div className="pointer-events-auto flex items-center gap-1 rounded-md border bg-background/90 p-1 shadow backdrop-blur">
       <Button
         type="button"
         className="w-12"

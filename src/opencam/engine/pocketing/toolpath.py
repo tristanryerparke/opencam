@@ -11,6 +11,7 @@ from opencam.engine.pocketing.layer import build_pocket_layers
 from opencam.engine.pocketing.linking import (
     build_keep_down_links,
     build_linked_cut_layers,
+    build_tangent_lead_in_layers,
 )
 from opencam.schemas.cl_data import PositionRecord
 from opencam.schemas.operations.pocketing import Pocketing2dOp
@@ -89,6 +90,14 @@ def build_pocketing_records(
                 heights,
                 feedrate=operation.feeds_and_speeds.cut_feedrate,
             )
+        cut_layers = build_tangent_lead_in_layers(
+            cut_layers,
+            polyline=polyline,
+            tool_diameter=operation.tool.diameter,
+            stock_to_leave=operation.cut_parameters.stock_to_leave,
+            chord_tolerance=operation.advanced.chordal_tolerance,
+            feedrate=operation.feeds_and_speeds.lead_in_feedrate,
+        )
         record_groups.append(
             build_cut_record_sequence(
                 cut_layers,

@@ -63,9 +63,11 @@ class AdaptivePocketLayers(list[np.ndarray]):
         self,
         paths: list[np.ndarray] | None = None,
         internal_links: dict[int, list[InternalContourLink]] | None = None,
+        link_support_radii: dict[int, tuple[float, float]] | None = None,
     ) -> None:
         super().__init__(paths or [])
         self.internal_links = internal_links or {}
+        self.link_support_radii = link_support_radii or {}
         self.entry_path_ids: set[int] = set()
 
 
@@ -144,6 +146,12 @@ def build_adaptive_pocket_layers(
         if isinstance(component_paths, AdaptivePocketLayers):
             paths.internal_links.update(
                 {len(paths) + index: links for index, links in component_paths.internal_links.items()}
+            )
+            paths.link_support_radii.update(
+                {
+                    len(paths) + index: radii
+                    for index, radii in component_paths.link_support_radii.items()
+                }
             )
         paths.extend(component_paths)
 
@@ -340,6 +348,7 @@ def _build_component_paths(
     limb_owners: dict[int, int] = {}
     limb_parents: dict[int, int | None] = {}
     scoop_circles: dict[int, MaximalInscribedCircle] = {}
+    link_support_circles: dict[int, MaximalInscribedCircle] = {}
     scoop_fronts: dict[int, np.ndarray] = {}
     for node_ids in sorted(
         nx.connected_components(medial_axis),
@@ -355,14 +364,14 @@ def _build_component_paths(
             ),
         )
         root_circle = graph.nodes[root_id]["circle"]
-        paths.append(
-            _spiral_path(
-                root_circle,
-                maximum_cut_width=maximum_cut_width,
-                chord_tolerance=chord_tolerance,
-                cut_direction=cut_direction,
-            )
+        root_path = _spiral_path(
+            root_circle,
+            maximum_cut_width=maximum_cut_width,
+            chord_tolerance=chord_tolerance,
+            cut_direction=cut_direction,
         )
+        paths.append(root_path)
+        link_support_circles[id(root_path)] = root_circle
         scoop_paths = _build_depth_first_scoop_paths(
             component,
             graph,
@@ -377,6 +386,7 @@ def _build_component_paths(
         limb_owners.update(scoop_paths.limb_owners)
         limb_parents.update(scoop_paths.limb_parents)
         scoop_circles.update(scoop_paths.circles)
+        link_support_circles.update(scoop_paths.circles)
         scoop_fronts.update(scoop_paths.fronts)
         paths.extend(scoop_paths)
         prunable_path_ids.update(id(scoop) for scoop in scoop_paths)
@@ -408,6 +418,7 @@ def _build_component_paths(
         limb_owners=limb_owners,
         limb_parents=limb_parents,
         scoop_circles=scoop_circles,
+        link_support_circles=link_support_circles,
         scoop_fronts=scoop_fronts,
         cut_direction=cut_direction,
     )
@@ -422,6 +433,7 @@ def _integrate_boundary_cleanup(
     limb_owners: dict[int, int],
     limb_parents: dict[int, int | None],
     scoop_circles: dict[int, MaximalInscribedCircle],
+    link_support_circles: dict[int, MaximalInscribedCircle],
     scoop_fronts: dict[int, np.ndarray],
     requested_cut_width: float,
     component: Polygon,
@@ -434,7 +446,14 @@ def _integrate_boundary_cleanup(
 ) -> AdaptivePocketLayers:
     """Extend scoops between reached wall contacts and finish only their local caps."""
     if not paths or not cleanup_paths:
-        return AdaptivePocketLayers(paths + cleanup_paths)
+        return AdaptivePocketLayers(
+            paths + cleanup_paths,
+            link_support_radii={
+                index: (circle.radius, circle.radius)
+                for index, path in enumerate(paths + cleanup_paths)
+                if (circle := link_support_circles.get(id(path))) is not None
+            },
+        )
 
     last_in_limb = {
         limb_owners[id(path)]: index
@@ -481,6 +500,12 @@ def _integrate_boundary_cleanup(
                 bordered = path
             contacts[owner] = current_contacts
         result.append(bordered)
+        support_circle = link_support_circles.get(id(path))
+        if support_circle is not None:
+            result.link_support_radii[len(result) - 1] = (
+                support_circle.radius,
+                support_circle.radius,
+            )
         line = LineString(bordered)
         prior = line if prior is None else unary_union([prior, line])
         sweep = line.buffer(requested_cut_width, quad_segs=coverage_quad_segs)
@@ -536,6 +561,10 @@ def _integrate_boundary_cleanup(
                 cap = np.ascontiguousarray(part.coords)
                 root_index += 1
                 result.insert(root_index, cap)
+                result.link_support_radii = {
+                    index + (index >= root_index): radii
+                    for index, radii in result.link_support_radii.items()
+                }
                 focus_ends = {
                     owner: (index + (index >= root_index), circle)
                     for owner, (index, circle) in focus_ends.items()
@@ -573,10 +602,13 @@ def _integrate_boundary_cleanup(
                 prior = unary_union([prior, *[LineString(item) for item in completion]])
                 break
     if additions:
-        result = AdaptivePocketLayers([
-            item for index, path in enumerate(result)
-            for item in (path, *additions.get(index, []))
-        ])
+        expanded = AdaptivePocketLayers()
+        for index, path in enumerate(result):
+            if index in result.link_support_radii:
+                expanded.link_support_radii[len(expanded)] = result.link_support_radii[index]
+            expanded.append(path)
+            expanded.extend(additions.get(index, []))
+        result = expanded
 
     # Finish a short wall remnant by extending its owning cut, not by
     # emitting an isolated poke or reinstating the entire cleanup ring.

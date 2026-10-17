@@ -560,6 +560,7 @@ def _build_buffered_simulation(
     final_mesh_bytes = manifold_to_simplified_glb(
         final_stock_manifold,
         context="final machined stock",
+        stock_like_original_ids=prepared_chunks[0].stock_like_original_ids,
     )
 
     chunks: list[SimulatedChunk] = []

@@ -248,3 +248,21 @@ def test_adaptive_concave_scoops_are_constructively_safe(
     ]
     assert arc_links
     assert {move.motion_role for move in arc_links} == {"cutting"}
+    for index, link in enumerate(links):
+        if link is None:
+            continue
+        start_radius = paths.link_support_radii.get(index, (None, None))[1]
+        end_radius = paths.link_support_radii.get(index + 1, (None, None))[0]
+        support_radii = [
+            radius for radius in (start_radius, end_radius) if radius is not None
+        ]
+        if not support_radii:
+            continue
+        maximum_radius = 0.9 * min(support_radii)
+        move_start = paths[index][-1]
+        for move in link.moves:
+            if isinstance(move, ArcLinkMove2D):
+                assert np.linalg.norm(np.asarray(move.center) - move_start) <= (
+                    maximum_radius + CHORD_TOLERANCE
+                )
+            move_start = np.asarray(move.target)

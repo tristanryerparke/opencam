@@ -59,7 +59,10 @@ in `.3dm` files.
 2. Interactive-test part and face/edge-loop selection against real `.3dm`
    geometry, then lock down the selected-object and meshing semantics.
 3. Wire panel operation editing to validated `POST /cam/toolpath` requests.
-4. Add a Python display conduit for generated CL data.
+4. ~~Add a Python display conduit for generated CL data.~~ Implemented in
+   `python/opencam_rhino/display.py` + `runtime.py` (shared conduit, keyed by
+   document runtime serial; verified in a live Rhino probe). Interactive
+   viewport verification remains.
 5. Reconcile simulation/compare request and frame-display contracts with the
    current backend, then enable those controls.
 6. Add post-processing download/open behavior and document migration tests.

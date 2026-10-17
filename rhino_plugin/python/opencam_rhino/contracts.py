@@ -47,7 +47,8 @@ class DocumentState:
 @dataclass
 class PanelRequest:
     action: Literal[
-        "get_state", "select_part", "select_region", "generate", "simulate", "compare", "post_process"
+        "get_state", "select_part", "select_region", "generate", "simulate", "compare", "post_process",
+        "clear_preview",
     ]
     request_id: str = ""
     payload: dict[str, Any] = field(default_factory=dict)

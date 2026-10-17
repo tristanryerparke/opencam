@@ -15,7 +15,7 @@ counterpart and gives a dependency order.
 | Parallel finishing | selected Brep mesh + surface strategy JSON; `/cam/toolpath` | Planned |
 | Adaptive pocketing settings | same operation JSON controls as browser | Planned (no Rhino algorithm fork) |
 | Tool library CRUD | panel -> Python -> `/cam/tools` | Planned |
-| Toolpath viewport | Python `DisplayConduit`, records grouped by rapid/cut/link, no duplicate document geometry | Planned |
+| Toolpath viewport | Python `DisplayConduit`, records grouped by rapid/cut/link, no duplicate document geometry | Implemented; interactive viewport check pending |
 | Simulation start/status/frame | Python adapter to current `/simulate/*` routes; lazy frame cache and conduit | Blocked on API probe |
 | Simulation playback | WebView timeline drives Python display request; C# only forwards message | Blocked on frame probe |
 | Stock/result comparison | backend comparison endpoints plus Rhino mesh/color conduit | Blocked on API probe |

@@ -38,8 +38,13 @@ aggregated here; no background watcher is required.
    viewer for the same payload.
 2. Verify a backend-offline error is shown in the panel without losing the
    prior persisted document state.
-3. Add the Python conduit, then check redraw, hide/show panel, document close,
-   Undo/Redo, and switching documents do not leave stale previews or handlers.
+3. The Python toolpath conduit now exists (`opencam_rhino.display`/
+   `runtime.py`). Verify interactively: a generated preview draws over the
+   viewport in rapid/linking/cutting colors; redraw, hide/show panel, document
+   close, Undo/Redo, and switching documents leave no stale previews or
+   handlers. Critically, generate in one document, switch to a second open
+   document, and confirm no preview draws there; return and confirm the first
+   document still shows its own preview.
 4. Probe the current simulation router with a Rhino-generated mesh and CL
    payload. Record the exact start/status/frame/compare responses before
    enabling the currently disabled panel controls.

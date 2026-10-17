@@ -4,6 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "python"))
 
+from opencam_rhino.display import ToolpathPreview  # noqa: E402
 from opencam_rhino.contracts import (  # noqa: E402
     DocumentState,
     PanelRequest,
@@ -43,3 +44,22 @@ def test_panel_request_rejects_unknown_protocol():
 def test_panel_event_preserves_request_correlation_id():
     request = PanelRequest.from_dict({"action": "get_state", "request_id": "abc"})
     assert panel_event(request, DocumentState(), ok=True)["request_id"] == "abc"
+
+
+def test_toolpath_preview_groups_motion_roles_and_keeps_transition_point():
+    # A move takes the role of its endpoint record (the project's display
+    # convention), so a lone leading rapid point forms a degenerate segment
+    # that is not drawable; it survives as the start marker instead.
+    preview = ToolpathPreview.from_operation(
+        {"records": [
+            {"x": 0, "y": 0, "z": 1, "feed_type": "rapid", "motion_role": "travel"},
+            {"x": 0, "y": 0, "z": 0, "feed_type": "feed_rate", "motion_role": "cutting"},
+            {"x": 1, "y": 0, "z": 0, "feed_type": "feed_rate", "motion_role": "cutting"},
+            {"x": 2, "y": 0, "z": 0, "feed_type": "feed_rate", "motion_role": "linking"},
+        ]}
+    )
+    assert [segment.role for segment in preview.segments] == ["cutting", "linking"]
+    assert preview.segments[0].points[0] == (0.0, 0.0, 1.0)
+    assert preview.segments[0].points[-1] == preview.segments[1].points[0]
+    assert preview.start == (0.0, 0.0, 1.0)
+    assert preview.end == (2.0, 0.0, 0.0)

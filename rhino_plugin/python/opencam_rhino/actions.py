@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from . import backend, selection, state
+from . import backend, runtime, selection, state
 from .contracts import PanelRequest, panel_event
 
 
@@ -39,8 +39,17 @@ def run(request_data, doc):
                 "/cam/toolpath",
                 {"setup": setup, "operation": operation},
             )
+            preview = runtime.show_toolpath(doc, response)
             document_state.operations = [operation]
-            document_state.results["toolpath"] = response
+            document_state.results["toolpath_summary"] = {
+                "segment_count": len(preview.segments),
+                "point_count": sum(len(segment.points) for segment in preview.segments),
+                "displayed": True,
+            }
+            state.save(doc, document_state)
+        elif request.action == "clear_preview":
+            runtime.clear_document(doc)
+            document_state.results.pop("toolpath_summary", None)
             state.save(doc, document_state)
         elif request.action in {"simulate", "compare", "post_process"}:
             raise NotImplementedError(

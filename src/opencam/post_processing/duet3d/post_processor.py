@@ -1,17 +1,10 @@
 from __future__ import annotations
 
-import math
 from collections.abc import Sequence
 
-from opencam.engine.arc import validate_xy_arc, xy_arc_bounds
 from opencam.post_processing.duet3d.models import Duet3DMachineDefinition
 from opencam.post_processing.gcode import GcodeCommand, GcodeMove, emit_gcode
-from opencam.schemas.cl_data import (
-    ArcPositionRecord3D,
-    FeedRatePositionRecord3D,
-    OperationRecord3D,
-    PositionRecord3D,
-)
+from opencam.schemas.cl_data import ArcPositionRecord3D, FeedRatePositionRecord3D, OperationRecord3D
 from opencam.schemas.tools import Tool
 from opencam.services.tool_library import ToolLibrary
 
@@ -43,8 +36,6 @@ class Duet3DPostProcessor:
     ) -> str:
         if not operations:
             raise ValueError("At least one operation is required for post processing.")
-        self._validate_machine()
-
         objects: list[GcodeMove | GcodeCommand] = [
             GcodeCommand(self._comment(program_name)),
             GcodeCommand(self._comment(f"Machine: {self.machine.name}")),
@@ -52,15 +43,21 @@ class Duet3DPostProcessor:
             GcodeCommand(self._generic("G90", "absolute coordinates")),
             GcodeCommand(self._generic("G17", "XY plane")),
             GcodeCommand(self._generic("G54", "work coordinate system")),
+            GcodeCommand('M98 P"0:/macros/dust_on.g"'),
         ]
 
         used_tool_numbers: dict[int, str] = {}
         for index, operation in enumerate(operations, start=1):
             tool = self._resolve_tool(operation.tool)
-            self._validate_operation(operation, tool, used_tool_numbers)
+            self._validate_operation_tool(operation, tool, used_tool_numbers)
             objects.extend(self._operation_objects(operation, tool, index))
 
-        objects.append(GcodeCommand(self._comment("End OpenCAM program")))
+        objects.extend(
+            [
+                GcodeCommand('M98 P"0:/macros/dust_off.g"'),
+                GcodeCommand(self._comment("End OpenCAM program")),
+            ]
+        )
         lines = emit_gcode(objects, precision=self.coordinate_precision)
         return "\n".join(lines) + "\n"
 
@@ -115,6 +112,7 @@ class Duet3DPostProcessor:
                 GcodeCommand(f"T{tool.tool_number}"),
                 GcodeMove("G0", z=operation.clearance_plane_height, comment=retract_comment),
                 GcodeCommand(f"M3 S{operation.spindle_rpm}"),
+                GcodeCommand("G4 S3"),
             ]
         )
 
@@ -150,17 +148,12 @@ class Duet3DPostProcessor:
         objects.append(GcodeCommand("M5"))
         return objects
 
-    def _validate_operation(
+    def _validate_operation_tool(
         self,
         operation: OperationRecord3D,
         tool: Tool,
         used_tool_numbers: dict[int, str],
     ) -> None:
-        if len(operation.tool_axis) != 3 or any(
-            not math.isclose(actual, expected, abs_tol=1e-9)
-            for actual, expected in zip(operation.tool_axis, (0.0, 0.0, 1.0), strict=True)
-        ):
-            raise ValueError("Duet 3D baseline post processor supports only a +Z three-axis tool axis.")
         if not operation.records:
             raise ValueError("Operations must contain at least one cutter-location record.")
         if not 0 <= tool.tool_number <= 49:
@@ -171,85 +164,6 @@ class Duet3DPostProcessor:
             raise ValueError(f"Tool number {tool.tool_number} is assigned to multiple tools in this program.")
         used_tool_numbers[tool.tool_number] = tool.id
 
-        spindle = self.machine.spindle
-        if not spindle.minimum_rpm <= operation.spindle_rpm <= spindle.maximum_rpm:
-            raise ValueError(
-                f"Spindle speed {operation.spindle_rpm} RPM is outside machine range "
-                f"{spindle.minimum_rpm}-{spindle.maximum_rpm} RPM."
-            )
-
-        z_axis = self._axes["Z"]
-        if not z_axis.minimum_position <= operation.clearance_plane_height <= z_axis.maximum_position:
-            raise ValueError(
-                f"Clearance plane {operation.clearance_plane_height} is outside Z-axis travel "
-                f"{z_axis.minimum_position} to {z_axis.maximum_position}."
-            )
-
-        previous_record: PositionRecord3D | None = None
-        for record in operation.records:
-            self._validate_position(record, previous_record)
-            previous_record = record
-
-    def _validate_position(
-        self,
-        record: PositionRecord3D,
-        previous_record: PositionRecord3D | None,
-    ) -> None:
-        coordinates = {"X": record.x, "Y": record.y, "Z": record.z}
-        for letter, value in coordinates.items():
-            if not math.isfinite(value):
-                raise ValueError(f"{letter} coordinate must be finite.")
-            axis = self._axes[letter]
-            if not axis.minimum_position <= value <= axis.maximum_position:
-                raise ValueError(
-                    f"{letter} coordinate {value} is outside machine travel "
-                    f"{axis.minimum_position} to {axis.maximum_position}."
-                )
-
-        if not isinstance(record, (FeedRatePositionRecord3D, ArcPositionRecord3D)):
-            return
-        if not math.isfinite(record.feedrate) or record.feedrate <= 0:
-            raise ValueError("Feed rate must be finite and greater than zero.")
-        if previous_record is None:
-            if isinstance(record, ArcPositionRecord3D):
-                raise ValueError("Arc move requires a preceding position record.")
-            return
-
-        if isinstance(record, ArcPositionRecord3D):
-            if not math.isfinite(record.center_offset_x) or not math.isfinite(record.center_offset_y):
-                raise ValueError("Arc center offsets must be finite.")
-            validate_xy_arc(previous_record, record)
-            min_x, min_y, max_x, max_y = xy_arc_bounds(previous_record, record)
-            for letter, low, high in (("X", min_x, max_x), ("Y", min_y, max_y)):
-                axis = self._axes[letter]
-                if low < axis.minimum_position or high > axis.maximum_position:
-                    raise ValueError(
-                        f"Arc exceeds {letter}-axis travel {axis.minimum_position} to "
-                        f"{axis.maximum_position}."
-                    )
-                if axis.maximum_feedrate is not None and record.feedrate > axis.maximum_feedrate:
-                    raise ValueError(
-                        f"Arc feed rate {record.feedrate} exceeds {letter}-axis maximum "
-                        f"{axis.maximum_feedrate}."
-                    )
-            return
-
-        deltas = {
-            "X": record.x - previous_record.x,
-            "Y": record.y - previous_record.y,
-            "Z": record.z - previous_record.z,
-        }
-        distance = math.sqrt(sum(delta * delta for delta in deltas.values()))
-        if math.isclose(distance, 0.0):
-            return
-        for letter, delta in deltas.items():
-            maximum_feedrate = self._axes[letter].maximum_feedrate
-            component_feedrate = record.feedrate * abs(delta) / distance
-            if maximum_feedrate is not None and component_feedrate > maximum_feedrate:
-                raise ValueError(
-                    f"{letter}-axis feed component {component_feedrate} exceeds machine maximum "
-                    f"{maximum_feedrate}."
-                )
 
     def _generic(self, code: str, description: str) -> str:
         if self.verbose_comments:

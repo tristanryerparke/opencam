@@ -357,3 +357,16 @@ RhinoCAM manual documents `SetPocketOffsetType(PocketOffsetType.CONTOUR_START_IN
 - [x] Add combined-drive-geometry coverage to maintained pocketing tests.
 
 Combined C now uses two drive geometries in one OpenCAM operation and two selected control GUIDs in one RhinoCAM MOp. Both outputs produce 106 XY cut points, two cutting groups, two plunges, and 2343.8 mm cutting length. OpenCAM inter-pocket rapid is 24.1 mm versus RhinoCAM 48.9 mm due to different seam/start choices. With OpenCAM keep-tool-down disabled, aggregate path groups, plunges, and retracts now match RhinoCAM exactly; updated plots and metrics are under `rhcam-experiment/`.
+
+## Rhino integration
+
+- [x] Inspect existing pocketing APIs, demo conventions, and toolpath display colors.
+- [x] Add Rhino Python 3 demo script with sticky curve selection, Duet G-code export, and persistent conduit.
+- [x] Validate script syntax and generated output path assumptions.
+
+### Terminal-driven Rhino demo
+
+- [x] Inspect Tack run-in-rhino test configuration and Rhino execution conventions.
+- [x] Add editable local `run-in-rhino` dependency for its `rhino-watch` CLI.
+- [x] Adapt the Rhino pocketing demo to run OpenCAM locally while run-in-rhino selects geometry and refreshes the conduit.
+- [ ] Run the terminal integration path and verify Rhino-visible output.

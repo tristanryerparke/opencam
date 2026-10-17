@@ -25,6 +25,7 @@ dependencies = [
     "pymeshlab>=2025.7.post1",
     "python-multipart>=0.0.27",
     "rhino-python-renderer",
+    "run-in-rhino; python_version >= '3.13'",
     "rtree>=1.4.1",
     "scipy>=1.17.1",
     "shapely>=2.1.2",
@@ -35,6 +36,7 @@ dependencies = [
 
 [tool.uv.sources]
 rhino-python-renderer = { path = "../rhino-python-renderer", editable = true }
+run-in-rhino = { path = "../run-in-rhino", editable = true }
 
 [tool.setuptools.packages.find]
 where = ["src"]

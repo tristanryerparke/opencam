@@ -97,6 +97,7 @@ def build_pocketing_records(
             stock_to_leave=operation.cut_parameters.stock_to_leave,
             chord_tolerance=operation.advanced.chordal_tolerance,
             feedrate=operation.feeds_and_speeds.lead_in_feedrate,
+            skip_first_layer=True,
         )
         record_groups.append(
             build_cut_record_sequence(

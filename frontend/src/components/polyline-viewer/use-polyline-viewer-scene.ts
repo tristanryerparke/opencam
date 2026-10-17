@@ -1013,6 +1013,7 @@ export function usePolylineViewerScene(
     scene.add(grid);
 
     const axesHelper = new THREE.AxesHelper(Math.max(maxDimension * 0.22, 18));
+    axesHelper.setColors(0xff0000, 0x00ff00, 0x0000ff);
     scene.add(axesHelper);
 
     const polylineGroup = new THREE.Group();

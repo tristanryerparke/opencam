@@ -147,6 +147,7 @@ def build_tangent_lead_in_layers(
     stock_to_leave: float,
     chord_tolerance: float,
     feedrate: float,
+    skip_first_layer: bool = False,
 ) -> list[list[FeedRatePositionRecord3D | ArcPositionRecord3D]]:
     safe_region = build_tool_center_region(
         polyline,
@@ -156,7 +157,10 @@ def build_tangent_lead_in_layers(
     ).buffer(max(MINIMUM_DISTANCE, chord_tolerance * 1e-6))
     maximum_radius = tool_diameter * 0.15
     result: list[list[FeedRatePositionRecord3D | ArcPositionRecord3D]] = []
-    for records in cut_layers:
+    for index, records in enumerate(cut_layers):
+        if skip_first_layer and index == 0:
+            result.append(records)
+            continue
         lead_in = _build_tangent_lead_in(
             records,
             safe_region=safe_region,
@@ -193,6 +197,8 @@ def _build_tangent_lead_in(
     if len(records) < 2:
         return None
     target = np.asarray((records[0].x, records[0].y), dtype=np.float64)
+    if safe_region.boundary.distance(Point(target)) > chord_tolerance:
+        return None
     tangent = None
     for record in records[1:]:
         tangent = _unit_vector(np.asarray((record.x, record.y)) - target)

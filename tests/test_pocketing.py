@@ -8,6 +8,7 @@ from shapely.geometry import Polygon
 from opencam.engine.closed_polyline.seam_shift import seam_shift
 from opencam.engine.closed_polyline.validation import validate_closed_polyline
 from opencam.engine.pocketing.geometry import polygon_center
+from opencam.engine.pocketing.linking import build_tangent_lead_in_layers
 from opencam.engine.pocketing.layer import (
     append_coordinates,
     can_connect_directly,
@@ -46,6 +47,34 @@ def rectangle_vertices() -> list[Point2D]:
         Point2D(x=0.0, y=6.0),
         Point2D(x=0.0, y=0.0),
     ]
+
+
+def test_tangent_lead_in_requires_a_cutter_center_boundary_entry():
+    polyline = np.asarray(
+        [(0.0, 0.0), (20.0, 0.0), (20.0, 20.0), (0.0, 20.0), (0.0, 0.0)]
+    )
+    boundary_layer = [
+        FeedRatePositionRecord3D(x=10.0, y=1.0, z=0.0, feedrate=100.0),
+        FeedRatePositionRecord3D(x=15.0, y=1.0, z=0.0, feedrate=100.0),
+    ]
+    interior_layer = [
+        FeedRatePositionRecord3D(x=10.0, y=10.0, z=0.0, feedrate=100.0),
+        FeedRatePositionRecord3D(x=15.0, y=10.0, z=0.0, feedrate=100.0),
+    ]
+
+    layers = build_tangent_lead_in_layers(
+        [boundary_layer, interior_layer],
+        polyline=polyline,
+        tool_diameter=2.0,
+        stock_to_leave=0.0,
+        chord_tolerance=0.01,
+        feedrate=500.0,
+    )
+
+    assert layers[0][0].comment == "lead in"
+    assert isinstance(layers[0][1], ArcPositionRecord3D)
+    assert layers[0][1].comment == "lead in"
+    assert layers[1] == interior_layer
 
 
 def generate_pocket(*, tmp_path, depth_of_cut: float):
@@ -95,7 +124,8 @@ def test_pocketing_reuses_cut_geometry_across_layers(tmp_path):
         if isinstance(record, ArcPositionRecord3D) and record.comment == "lead in"
     ]
 
-    expected_xy = [
+    first_layer_xy = [
+        (5.0, 2.0),
         (8.0, 2.0),
         (8.0, 4.0),
         (2.0, 4.0),
@@ -108,28 +138,21 @@ def test_pocketing_reuses_cut_geometry_across_layers(tmp_path):
         (1.0, 1.0),
         (5.0, 1.0),
     ]
+    second_layer_xy = first_layer_xy
 
     first_layer = [record for record in cuts if record.z == -1.0]
     second_layer = [record for record in cuts if record.z == -2.0]
 
-    assert [(record.x, record.y) for record in first_layer] == expected_xy
-    assert [(record.x, record.y) for record in second_layer] == expected_xy
+    assert [(record.x, record.y) for record in first_layer] == first_layer_xy
+    assert [(record.x, record.y) for record in second_layer] == second_layer_xy
     assert {record.feedrate for record in cuts} == {100.0}
     assert [(record.x, record.y, record.z) for record in plunges] == [
-        (4.7, 2.3, -1.0),
-        (4.7, 2.3, -2.0),
+        (5.0, 2.0, -1.0),
+        (5.0, 2.0, -2.0),
     ]
     assert {record.feedrate for record in plunges} == {250.0}
-    assert [(record.x, record.y) for record in lead_entries] == [
-        (4.7, 2.3),
-        (4.7, 2.3),
-    ]
-    assert [(record.x, record.y) for record in lead_arcs] == [
-        (5.0, 2.0),
-        (5.0, 2.0),
-    ]
-    assert {record.feedrate for record in lead_entries} == {500.0}
-    assert {record.feedrate for record in lead_arcs} == {500.0}
+    assert not lead_entries
+    assert not lead_arcs
     assert isinstance(records[0], RapidPositionRecord3D)
     assert isinstance(records[-1], RapidPositionRecord3D)
 
@@ -148,9 +171,10 @@ def test_pocketing_starts_first_loop_at_midpoint_of_longest_nearby_edge(tmp_path
     ]
 
     assert [(record.x, record.y, record.z, record.feedrate) for record in plunges] == [
-        (4.7, 2.3, -1.0, 250.0),
+        (5.0, 2.0, -1.0, 250.0),
     ]
     assert [(record.x, record.y, record.z) for record in cuts] == [
+        (5.0, 2.0, -1.0),
         (8.0, 2.0, -1.0),
         (8.0, 4.0, -1.0),
         (2.0, 4.0, -1.0),

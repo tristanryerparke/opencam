@@ -176,7 +176,7 @@ export function CamTreeOverlay({
             className="pointer-events-auto bg-background/90 shadow backdrop-blur"
             onClick={onCancelGeneration}
           >
-            Cancel generation
+            {isSimulationGenerating ? "Cancel simulation" : "Cancel generation"}
           </Button>
         ) : null}
     </section>

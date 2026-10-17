@@ -443,6 +443,23 @@ function operationToMeshFaceSelections(operation: Operation | null, fallbackZ: n
   );
 }
 
+function operationToControlGeometryPolylines(operation: Operation, fallbackZ: number, operationIndex: number): PolylineDefinition[] {
+  return operationToMeshFaceSelections(operation, fallbackZ).flatMap((selection, geometryIndex) => {
+    const points = selection.boundaryLoop;
+    if (!points || points.length < 2) {
+      return [];
+    }
+
+    return [{
+      id: `control-geometry-${operation.id ?? operationIndex}-${geometryIndex}`,
+      name: "Control geometry",
+      color: "#22c55e",
+      kind: "feed_rate",
+      points,
+    }];
+  });
+}
+
 function draftToMeshFaceSelections(draft: DraftObject | null, fallbackZ: number): MeshFaceSelection[] {
   const geometries = Array.isArray(draft?.driveGeometry) ? draft.driveGeometry : [];
 
@@ -903,6 +920,16 @@ function App() {
     return createDisplayPolylines(otherOperationRecords);
   }, [otherOperationRecords]);
 
+  const simulationControlGeometryPolylines = useMemo<PolylineDefinition[]>(() => {
+    if (!isSimulationMode) {
+      return [];
+    }
+
+    return visibleOperations.flatMap((operation, operationIndex) =>
+      operationToControlGeometryPolylines(operation, meshMaxZ ?? 0, operationIndex),
+    );
+  }, [isSimulationMode, meshMaxZ, visibleOperations]);
+
   const simulationClippingEligible = Boolean(
     isSimulationMode &&
       simulationCompletedToolpathOnly &&
@@ -944,9 +971,12 @@ function App() {
 
   const viewportPolylines = useMemo<PolylineDefinition[]>(() => {
     const clippingActive = simulationCompletedPolylines !== null;
-    const basePolylines = clippingActive
-      ? [...otherOperationPolylines, ...simulationCompletedPolylines]
-      : operationPolylines;
+    const basePolylines = [
+      ...(clippingActive
+        ? [...otherOperationPolylines, ...simulationCompletedPolylines]
+        : operationPolylines),
+      ...simulationControlGeometryPolylines,
+    ];
 
     if (!simulationDebugUiEnabled || !isSimulationMode || simulationChunkToolpathPoints.length < 2) {
       return basePolylines;
@@ -972,6 +1002,7 @@ function App() {
     otherOperationPolylines,
     simulationCompletedPolylines,
     simulationChunkToolpathPoints,
+    simulationControlGeometryPolylines,
     simulationDebugUiEnabled,
   ]);
 

@@ -41,7 +41,10 @@ export function SetupTreeItem({
           <SidebarMenuButton
             type="button"
             isActive={isSelected}
-            className={cn("h-7 items-center gap-1.5 border-border bg-background/90 py-1 shadow backdrop-blur")}
+            className={cn(
+              "h-7 items-center gap-1.5 border-border bg-background py-1 shadow",
+              "data-[active=true]:bg-background data-[active=true]:!border-blue-500",
+            )}
             onClick={(event) => {
               event.stopPropagation();
               select(event);

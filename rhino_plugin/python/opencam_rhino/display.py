@@ -8,9 +8,7 @@ another document's viewport.
 Two kinds of content are supported, always keyed by document serial:
 
 - the toolpath polyline overlay (DrawOverlay); and
-- shaded mesh layers (PostDrawObjects, depth-tested): the simulation chunk
-  rest/active/tool meshes, the final machined stock, and the vertex-colored
-  comparison mesh.
+- the moving shaded tool mesh (PostDrawObjects, depth-tested).
 """
 
 from __future__ import annotations
@@ -30,6 +28,31 @@ class ToolpathPreview:
     start: tuple[float, float, float] | None
     end: tuple[float, float, float] | None
 
+    def to_dict(self) -> dict:
+        return {
+            "segments": [
+                {"role": segment.role, "points": [list(point) for point in segment.points]}
+                for segment in self.segments
+            ],
+            "start": None if self.start is None else list(self.start),
+            "end": None if self.end is None else list(self.end),
+        }
+
+    @classmethod
+    def from_dict(cls, value: dict) -> ToolpathPreview:
+        if not isinstance(value, dict):
+            raise TypeError("Saved toolpath preview must be an object.")
+        segments = []
+        for item in value.get("segments", []):
+            if not isinstance(item, dict) or item.get("role") not in {"rapid", "linking", "cutting"}:
+                raise ValueError("Saved toolpath preview has an invalid segment.")
+            points = tuple(_saved_point(point) for point in item.get("points", []))
+            if len(points) >= 2:
+                segments.append(ToolpathSegment(str(item["role"]), points))
+        start = None if value.get("start") is None else _saved_point(value["start"])
+        end = None if value.get("end") is None else _saved_point(value["end"])
+        return cls(tuple(segments), start, end)
+
     @classmethod
     def from_operation(cls, operation: dict) -> "ToolpathPreview":
         records = operation.get("records")
@@ -41,14 +64,15 @@ class ToolpathPreview:
         for record in records:
             if not isinstance(record, dict) or not all(key in record for key in ("x", "y", "z")):
                 continue
-            point = (float(record["x"]), float(record["y"]), float(record["z"]))
             role = _role_for(record)
-            if current_points and role != current_role:
-                segments.append(ToolpathSegment(current_role, tuple(current_points)))
-                current_points = [current_points[-1], point]
-            else:
-                current_points.append(point)
-            current_role = role
+            start = current_points[-1] if current_points else None
+            for point in _record_points(record, start):
+                if current_points and role != current_role:
+                    segments.append(ToolpathSegment(current_role, tuple(current_points)))
+                    current_points = [current_points[-1], point]
+                else:
+                    current_points.append(point)
+                current_role = role
         if current_points:
             segments.append(ToolpathSegment(current_role or "cutting", tuple(current_points)))
         start = segments[0].points[0] if segments else None
@@ -56,26 +80,59 @@ class ToolpathPreview:
         return cls(tuple(segment for segment in segments if len(segment.points) >= 2), start, end)
 
 
+def _saved_point(value) -> tuple[float, float, float]:
+    if not isinstance(value, (list, tuple)) or len(value) != 3:
+        raise ValueError("Saved toolpath point must contain three coordinates.")
+    return tuple(float(coordinate) for coordinate in value)
+
+
+def _record_points(record: dict, start: tuple[float, float, float] | None):
+    """Endpoint for linear moves; tessellated arc points for arc moves."""
+    point = (float(record["x"]), float(record["y"]), float(record["z"]))
+    offset_x = record.get("centerOffsetX", record.get("center_offset_x"))
+    offset_y = record.get("centerOffsetY", record.get("center_offset_y"))
+    if offset_x is None or offset_y is None or start is None:
+        return [point]
+    center = (start[0] + float(offset_x), start[1] + float(offset_y), point[2])
+    return _arc_points(start, center, point, bool(record.get("clockwise", False)))
+
+
+def _arc_points(start, center, end, clockwise, tolerance=0.05):
+    """Tessellate one XY arc from start to end around center."""
+    import math
+
+    radius = math.hypot(start[0] - center[0], start[1] - center[1])
+    end_radius = math.hypot(end[0] - center[0], end[1] - center[1])
+    if radius <= 1e-9 or end_radius <= 1e-9 or abs(radius - end_radius) > max(1e-6, 0.01 * radius):
+        return [end]
+    a0 = math.atan2(start[1] - center[1], start[0] - center[0])
+    a1 = math.atan2(end[1] - center[1], end[0] - center[0])
+    two_pi = 2.0 * math.pi
+    sweep = -((a0 - a1) % two_pi) if clockwise else (a1 - a0) % two_pi
+    if abs(sweep) < 1e-9:
+        return [end]
+    try:
+        step = 2.0 * math.acos(max(-1.0, min(1.0, 1.0 - tolerance / radius)))
+    except ValueError:
+        step = math.pi / 2.0
+    count = max(4, min(64, math.ceil(abs(sweep) / max(step, 1e-6))))
+    points = []
+    for index in range(1, count + 1):
+        angle = a0 + sweep * index / count
+        points.append((
+            center[0] + radius * math.cos(angle),
+            center[1] + radius * math.sin(angle),
+            end[2],
+        ))
+    return points
+
+
 def _role_for(record: dict) -> str:
-    if record.get("feed_type") == "rapid" or record.get("motion_role") == "travel":
+    feed_type = record.get("feedType", record.get("feed_type"))
+    motion_role = record.get("motionRole", record.get("motion_role"))
+    if feed_type == "rapid" or motion_role == "travel":
         return "rapid"
-    return "linking" if record.get("motion_role") == "linking" else "cutting"
-
-
-def _color_for(role):
-    import System.Drawing
-
-    return {
-        "rapid": System.Drawing.Color.FromArgb(220, 38, 38),
-        "linking": System.Drawing.Color.FromArgb(234, 179, 8),
-        "cutting": System.Drawing.Color.FromArgb(29, 78, 216),
-    }[role]
-
-
-def _marker_color(kind):
-    import System.Drawing
-
-    return System.Drawing.Color.LimeGreen if kind == "start" else System.Drawing.Color.Red
+    return "linking" if motion_role == "linking" else "cutting"
 
 
 def build_rhino_mesh(parsed: dict, translation: tuple[float, float, float] | None = None):
@@ -98,20 +155,6 @@ def build_rhino_mesh(parsed: dict, translation: tuple[float, float, float] | Non
     return mesh
 
 
-def _mesh_style(role):
-    import System.Drawing
-
-    styles = {
-        "rest": (System.Drawing.Color.FromArgb(176, 176, 176), 0.45),
-        "active": (System.Drawing.Color.FromArgb(255, 179, 71), 0.0),
-        "tool": (System.Drawing.Color.FromArgb(70, 80, 95), 0.0),
-        "final": (System.Drawing.Color.FromArgb(96, 205, 133), 0.15),
-        "comparison": (System.Drawing.Color.White, 0.0),
-        "part": (System.Drawing.Color.FromArgb(148, 163, 184), 0.55),
-    }
-    return styles.get(role, (System.Drawing.Color.FromArgb(160, 160, 160), 0.0))
-
-
 def stock_box_edges(min_point, max_point):
     """Twelve world-axis box edges as point pairs for the stock preview."""
     x0, y0, z0 = min_point
@@ -122,26 +165,46 @@ def stock_box_edges(min_point, max_point):
     return ring(bottom) + ring(top) + list(zip(bottom, top))
 
 
-CONDUIT_VERSION = 4
+CONDUIT_VERSION = 7
 
 DEFAULT_LAYER_VISIBILITY = {"stock": True, "part": True, "toolpath": True, "tool": True}
 
 
 class OpenCamToolpathConduit:
-    """Rhino wrapper, imported only when a Rhino session is present."""
+    """Rhino wrapper with draw-ready geometry cached outside viewport callbacks."""
 
     version = CONDUIT_VERSION
 
     def __init__(self):
         import Rhino
+        import System.Drawing
 
         class _Conduit(Rhino.Display.DisplayConduit):
             def __init__(inner):
                 super().__init__()
-                inner.toolpaths: dict[int, ToolpathPreview] = {}
+                inner.toolpaths: dict[int, dict] = {}
                 inner.mesh_layers: dict[int, dict[str, list]] = {}
                 inner.stock_boxes: dict[int, list] = {}
                 inner.layer_visibility: dict[int, dict] = {}
+                inner.bounding_boxes: dict[int, object] = {}
+                inner.path_colors = {
+                    "rapid": System.Drawing.Color.FromArgb(220, 38, 38),
+                    "linking": System.Drawing.Color.FromArgb(234, 179, 8),
+                    "cutting": System.Drawing.Color.FromArgb(29, 78, 216),
+                }
+                inner.marker_colors = {
+                    "start": System.Drawing.Color.LimeGreen,
+                    "end": System.Drawing.Color.Red,
+                }
+                inner.stock_color = System.Drawing.Color.FromArgb(120, 113, 108)
+                inner.mesh_materials = {
+                    "tool": Rhino.Display.DisplayMaterial(
+                        System.Drawing.Color.FromArgb(70, 80, 95), 0.0
+                    ),
+                    "part": Rhino.Display.DisplayMaterial(
+                        System.Drawing.Color.FromArgb(148, 163, 184), 0.55
+                    ),
+                }
 
             def _visibility(inner, serial):
                 return inner.layer_visibility.setdefault(serial, dict(DEFAULT_LAYER_VISIBILITY))
@@ -150,38 +213,54 @@ class OpenCamToolpathConduit:
                 doc = getattr(event, "RhinoDoc", None)
                 return None if doc is None else int(doc.RuntimeSerialNumber)
 
-            def _refresh_enabled(inner):
-                inner.Enabled = (
-                    bool(inner.toolpaths)
-                    or any(layers for layers in inner.mesh_layers.values())
-                    or bool(inner.stock_boxes)
-                )
-
-            def CalculateBoundingBox(inner, event):
-                serial = inner._doc_serial(event)
-                if serial is None:
-                    return
+            def _cache_toolpath(inner, serial, preview):
+                lines = {role: [] for role in inner.path_colors}
                 points = []
-                preview = inner.toolpaths.get(serial)
-                if preview is not None:
-                    points.extend(
-                        Rhino.Geometry.Point3d(*point)
-                        for segment in preview.segments
-                        for point in segment.points
+                for segment in preview.segments:
+                    segment_points = [
+                        Rhino.Geometry.Point3d(*point) for point in segment.points
+                    ]
+                    points.extend(segment_points)
+                    lines[segment.role].extend(
+                        Rhino.Geometry.Line(start, end)
+                        for start, end in zip(segment_points, segment_points[1:])
                     )
-                if points:
-                    event.IncludeBoundingBox(Rhino.Geometry.BoundingBox(points))
-                for meshes in inner.mesh_layers.get(serial, {}).values():
+                inner.toolpaths[serial] = {
+                    "lines": lines,
+                    "start": None if preview.start is None else Rhino.Geometry.Point3d(*preview.start),
+                    "end": None if preview.end is None else Rhino.Geometry.Point3d(*preview.end),
+                    "bounding_box": Rhino.Geometry.BoundingBox(points),
+                }
+
+            def _rebuild_bounding_box(inner, serial):
+                visibility = inner._visibility(serial)
+                points = []
+                toolpath = inner.toolpaths.get(serial)
+                if visibility.get("toolpath", True) and toolpath is not None:
+                    box = toolpath["bounding_box"]
+                    if box.IsValid:
+                        points.extend(box.GetCorners())
+                if visibility.get("stock", True):
+                    for start, end in inner.stock_boxes.get(serial, []):
+                        points.extend((start, end))
+                for role, meshes in inner.mesh_layers.get(serial, {}).items():
+                    if not visibility.get(role, True):
+                        continue
                     for mesh in meshes:
                         box = mesh.GetBoundingBox(True)
                         if box.IsValid:
-                            event.IncludeBoundingBox(box)
-                for start, end in inner.stock_boxes.get(serial, []):
-                    event.IncludeBoundingBox(
-                        Rhino.Geometry.BoundingBox(
-                            Rhino.Geometry.Point3d(*start), Rhino.Geometry.Point3d(*end)
-                        )
-                    )
+                            points.extend(box.GetCorners())
+                if points:
+                    inner.bounding_boxes[serial] = Rhino.Geometry.BoundingBox(points)
+                else:
+                    inner.bounding_boxes.pop(serial, None)
+                inner.Enabled = bool(inner.bounding_boxes)
+
+            def CalculateBoundingBox(inner, event):
+                serial = inner._doc_serial(event)
+                box = None if serial is None else inner.bounding_boxes.get(serial)
+                if box is not None and box.IsValid:
+                    event.IncludeBoundingBox(box)
 
             def PostDrawObjects(inner, event):
                 serial = inner._doc_serial(event)
@@ -189,10 +268,9 @@ class OpenCamToolpathConduit:
                     return
                 visibility = inner._visibility(serial)
                 for role, meshes in inner.mesh_layers.get(serial, {}).items():
-                    if role in {"tool", "part"} and not visibility.get(role, True):
+                    if not visibility.get(role, True):
                         continue
-                    color, transparency = _mesh_style(role)
-                    material = Rhino.Display.DisplayMaterial(color, transparency)
+                    material = inner.mesh_materials[role]
                     for mesh in meshes:
                         event.Display.DrawMeshShaded(mesh, material)
 
@@ -202,43 +280,32 @@ class OpenCamToolpathConduit:
                     return
                 visibility = inner._visibility(serial)
                 if visibility.get("stock", True):
-                    import System.Drawing
-
-                    stock_color = System.Drawing.Color.FromArgb(120, 113, 108)
                     for start, end in inner.stock_boxes.get(serial, []):
-                        event.Display.DrawDottedLine(
-                            Rhino.Geometry.Point3d(*start),
-                            Rhino.Geometry.Point3d(*end),
-                            stock_color,
-                        )
+                        event.Display.DrawDottedLine(start, end, inner.stock_color)
                 if not visibility.get("toolpath", True):
                     return
-                preview = inner.toolpaths.get(serial)
-                if preview is None:
+                toolpath = inner.toolpaths.get(serial)
+                if toolpath is None:
                     return
-                for segment in preview.segments:
-                    event.Display.DrawPolyline(
-                        Rhino.Geometry.Polyline(
-                            [Rhino.Geometry.Point3d(*point) for point in segment.points]
-                        ),
-                        _color_for(segment.role),
-                        2 if segment.role == "rapid" else 3,
-                    )
-                if preview.start is not None:
+                for role, lines in toolpath["lines"].items():
+                    if lines:
+                        event.Display.DrawLines(lines, inner.path_colors[role], 1)
+                if toolpath["start"] is not None:
                     event.Display.DrawPoint(
-                        Rhino.Geometry.Point3d(*preview.start),
+                        toolpath["start"],
                         Rhino.Display.PointStyle.RoundSimple,
-                        6,
-                        _marker_color("start"),
+                        3,
+                        inner.marker_colors["start"],
                     )
-                if preview.end is not None:
+                if toolpath["end"] is not None:
                     event.Display.DrawPoint(
-                        Rhino.Geometry.Point3d(*preview.end),
+                        toolpath["end"],
                         Rhino.Display.PointStyle.RoundSimple,
-                        6,
-                        _marker_color("end"),
+                        3,
+                        inner.marker_colors["end"],
                     )
 
+        self._rhino = Rhino
         self._conduit = _Conduit()
 
     @property
@@ -246,34 +313,46 @@ class OpenCamToolpathConduit:
         return self._conduit.Enabled
 
     def set_toolpath(self, document_serial: int, preview: ToolpathPreview):
-        self._conduit.toolpaths[int(document_serial)] = preview
-        self._conduit._refresh_enabled()
+        serial = int(document_serial)
+        self._conduit._cache_toolpath(serial, preview)
+        self._conduit._rebuild_bounding_box(serial)
+
+    def clear_toolpath(self, document_serial: int):
+        serial = int(document_serial)
+        self._conduit.toolpaths.pop(serial, None)
+        self._conduit._rebuild_bounding_box(serial)
 
     def set_mesh_layer(self, document_serial: int, role: str, meshes: list):
-        layers = self._conduit.mesh_layers.setdefault(int(document_serial), {})
+        if role not in {"tool", "part"}:
+            raise ValueError(f"Unsupported OpenCAM mesh layer: {role}")
+        serial = int(document_serial)
+        layers = self._conduit.mesh_layers.setdefault(serial, {})
         if meshes:
             layers[role] = list(meshes)
         else:
             layers.pop(role, None)
-        self._conduit._refresh_enabled()
-
-    def clear_meshes(self, document_serial: int):
-        self._conduit.mesh_layers.pop(int(document_serial), None)
-        self._conduit._refresh_enabled()
+        self._conduit._rebuild_bounding_box(serial)
 
     def set_layer_visibility(self, document_serial: int, flags: dict):
         serial = int(document_serial)
         merged = dict(self._conduit.layer_visibility.get(serial, DEFAULT_LAYER_VISIBILITY))
         merged.update({key: bool(value) for key, value in flags.items() if key in merged})
         self._conduit.layer_visibility[serial] = merged
+        self._conduit._rebuild_bounding_box(serial)
 
     def set_stock_box(self, document_serial: int, edges):
         serial = int(document_serial)
         if edges:
-            self._conduit.stock_boxes[serial] = list(edges)
+            self._conduit.stock_boxes[serial] = [
+                (
+                    self._rhino.Geometry.Point3d(*start),
+                    self._rhino.Geometry.Point3d(*end),
+                )
+                for start, end in edges
+            ]
         else:
             self._conduit.stock_boxes.pop(serial, None)
-        self._conduit._refresh_enabled()
+        self._conduit._rebuild_bounding_box(serial)
 
     def forget_document(self, document_serial: int):
         serial = int(document_serial)
@@ -281,11 +360,13 @@ class OpenCamToolpathConduit:
         self._conduit.mesh_layers.pop(serial, None)
         self._conduit.stock_boxes.pop(serial, None)
         self._conduit.layer_visibility.pop(serial, None)
-        self._conduit._refresh_enabled()
+        self._conduit.bounding_boxes.pop(serial, None)
+        self._conduit.Enabled = bool(self._conduit.bounding_boxes)
 
     def clear(self):
         self._conduit.toolpaths.clear()
         self._conduit.mesh_layers.clear()
         self._conduit.stock_boxes.clear()
         self._conduit.layer_visibility.clear()
+        self._conduit.bounding_boxes.clear()
         self._conduit.Enabled = False

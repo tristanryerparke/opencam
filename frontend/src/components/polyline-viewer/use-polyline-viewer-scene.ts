@@ -237,7 +237,9 @@ export function usePolylineViewerScene(
     showOriginalMesh = true,
     onMeshFaceSelect,
     onSecondaryMeshDisplayed,
+    onSecondaryMeshLoadFailed,
     onTertiaryMeshDisplayed,
+    onTertiaryMeshLoadFailed,
   }: PolylineViewerSceneProps,
 ) {
   const currentPolylinesRef = useRef(polylines);
@@ -278,7 +280,9 @@ export function usePolylineViewerScene(
   const simulationStepRef = useRef(simulationStep);
   const simulationToolPositionRef = useRef<PolylinePoint | null>(simulationToolPosition);
   const onSecondaryMeshDisplayedRef = useRef(onSecondaryMeshDisplayed);
+  const onSecondaryMeshLoadFailedRef = useRef(onSecondaryMeshLoadFailed);
   const onTertiaryMeshDisplayedRef = useRef(onTertiaryMeshDisplayed);
+  const onTertiaryMeshLoadFailedRef = useRef(onTertiaryMeshLoadFailed);
   const toolRenderModeRef = useRef<ToolRenderMode>(toolRenderMode);
   const partRenderModeRef = useRef<ToolRenderMode>(partRenderMode);
   const stockRenderModeRef = useRef<ToolRenderMode>(stockRenderMode);
@@ -321,11 +325,13 @@ export function usePolylineViewerScene(
 
   useEffect(() => {
     onSecondaryMeshDisplayedRef.current = onSecondaryMeshDisplayed;
-  }, [onSecondaryMeshDisplayed]);
+    onSecondaryMeshLoadFailedRef.current = onSecondaryMeshLoadFailed;
+  }, [onSecondaryMeshDisplayed, onSecondaryMeshLoadFailed]);
 
   useEffect(() => {
     onTertiaryMeshDisplayedRef.current = onTertiaryMeshDisplayed;
-  }, [onTertiaryMeshDisplayed]);
+    onTertiaryMeshLoadFailedRef.current = onTertiaryMeshLoadFailed;
+  }, [onTertiaryMeshDisplayed, onTertiaryMeshLoadFailed]);
 
   useEffect(() => {
     toolRenderModeRef.current = toolRenderMode;
@@ -1378,6 +1384,7 @@ export function usePolylineViewerScene(
       } catch (error) {
         if (!cancelled) {
           console.error("Failed to load secondary mesh", error);
+          onSecondaryMeshLoadFailedRef.current?.(secondaryMeshUrl, error);
         }
       }
     };
@@ -1436,7 +1443,10 @@ export function usePolylineViewerScene(
         swapGroupContents(tertiaryMeshGroup, result.group);
         onTertiaryMeshDisplayedRef.current?.(tertiaryMeshUrl, performance.now() - startedAt);
       } catch (error) {
-        if (!cancelled) console.error("Failed to load tertiary mesh", error);
+        if (!cancelled) {
+          console.error("Failed to load tertiary mesh", error);
+          onTertiaryMeshLoadFailedRef.current?.(tertiaryMeshUrl, error);
+        }
       }
     };
 

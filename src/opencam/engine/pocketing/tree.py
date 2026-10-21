@@ -66,12 +66,21 @@ def build_offset_node_layers(
                 polygon=Polygon(polyline),
             )
             for polyline in polylines
+            if _is_cuttable_contour(polyline, chord_tolerance)
         ]
+        if not layer:
+            break
         layer.sort(key=node_sort_key)
         node_layers.append(layer)
         offset_distance += stepover_distance
 
     return node_layers
+
+
+def _is_cuttable_contour(polyline: np.ndarray, chord_tolerance: float) -> bool:
+    """Drop collapse remnants; offsets can emit near-point slivers on curvy walls."""
+    polygon = Polygon(polyline)
+    return polygon.is_valid and polygon.area > chord_tolerance * chord_tolerance
 
 
 def _orient_for_cut_direction(

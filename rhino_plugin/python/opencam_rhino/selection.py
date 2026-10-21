@@ -55,19 +55,18 @@ def select_part(doc):
     )
 
 
-def select_planar_region(doc):
-    """Select a planar face or a connected set of planar boundary edges/curves.
+def select_planar_regions(doc):
+    """Select planar faces or one or more closed planar edge/curve loops.
 
-    A face preserves islands from its inner loops.  For edge selection, joined
-    closed curves are treated as loops; the largest signed-area loop is outer.
+    Each face preserves islands from its inner loops. Each independently joined
+    closed edge/curve loop becomes its own operation-local region.
     """
     import Rhino
     from Rhino.DocObjects import ObjectType
-    from Rhino.Input import GetResult
     from Rhino.Input.Custom import GetObject
 
     getter = GetObject()
-    getter.SetCommandPrompt("Select a planar Brep face or closed planar edge region")
+    getter.SetCommandPrompt("Select one or more planar Brep faces or closed edge loops")
     getter.GeometryFilter = ObjectType.Curve | ObjectType.Surface
     getter.SubObjectSelect = True
     getter.EnablePreSelect(True, True)
@@ -80,17 +79,25 @@ def select_planar_region(doc):
     references = [getter.Object(index) for index in range(getter.ObjectCount)]
     faces = [reference.Face() for reference in references if reference.Face() is not None]
     if faces:
-        if len(faces) != 1 or len(references) != 1:
-            raise ValueError("Select one planar face, or only boundary edges/curves.")
-        return _region_from_face(faces[0], references[0])
-    return _region_from_curves(doc, references)
+        if len(faces) != len(references):
+            raise ValueError("Select planar faces, or only boundary edges/curves, not both.")
+        return [
+            _region_from_face(
+                face,
+                reference,
+                doc.ModelAbsoluteTolerance,
+                doc.ModelAngleToleranceRadians,
+            )
+            for face, reference in zip(faces, references)
+        ]
+    return _regions_from_curves(doc, references)
 
 
-def _region_from_face(face, reference):
+def _region_from_face(face, reference, tolerance, angle_tolerance):
     ok, plane = face.TryGetPlane()
     if not ok:
         raise ValueError("The selected Brep face must be planar.")
-    loops = [_curve_points(loop.To3dCurve()) for loop in face.Loops]
+    loops = [_curve_points(loop.To3dCurve(), tolerance, angle_tolerance) for loop in face.Loops]
     if not loops:
         raise ValueError("The selected face has no boundary loop.")
     outer_index = next((i for i, loop in enumerate(face.Loops) if str(loop.LoopType) == "Outer"), 0)
@@ -99,10 +106,11 @@ def _region_from_face(face, reference):
     return PlanarRegion(
         source_object_ids=[str(reference.ObjectId)],
         plane=_plane_data(plane), outer_loop=outer, inner_loops=inner,
+        source_object_names=[_source_name(reference)],
     )
 
 
-def _region_from_curves(doc, references):
+def _regions_from_curves(doc, references):
     import Rhino
 
     curves = [reference.Curve() or reference.Edge() for reference in references]
@@ -110,37 +118,41 @@ def _region_from_curves(doc, references):
         raise ValueError("Every selected item must be a Brep edge or curve.")
     joined = Rhino.Geometry.Curve.JoinCurves(curves, doc.ModelAbsoluteTolerance)
     if not joined:
-        raise ValueError("Selected edges could not be joined into a closed loop.")
-    loops = []
-    plane = None
+        raise ValueError("Selected edges could not be joined into closed loops.")
+
+    source_object_ids = [str(reference.ObjectId) for reference in references]
+    source_object_names = [_source_name(reference) for reference in references]
+    regions = []
     for curve in joined:
         if not curve.IsClosed:
-            raise ValueError("Selected edges must form closed loops.")
-        ok, curve_plane = curve.TryGetPlane(doc.ModelAbsoluteTolerance)
+            raise ValueError("Every selected edge chain must form a closed loop.")
+        ok, plane = curve.TryGetPlane(doc.ModelAbsoluteTolerance)
         if not ok:
-            raise ValueError("Selected edges must be planar.")
-        if plane is None:
-            plane = curve_plane
-        elif not _coplanar(plane, curve_plane, doc.ModelAbsoluteTolerance):
-            raise ValueError("Selected loops must share one machining plane.")
-        loops.append(_curve_points(curve))
-    if plane is None:
-        raise ValueError("No planar loops were selected.")
-    outer_index = max(range(len(loops)), key=lambda index: abs(_signed_area(loops[index], plane)))
-    return PlanarRegion(
-        source_object_ids=[str(reference.ObjectId) for reference in references],
-        plane=_plane_data(plane), outer_loop=loops[outer_index],
-        inner_loops=[loop for index, loop in enumerate(loops) if index != outer_index],
-    )
+            raise ValueError("Every selected edge loop must be planar.")
+        regions.append(PlanarRegion(
+            source_object_ids=source_object_ids,
+            plane=_plane_data(plane),
+            outer_loop=_curve_points(
+                curve,
+                doc.ModelAbsoluteTolerance,
+                doc.ModelAngleToleranceRadians,
+            ),
+            source_object_names=source_object_names,
+        ))
+    return regions
 
 
-def _curve_points(curve):
-    import Rhino
+def _source_name(reference):
+    obj = reference.Object()
+    return obj.Name if obj and obj.Name else "Rhino object"
 
-    polyline = Rhino.Geometry.Polyline()
-    if not curve.TryGetPolyline(polyline):
-        curve = curve.ToPolyline(0.0, 0.0, 0.0, 0.01, 0.0, 0.0, 0.0, True)
-        if curve is None or not curve.TryGetPolyline(polyline):
+
+def _curve_points(curve, tolerance=0.01, angle_tolerance=0.1):
+    polyline = _try_get_polyline(curve)
+    if polyline is None:
+        curve = curve.ToPolyline(tolerance, angle_tolerance, 0.0, 0.0)
+        polyline = None if curve is None else _try_get_polyline(curve)
+        if polyline is None:
             raise ValueError("Could not tessellate selected boundary.")
     points = [[point.X, point.Y, point.Z] for point in polyline]
     if len(points) < 3:
@@ -150,21 +162,14 @@ def _curve_points(curve):
     return points
 
 
+def _try_get_polyline(curve):
+    """Read RhinoCommon's `out Polyline` result through CPython pythonnet."""
+    result = curve.TryGetPolyline()
+    if not isinstance(result, tuple) or len(result) != 2:
+        return None
+    ok, polyline = result
+    return polyline if ok else None
+
+
 def _plane_data(plane):
     return {"origin": [plane.OriginX, plane.OriginY, plane.OriginZ], "x_axis": [plane.XAxis.X, plane.XAxis.Y, plane.XAxis.Z], "y_axis": [plane.YAxis.X, plane.YAxis.Y, plane.YAxis.Z], "normal": [plane.Normal.X, plane.Normal.Y, plane.Normal.Z]}
-
-
-def _coplanar(first, second, tolerance):
-    origin_delta = second.Origin - first.Origin
-    return abs(origin_delta * first.Normal) <= tolerance and abs(first.Normal * second.Normal) >= 1.0 - 1e-7
-
-
-def _signed_area(points, plane):
-    import Rhino
-
-    area = 0.0
-    for first, second in zip(points, points[1:]):
-        a = plane.ClosestParameter(Rhino.Geometry.Point3d(*first))
-        b = plane.ClosestParameter(Rhino.Geometry.Point3d(*second))
-        area += a[0] * b[1] - b[0] * a[1]
-    return area / 2.0

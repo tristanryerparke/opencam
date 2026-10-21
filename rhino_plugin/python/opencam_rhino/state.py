@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+from dataclasses import asdict
 
 from .contracts import (
     DEFAULT_VISIBILITY,
@@ -13,6 +15,7 @@ from .contracts import (
     PlanarRegion,
     SetupSpec,
     StockBox,
+    default_setup,
 )
 
 _BRIDGE = None
@@ -35,14 +38,13 @@ def load(doc) -> DocumentState:
     except json.JSONDecodeError:
         value = {}
     part_data = value.get("part")
-    region_data = value.get("region")
+    legacy_region_data = value.get("region")
     part = None if not part_data else PartSelection(
         object_id=part_data["object_id"],
         name=part_data["name"],
         mesh=part_data["mesh"],
         stock_box=StockBox(**part_data["stock_box"]),
     )
-    region = None if not region_data else PlanarRegion(**region_data)
     setups = [
         SetupSpec(
             id=setup["id"],
@@ -53,22 +55,120 @@ def load(doc) -> DocumentState:
                     name=operation.get("name", operation.get("type", "Operation")),
                     type=operation["type"],
                     params=dict(operation.get("params", {})),
+                    regions=[PlanarRegion(**region) for region in operation.get("regions", [])]
+                    if "regions" in operation else (
+                        [PlanarRegion(**operation["region"])] if operation.get("region") else []
+                    ),
                 )
                 for operation in setup.get("operations", [])
             ],
         )
         for setup in value.get("setups", [])
     ]
+    if not setups:
+        setups = [default_setup()]
+    if legacy_region_data:
+        for setup in setups:
+            for operation in setup.operations:
+                if not operation.regions:
+                    operation.regions = [PlanarRegion(**legacy_region_data)]
+                    break
+            else:
+                continue
+            break
     return DocumentState(
-        schema_version=int(value.get("schema_version", DOCUMENT_SCHEMA_VERSION)),
+        schema_version=DOCUMENT_SCHEMA_VERSION,
         backend_url=str(value.get("backend_url", "http://127.0.0.1:9090")),
         part=part,
-        region=region,
         setups=setups,
         selected_operation_id=value.get("selected_operation_id"),
+        toolpath_previews=dict(value.get("toolpath_previews", {})),
+        toolpaths=dict(value.get("toolpaths", {})),
         visibility=dict(value.get("visibility") or DEFAULT_VISIBILITY),
         results=dict(value.get("results", {})),
     )
+
+
+def operation_generation_hash(value: DocumentState, operation: OperationSpec) -> str:
+    generation_inputs = {
+        "schema_version": DOCUMENT_SCHEMA_VERSION,
+        "part": None if value.part is None else asdict(value.part),
+        "operation": asdict(operation),
+    }
+    encoded = json.dumps(
+        generation_inputs,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def store_toolpath(
+    value: DocumentState,
+    operation: OperationSpec,
+    toolpath: dict,
+) -> None:
+    value.toolpaths[operation.id] = {
+        "generation_hash": operation_generation_hash(value, operation),
+        "toolpath": toolpath,
+    }
+
+
+def cached_toolpath(value: DocumentState, operation_id: str | None) -> dict | None:
+    if not operation_id:
+        return None
+    _, operation = value.find_operation(operation_id)
+    entry = value.toolpaths.get(operation_id)
+    if operation is None or not isinstance(entry, dict):
+        return None
+    if entry.get("generation_hash") != operation_generation_hash(value, operation):
+        return None
+    toolpath = entry.get("toolpath")
+    return toolpath if isinstance(toolpath, dict) else None
+
+
+def store_toolpath_preview(
+    value: DocumentState,
+    operation: OperationSpec,
+    preview: dict,
+) -> None:
+    value.toolpath_previews[operation.id] = {
+        "generation_hash": operation_generation_hash(value, operation),
+        "preview": preview,
+    }
+
+
+def toolpath_preview(value: DocumentState, operation_id: str | None) -> dict | None:
+    if not operation_id:
+        return None
+    _, operation = value.find_operation(operation_id)
+    entry = value.toolpath_previews.get(operation_id)
+    if operation is None or not isinstance(entry, dict):
+        return None
+    if entry.get("generation_hash") != operation_generation_hash(value, operation):
+        return None
+    preview = entry.get("preview")
+    return preview if isinstance(preview, dict) else None
+
+
+def invalidate_toolpath_previews(
+    value: DocumentState,
+    operation_id: str | None = None,
+) -> None:
+    if operation_id is None:
+        value.toolpath_previews.clear()
+    else:
+        value.toolpath_previews.pop(operation_id, None)
+
+
+def invalidate_toolpaths(
+    value: DocumentState,
+    operation_id: str | None = None,
+) -> None:
+    if operation_id is None:
+        value.toolpaths.clear()
+    else:
+        value.toolpaths.pop(operation_id, None)
 
 
 def save(doc, value: DocumentState) -> None:

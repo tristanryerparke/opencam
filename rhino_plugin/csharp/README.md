@@ -1,24 +1,22 @@
 # C# shim contract
 
-Use the existing `rhino-python-plugin-template` as the installable Rhino 8
-project. Rename its assembly/namespace to `OpenCamRhinoBridge`; retain its
-per-document panel and JSON archive bridge.
+Installable implementation: `../bridge/` (`OpenCamRhinoBridge`).
 
-Replace the template's Python Eto content host with an Eto `WebView` host:
+C# responsibilities only:
 
-1. Load `web/dist/index.html` (or a bundled equivalent).
-2. On `MessageReceived`, call `PanelMessageBridge.Dispatch(documentSerial, e.Message)`.
-3. JSON-serialize the returned string and execute
-   `window.opencamRhino.receive(<quoted-result>)`.
-4. Never perform Rhino selection, mesh conversion, HTTP, persistence policy,
-   toolpath display, or CAM construction in C#.
+1. Register per-document Eto `WebView` panel and native `OpenCam` command.
+2. Serve self-contained `web/dist/index.html` from localhost, avoiding
+   file-origin WebView restrictions; sync Rhino theme/font CSS tokens.
+3. Forward WebView JSON to Python:
+   `opencam_rhino.entry.handle_panel_message(documentSerial, requestJson)`.
+4. Return Python response to page via `window.opencamRhino.receive(...)`.
+5. Store opaque document-state JSON and invoke Python lifecycle hooks.
 
-`RunPythonJson` is the only addition needed to the template launcher: it uses
-the existing `CreatePython3Script` path, executes the supplied Python body,
-and retrieves the named string variable. It must report Python exceptions to
-Rhino command history and return an error event instead of crashing the panel.
+`RunPythonJson` wraps RhinoCode `CreatePython3Script`; Python result crosses
+back through `OpenCamRhinoBridge.PanelResponseSink`. Exceptions write Rhino
+command-history error and produce JSON panel error instead of crashing panel.
 
-The old `csharp/OpenCamRhinoPlugin` is valuable API reconnaissance (mesh
-export, conduit ideas, HTTP endpoints), but it is not the implementation base:
-it duplicates selection/operation behavior in C# and predates the current
-`/cam/toolpath` contract.
+Never add Rhino selection, meshes, HTTP, persistence policy, toolpath drawing,
+or CAM construction here. Those remain Python/backend responsibilities.
+
+Legacy C#-only prototype has been removed. Keep this shim limited to responsibilities above.

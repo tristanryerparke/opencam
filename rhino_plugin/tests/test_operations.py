@@ -10,8 +10,8 @@ from opencam_rhino.operations import (  # noqa: E402
 )
 
 
-def make_state(with_region=True, normal=(0.0, 0.0, 1.0)):
-    state = DocumentState(
+def make_state():
+    return DocumentState(
         part=PartSelection(
             object_id="part",
             name="part",
@@ -19,19 +19,20 @@ def make_state(with_region=True, normal=(0.0, 0.0, 1.0)):
             stock_box=StockBox(min=[0, 0, 0], max=[20, 20, 10]),
         ),
     )
-    if with_region:
-        state.region = PlanarRegion(
-            source_object_ids=["edge"],
-            plane={"origin": [0, 0, 5], "normal": list(normal)},
-            outer_loop=[[1, 1, 5], [17, 1, 5], [17, 17, 5], [1, 17, 5], [1, 1, 5]],
-            inner_loops=[[[6, 6, 5], [12, 6, 5], [12, 12, 5], [6, 12, 5], [6, 6, 5]]],
-        )
-    return state
+
+
+def make_region(normal=(0.0, 0.0, 1.0)):
+    return PlanarRegion(
+        source_object_ids=["edge"],
+        plane={"origin": [0, 0, 5], "normal": list(normal)},
+        outer_loop=[[1, 1, 5], [17, 1, 5], [17, 17, 5], [1, 17, 5], [1, 1, 5]],
+        inner_loops=[[[6, 6, 5], [12, 6, 5], [12, 12, 5], [6, 12, 5], [6, 6, 5]]],
+    )
 
 
 def test_pocketing_payload_maps_region_and_islands():
     payload = build_operation_payload(
-        {"id": "op-1", "name": "Rough", "type": "pocketing_2d", "params": {"stepover_percent": 30}},
+        {"id": "op-1", "name": "Rough", "type": "pocketing_2d", "params": {"stepover_percent": 30}, "regions": [make_region(), make_region()] },
         make_state(),
     )
     assert payload["type"] == "pocketing_2d"
@@ -39,27 +40,30 @@ def test_pocketing_payload_maps_region_and_islands():
     assert payload["tool"]["toolNumber"] == 1
     assert payload["cutParameters"]["stepover"] == {"mode": "percentage_of_tool_diameter", "value": 30.0}
     loops = payload["driveGeometry"]
-    assert len(loops) == 2  # outer + island
+    assert len(loops) == 4  # outer + island for each selected region
     assert loops[0]["z"] == 5.0
     assert loops[0]["vertices"][0] == {"x": 1.0, "y": 1.0}
     assert payload["clearance"]["clearanceHeightType"] == "stock_max_z_plus_offset"
+    assert payload["levels"]["driveGeometryPosition"] == "at_bottom"
 
 
 def test_profiling_payload_maps_side():
     payload = build_operation_payload(
-        {"id": "op-2", "name": "Cutout", "type": "profiling_2d", "params": {"side": "outside"}},
+        {"id": "op-2", "name": "Cutout", "type": "profiling_2d", "params": {}, "regions": [make_region(normal=(0.0, 0.0, -1.0))] },
         make_state(),
     )
     assert payload["cutParameters"]["side"] == "outside"
+    assert payload["levels"]["driveGeometryPosition"] == "at_bottom"
     assert len(payload["driveGeometry"]) == 2  # profiling also accepts every loop
 
 
 def test_parallel_finishing_payload_uses_outer_loop_only():
     payload = build_operation_payload(
-        {"id": "op-3", "name": "Finish", "type": "parallel_finishing", "params": {"direction_degrees": 45}},
+        {"id": "op-3", "name": "Finish", "type": "parallel_finishing", "params": {"direction_degrees": 45}, "regions": [make_region()] },
         make_state(),
     )
     assert payload["cutParameters"]["directionDegrees"] == 45.0
+    assert payload["levels"]["driveGeometryPosition"] == "at_bottom"
     loops = payload["driveGeometry"]
     assert len(loops) == 1 and "z" not in loops[0]
 
@@ -67,8 +71,8 @@ def test_parallel_finishing_payload_uses_outer_loop_only():
 def test_tilted_region_is_rejected_until_transforms_exist():
     try:
         build_operation_payload(
-            {"id": "op-4", "name": "x", "type": "pocketing_2d", "params": {}},
-            make_state(normal=(0.0, 1.0, 0.0)),
+            {"id": "op-4", "name": "x", "type": "pocketing_2d", "params": {}, "regions": [make_region(normal=(0.0, 1.0, 0.0))]},
+            make_state(),
         )
     except ValueError as error:
         assert "World XY" in str(error)
@@ -78,7 +82,7 @@ def test_tilted_region_is_rejected_until_transforms_exist():
 
 def test_missing_region_is_rejected():
     try:
-        build_operation_payload({"id": "op-5", "name": "x", "type": "pocketing_2d", "params": {}}, make_state(with_region=False))
+        build_operation_payload({"id": "op-5", "name": "x", "type": "pocketing_2d", "params": {}}, make_state())
     except ValueError as error:
         assert "region" in str(error)
     else:

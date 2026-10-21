@@ -1,24 +1,24 @@
 """UI-thread actions shared by generated Rhino commands and panel messages.
 
-All backend work happens here, on demand; nothing runs from document events or
-background threads.  Every action returns a panel event with the persisted
-document state, keeping the WebView dumb.
+Rhino state changes stay on the UI thread. Toolpath HTTP generation runs in a
+worker thread and is committed by short panel status polls. Every action
+returns a panel event with persisted document state, keeping the WebView dumb.
 """
 
 from __future__ import annotations
 
 from . import backend, mesh_export, operations, runtime, selection, state
-from .contracts import DocumentState, OperationSpec, PanelRequest, SetupSpec, panel_event
+from .contracts import (
+    DocumentState,
+    OperationSpec,
+    PanelRequest,
+    PlanarRegion,
+    panel_event,
+)
 
 
 def _fetcher(base_url):
     return lambda path: backend.request_bytes(base_url, path)
-
-
-def _default_setup(document_state: DocumentState) -> SetupSpec:
-    setup = SetupSpec(id=_uuid(), name="Setup {}".format(len(document_state.setups) + 1))
-    document_state.setups.append(setup)
-    return setup
 
 
 def _uuid() -> str:
@@ -38,30 +38,117 @@ def _target_operation(document_state: DocumentState, request: PanelRequest):
     return None, None
 
 
-def _generate(document_state: DocumentState, operation: OperationSpec, doc):
+def _edit_operation_dialog(doc, operation, backend_url):
+    import json
+    from dataclasses import asdict
+
+    from OpenCamRhinoBridge import PluginBridge
+
+    draft = None if operation is None else asdict(operation)
+    while True:
+        response = json.loads(PluginBridge.ShowOperationDialog(
+            doc.RuntimeSerialNumber,
+            json.dumps({"draft": draft, "backend_url": backend_url}, separators=(",", ":")),
+        ))
+        action = response.get("action")
+        if action == "cancel":
+            return None
+        draft = response.get("draft")
+        if not isinstance(draft, dict):
+            raise ValueError("Operation dialog returned no draft.")
+        if action == "begin":
+            continue
+        if action == "select_region":
+            regions = selection.select_planar_regions(doc)
+            if regions is not None:
+                draft.setdefault("regions", []).extend(asdict(region) for region in regions)
+            continue
+        if action == "generate":
+            regions = draft.get("regions", [])
+            if not isinstance(regions, list):
+                raise ValueError("Operation dialog returned invalid drive geometry.")
+            draft["regions"] = [PlanarRegion(**region) for region in regions]
+            return draft
+        raise ValueError("Unknown operation dialog action: {}".format(action))
+
+
+def _invalidate_toolpaths(
+    document_state: DocumentState,
+    doc,
+    operation_id: str | None = None,
+):
+    state.invalidate_toolpath_previews(document_state, operation_id)
+    state.invalidate_toolpaths(document_state, operation_id)
+    runtime.forget_toolpath(doc, operation_id)
+    summaries = document_state.results.get("toolpath_summaries")
+    if operation_id is None:
+        document_state.results.pop("toolpath_summaries", None)
+    elif isinstance(summaries, dict):
+        summaries.pop(operation_id, None)
+        if not summaries:
+            document_state.results.pop("toolpath_summaries", None)
+    document_state.results.pop("toolpath_summary", None)
+    if operation_id is None or document_state.selected_operation_id == operation_id:
+        runtime.clear_toolpath(doc)
+
+
+def _start_generation(document_state: DocumentState, operation: OperationSpec, doc):
     _require(document_state.part, "Select a part before generating a toolpath.")
-    payload = operations.build_operation_payload(
-        {"id": operation.id, "name": operation.name, "type": operation.type, "params": operation.params},
+    operation_payload = operations.build_operation_payload(
+        {
+            "id": operation.id,
+            "name": operation.name,
+            "type": operation.type,
+            "params": operation.params,
+            "regions": operation.regions,
+        },
         document_state,
     )
-    setup = dict({"clearanceOffset": 10.0})
-    setup["partMesh"] = document_state.part.mesh
-    setup["stock"] = {"maxZ": document_state.part.stock_box.max[2]}
-    response = backend.request_json(
-        document_state.backend_url,
-        "POST",
-        "/cam/toolpath",
-        {"setup": setup, "operation": payload},
+    setup = {
+        "clearanceOffset": 10.0,
+        "partMesh": document_state.part.mesh,
+        "stock": {"maxZ": document_state.part.stock_box.max[2]},
+    }
+    base_url = document_state.backend_url
+    request_payload = {"setup": setup, "operation": operation_payload}
+    return runtime.start_generation(
+        doc,
+        operation.id,
+        state.operation_generation_hash(document_state, operation),
+        lambda: backend.request_json(
+            base_url,
+            "POST",
+            "/cam/toolpath",
+            request_payload,
+        ),
     )
-    preview = runtime.show_toolpath(doc, response)
-    runtime.remember_toolpath(doc, response)
+
+
+def _apply_completed_generation(
+    document_state: DocumentState,
+    task: runtime.GenerationTask,
+    doc,
+):
+    _, operation = document_state.find_operation(task.operation_id)
+    _require(operation, "Generated operation no longer exists.")
+    if task.generation_hash != state.operation_generation_hash(document_state, operation):
+        raise ValueError("Operation inputs changed while its toolpath was generating.")
+    if not isinstance(task.response, dict):
+        raise TypeError("Toolpath generation returned no response.")
+
+    preview = runtime.show_toolpath(doc, task.response)
+    runtime.remember_toolpath(doc, task.response, operation.id)
+    state.store_toolpath(document_state, operation, task.response)
+    state.store_toolpath_preview(document_state, operation, preview.to_dict())
     document_state.results.setdefault("toolpath_summaries", {})[operation.id] = {
         "segment_count": len(preview.segments),
         "point_count": sum(len(segment.points) for segment in preview.segments),
         "displayed": True,
     }
-    document_state.results["toolpath_summary"] = document_state.results["toolpath_summaries"][operation.id]
-    return response
+    document_state.results["toolpath_summary"] = document_state.results[
+        "toolpath_summaries"
+    ][operation.id]
+    return task.response
 
 
 def run(request_data, doc):
@@ -70,39 +157,90 @@ def run(request_data, doc):
     try:
         action = request.action
         if action == "get_state":
-            pass
+            generation = runtime.generation_task(doc)
+            if generation is not None:
+                return panel_event(
+                    request,
+                    document_state,
+                    ok=True,
+                    generation_status="running",
+                    generation_operation_id=generation.operation_id,
+                )
         elif action == "select_part":
             part = selection.select_part(doc)
             if part is None:
                 return panel_event(request, document_state, cancelled=True)
             document_state.part = part
+            _invalidate_toolpaths(document_state, doc)
             runtime.apply_stock_and_part(doc, document_state)
             state.save(doc, document_state)
         elif action == "select_region":
-            region = selection.select_planar_region(doc)
-            if region is None:
+            regions = selection.select_planar_regions(doc)
+            if regions is None:
                 return panel_event(request, document_state, cancelled=True)
-            document_state.region = region
+            from dataclasses import asdict
+
+            return panel_event(
+                request,
+                document_state,
+                ok=True,
+                regions=[asdict(region) for region in regions],
+            )
+        elif action == "open_operation_dialog":
+            operation_id = request.payload.get("operation_id")
+            setup, operation = document_state.find_operation(str(operation_id)) if operation_id else (None, None)
+            if operation_id and operation is None:
+                raise ValueError("Selected operation no longer exists.")
+            draft = _edit_operation_dialog(doc, operation, document_state.backend_url)
+            if draft is None:
+                return panel_event(request, document_state, cancelled=True)
+            editing_existing = operation is not None
+            if operation is None:
+                setup = document_state.setups[0]
+                operation = OperationSpec(
+                    id=_uuid(),
+                    name=draft["name"],
+                    type=draft["type"],
+                    params=draft["params"],
+                    regions=draft["regions"],
+                )
+                setup.operations.append(operation)
+            else:
+                operation.name = draft["name"]
+                operation.params = draft["params"]
+                operation.regions = draft["regions"]
+            document_state.selected_operation_id = operation.id
+            generation = _start_generation(document_state, operation, doc)
+            if editing_existing:
+                _invalidate_toolpaths(document_state, doc, operation.id)
             state.save(doc, document_state)
-        elif action == "add_setup":
-            _default_setup(document_state)
-            state.save(doc, document_state)
+            return panel_event(
+                request,
+                document_state,
+                ok=True,
+                selected_operation_id=operation.id,
+                generation_status="running",
+                generation_operation_id=generation.operation_id,
+            )
         elif action == "add_operation":
             setup_id = request.payload.get("setup_id")
             setup = next((item for item in document_state.setups if item.id == setup_id), None)
             if setup is None:
-                setup = document_state.setups[-1] if document_state.setups else _default_setup(document_state)
+                setup = document_state.setups[0]
             operation_type = str(request.payload.get("type", "pocketing_2d"))
             if operation_type not in operations.OPERATION_TYPES:
                 raise ValueError("Unknown operation type: {}".format(operation_type))
+            region_data = request.payload.get("region")
             operation = OperationSpec(
                 id=_uuid(),
                 name=str(request.payload.get("name") or operations.default_params(operation_type)["tool_name"]),
                 type=operation_type,
                 params=dict(request.payload.get("params", {})),
+                regions=[PlanarRegion(**region_data)] if isinstance(region_data, dict) else [],
             )
             setup.operations.append(operation)
             document_state.selected_operation_id = operation.id
+            runtime.sync_selected_toolpath(doc, document_state)
             state.save(doc, document_state)
             return panel_event(request, document_state, ok=True, selected_operation_id=operation.id)
         elif action == "update_operation":
@@ -112,17 +250,27 @@ def run(request_data, doc):
                 operation.name = str(request.payload["name"])
             if isinstance(request.payload.get("params"), dict):
                 operation.params.update(request.payload["params"])
+            if isinstance(request.payload.get("regions"), list):
+                operation.regions = [PlanarRegion(**region) for region in request.payload["regions"]]
+            elif isinstance(request.payload.get("region"), dict):
+                operation.regions = [PlanarRegion(**request.payload["region"])]
+            _invalidate_toolpaths(document_state, doc, operation.id)
             state.save(doc, document_state)
         elif action == "delete_operation":
             setup, operation = _target_operation(document_state, request)
             _require(operation, "Select an operation to delete.")
             setup.operations.remove(operation)
+            _invalidate_toolpaths(document_state, doc, operation.id)
             if document_state.selected_operation_id == operation.id:
                 document_state.selected_operation_id = None
-            document_state.results.get("toolpath_summaries", {}).pop(operation.id, None)
+            runtime.sync_selected_toolpath(doc, document_state)
             state.save(doc, document_state)
         elif action == "select_operation":
-            document_state.selected_operation_id = str(request.payload["operation_id"])
+            operation_id = str(request.payload["operation_id"])
+            _, operation = document_state.find_operation(operation_id)
+            _require(operation, "Selected operation no longer exists.")
+            document_state.selected_operation_id = operation_id
+            runtime.sync_selected_toolpath(doc, document_state)
             state.save(doc, document_state)
         elif action == "set_visibility":
             flags = request.payload.get("flags")
@@ -143,16 +291,78 @@ def run(request_data, doc):
         elif action in {"generate", "generate_operation"}:
             setup, operation = _target_operation(document_state, request)
             _require(operation, "Add an operation before generating.")
-            response = _generate(document_state, operation, doc)
+            generation = _start_generation(document_state, operation, doc)
             document_state.selected_operation_id = operation.id
             state.save(doc, document_state)
             return panel_event(
-                request, document_state, ok=True, record_count=len(response.get("records", []))
+                request,
+                document_state,
+                ok=True,
+                generation_status="running",
+                generation_operation_id=generation.operation_id,
+            )
+        elif action == "generate_status":
+            generation = runtime.generation_task(doc)
+            _require(generation, "No toolpath generation is running.")
+            if generation.status == "running":
+                return panel_event(
+                    request,
+                    document_state,
+                    ok=True,
+                    generation_status="running",
+                    generation_operation_id=generation.operation_id,
+                )
+
+            runtime.forget_generation(doc, generation)
+            if generation.status == "error":
+                import Rhino
+
+                Rhino.RhinoApp.WriteLine(
+                    f"OpenCAM generation failed: "
+                    f"{generation.error or 'Unknown backend error.'}"
+                )
+                return panel_event(
+                    request,
+                    document_state,
+                    ok=False,
+                    generation_status="error",
+                    generation_operation_id=generation.operation_id,
+                )
+
+            try:
+                response = _apply_completed_generation(document_state, generation, doc)
+                state.save(doc, document_state)
+            except Exception as error:  # noqa: BLE001 - report through panel event
+                import Rhino
+
+                Rhino.RhinoApp.WriteLine(
+                    f"OpenCAM generation completion failed: {error}"
+                )
+                return panel_event(
+                    request,
+                    document_state,
+                    ok=False,
+                    generation_status="error",
+                    generation_operation_id=generation.operation_id,
+                )
+            return panel_event(
+                request,
+                document_state,
+                ok=True,
+                generation_status="completed",
+                generation_operation_id=generation.operation_id,
+                record_count=len(response.get("records", [])),
             )
         elif action == "simulate":
             _require(document_state.part, "Select a part before simulating.")
-            operation = runtime.last_toolpath(doc)
-            _require(operation, "Generate a toolpath before simulating.")
+            _, selected_operation = _target_operation(document_state, request)
+            _require(selected_operation, "Select an operation before simulating.")
+            operation = runtime.last_toolpath(doc, selected_operation.id)
+            if operation is None:
+                operation = state.cached_toolpath(document_state, selected_operation.id)
+                if operation is not None:
+                    runtime.remember_toolpath(doc, operation, selected_operation.id)
+            _require(operation, "Generate this operation before simulating.")
             box = document_state.part.stock_box
             task_id = backend.start_swept_simulation(
                 document_state.backend_url,
@@ -172,7 +382,9 @@ def run(request_data, doc):
             )
             result = status.get("result")
             if status.get("status") == "completed" and result and not session.simulation_id:
-                runtime.complete_session(doc, session, result, _fetcher(document_state.backend_url))
+                runtime.complete_session(session, result, _fetcher(document_state.backend_url))
+                if session.frames:
+                    session.show_frame(doc, 0)
                 document_state.results["simulation_id"] = session.simulation_id
                 document_state.results["frame_count"] = len(session.frames)
                 state.save(doc, document_state)
@@ -190,51 +402,21 @@ def run(request_data, doc):
                 "Wait for a completed simulation before stepping frames.",
             )
             index = runtime.SimulationSession.show_frame(
-                session, doc, int(request.payload.get("frame_index", 0)), _fetcher(document_state.backend_url)
+                session,
+                doc,
+                int(request.payload.get("frame_index", 0)),
             )
             return panel_event(
                 request, document_state, ok=True, frame_index=index, frame_count=len(session.frames)
             )
-        elif action == "compare":
-            session = runtime.session(doc)
-            _require(
-                session and session.simulation_id,
-                "Run a simulation before comparing against the part.",
-            )
-            comparison = backend.request_json(
-                document_state.backend_url,
-                "GET",
-                "/simulate/{}/comparison".format(session.simulation_id),
-            )
-            mesh_count = runtime.show_mesh_layer(
-                doc,
-                "comparison",
-                backend.request_bytes(document_state.backend_url, comparison["activeMeshUrl"]),
-            )
-            document_state.results["comparison_displayed"] = True
-            state.save(doc, document_state)
-        elif action == "show_final":
-            session = runtime.session(doc)
-            _require(
-                session and session.simulation_id,
-                "Run a simulation before showing the final stock.",
-            )
-            runtime.show_mesh_layer(
-                doc,
-                "final",
-                backend.request_bytes(
-                    document_state.backend_url,
-                    "/simulate/{}/final-mesh.glb".format(session.simulation_id),
-                ),
-            )
         elif action == "clear_preview":
             runtime.clear_document(doc)
+            state.invalidate_toolpath_previews(document_state)
             document_state.results.pop("toolpath_summary", None)
             document_state.results.pop("toolpath_summaries", None)
             document_state.results.pop("simulation_id", None)
             document_state.results.pop("simulation_task_id", None)
             document_state.results.pop("frame_count", None)
-            document_state.results.pop("comparison_displayed", None)
             state.save(doc, document_state)
         elif action == "post_process":
             raise NotImplementedError(
@@ -244,7 +426,14 @@ def run(request_data, doc):
             raise ValueError("Unknown OpenCAM Rhino action: {}".format(action))
         return panel_event(request, document_state, ok=True)
     except Exception as error:
-        return panel_event(request, document_state, ok=False, error=str(error))
+        import Rhino
+
+        Rhino.RhinoApp.WriteLine("OpenCAM {} failed: {}".format(request.action, error))
+        try:
+            persisted_state = state.load(doc)
+        except Exception:  # noqa: BLE001 - preserve original action failure
+            persisted_state = document_state
+        return panel_event(request, persisted_state, ok=False)
 
 
 def _require(value, message):

@@ -3,37 +3,75 @@
 <head>
 <meta charset="utf-8">
 <title>OpenCAM</title>
+<!-- T_COMPONENTS_STYLE -->
 <style>
-:root { color-scheme: dark; font: 12px/1.45 -apple-system, "Segoe UI", sans-serif; }
-body { margin: 0; background: #1c1c1e; color: #e5e5ea; }
+:root {
+  color-scheme: light dark;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --fs: 12px;
+  --bg: #1c1d20; --surface: #232427; --surface-2: #2a2b30;
+  --control: #2a2b30; --control-hover: #35363b;
+  --text: #e8e9ec; --text-dim: #a2a4ad; --border: #35363c;
+  --accent: #5b9bff; --accent-text: #0d1524; --accent-soft: #1c2942;
+  --selection: #2f4a76; --selection-text: #e8e9ec;
+  --ok: #5fce8b; --error: #ff8a86; --field: #1a1b1e;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 400 var(--fs)/1.45 var(--font); }
 main { display: flex; flex-direction: column; gap: 6px; padding: 8px; }
 .row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-h1 { font-size: 14px; margin: 0 8px 0 0; }
-.meta { color: #98989d; }
-.status { color: #30d158; margin-left: auto; }
-.status.bad { color: #ff453a; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-button { background: #2c2c2e; color: #e5e5ea; border: 1px solid #3a3a3c; border-radius: 4px; padding: 3px 8px; cursor: pointer; }
+h1 { font-size: calc(var(--fs) + 2px); margin: 0 8px 0 0; }
+.meta { color: var(--text-dim); }
+.status { color: var(--ok); margin-left: auto; }
+.status.bad { color: var(--error); max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+button { background: var(--control); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 3px 8px; cursor: pointer; font: inherit; }
+button:hover:not(:disabled) { background: var(--control-hover); }
 button:disabled { opacity: 0.4; cursor: default; }
 .toggles label { display: inline-flex; gap: 3px; align-items: center; margin-right: 8px; }
-.tree { border: 1px solid #3a3a3c; border-radius: 4px; padding: 4px; min-height: 60px; max-height: 240px; overflow-y: auto; background: #242426; }
-.setup { font-weight: 600; margin: 4px 0; }
-.op { display: flex; align-items: center; gap: 6px; padding: 2px 4px 2px 12px; border-radius: 3px; }
-.op.selected { background: #3a2f50; }
-.op-name { flex: 1; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.badge { font-size: 10px; background: #3a3a3c; color: #98989d; border-radius: 3px; padding: 1px 5px; }
-.empty { color: #98989d; margin: 6px; }
-input[type="range"] { flex: 1; }
-select, input[type="text"], input[type="number"] { background: #2c2c2e; color: #e5e5ea; border: 1px solid #3a3a3c; border-radius: 4px; padding: 2px 4px; }
-.debug summary { cursor: pointer; color: #98989d; }
-.debug pre { background: #111112; border-radius: 4px; padding: 6px; max-height: 160px; overflow: auto; white-space: pre-wrap; }
+.cam-tree { display: flex; flex-direction: column; gap: 4px; max-height: 240px; overflow-y: auto; }
+.tree-indent { min-width: 0; }
+.tree-row { display: flex; width: 100%; height: 28px; min-width: 0; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); box-shadow: 0 1px 2px rgb(0 0 0 / 16%); padding: 0 8px; color: var(--text); text-align: left; }
+.tree-row:hover { background: var(--control-hover); }
+.tree-row.selected { border-color: #3b82f6; background: var(--bg); }
+.tree-row .tree-icon { width: 16px; height: 16px; flex: 0 0 16px; color: var(--text-dim); }
+.tree-row .tree-content { display: flex; min-width: 0; flex: 1; align-items: center; gap: 6px; font-weight: 600; }
+.tree-row .tree-label, .tree-row .tree-file { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tree-row .tree-file { min-width: 0; flex: 1; color: color-mix(in srgb, var(--text) 65%, transparent); font-size: 11px; font-weight: 400; }
+.tree-row .tree-toggle { display: grid; width: 16px; height: 16px; flex: 0 0 16px; place-items: center; color: var(--text-dim); cursor: pointer; }
+.tree-row .tree-status { width: 16px; height: 16px; flex: 0 0 16px; }
+.tree-status.missing { color: #ef4444; }.tree-status.generating, .tree-status.generated { color: #22c55e; }.tree-status.simulated { color: #3b82f6; }
+.tree-status.generating .tree-icon { animation: opencam-spin 1s linear infinite; }
+@keyframes opencam-spin { to { transform: rotate(360deg); } }
+.empty { color: var(--text-dim); margin: 6px 8px; }
+input[type="range"] { flex: 1; accent-color: var(--accent); }
+select, input[type="text"], input[type="number"] { background: var(--field); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 2px 4px; font: inherit; }
+.debug summary { cursor: pointer; color: var(--text-dim); }
+.debug pre { background: var(--surface-2); border-radius: 4px; padding: 6px; max-height: 160px; overflow: auto; white-space: pre-wrap; }
 .dialog-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: grid; place-items: center; }
-.dialog { background: #2c2c2e; border: 1px solid #3a3a3c; border-radius: 6px; padding: 12px; width: 260px; display: flex; flex-direction: column; gap: 6px; }
+.dialog { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 12px; width: 260px; display: flex; flex-direction: column; gap: 6px; }
+.operation-dialog { width: min(560px, calc(100vw - 24px)); max-height: calc(100vh - 24px); }
 .dialog label { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.dialog-body { display: grid; grid-template-columns: 132px minmax(0, 1fr); min-height: 210px; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
+.dialog-pages { display: flex; flex-direction: column; gap: 1px; padding: 4px; background: var(--surface-2); border-right: 1px solid var(--border); }
+.dialog-pages button { text-align: left; border: 0; background: transparent; }
+.dialog-pages button.active { background: var(--accent-soft); color: var(--accent); }
+.dialog-page { display: flex; flex-direction: column; gap: 8px; padding: 8px; overflow-y: auto; }
+.context-menu { position: fixed; z-index: 10; display: flex; min-width: 150px; flex-direction: column; padding: 4px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); box-shadow: 0 4px 16px rgb(0 0 0 / 30%); }
+.context-menu button { text-align: left; border: 0; background: transparent; }
+.context-menu button.danger { color: var(--error); }
+.context-menu hr { width: 100%; border: 0; border-top: 1px solid var(--border); }
+.simulation-controls { display: flex; flex-direction: column; gap: 6px; padding: 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); }
+.simulation-controls input[type="range"] { flex: 1; min-width: 90px; }
+.geometry { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface-2); }
+.geometry span { color: var(--text-dim); }
+.type-picker { display: grid; gap: 6px; }
+.type-picker button { text-align: left; padding: 10px; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 6px; }
 </style>
 </head>
 <body>
-<div id="app"></div>
-<script src="dist/panel.js"></script>
+<div id="app">Loading OpenCAM…</div>
+<!-- OPENCAM_PANEL_SCRIPT -->
 </body>
 </html>

@@ -16,19 +16,29 @@ def default_params(operation_type: str) -> dict:
         "tool_number": 1,
         "tool_diameter": 6.0,
         "cutting_height": 12.0,
+        "shoulder_height": 12.0,
+        "num_flutes": 2,
         "stepover_percent": 40.0,
         "depth_of_cut": 2.0,
         "max_stepdown": 10.0,
+        "drive_geometry_position": "at_bottom",
         "cut_feedrate": 800.0,
         "plunge_feedrate": 250.0,
+        "lead_in_feedrate": 800.0,
+        "lead_out_feedrate": 800.0,
+        "departure_feedrate": 800.0,
         "spindle_rpm": 18000,
         "stock_to_leave": 0.0,
         "cut_direction": "climb",
+        "clearance_type": "stock_max_z_plus_offset",
         "clearance_offset": 10.0,
+        "absolute_clearance_height": 25.4,
+        "operations_sorting": "selection",
+        "chordal_tolerance": 0.01,
     }
     per_type = {
         "pocketing_2d": {"clearing_strategy": "offset", "keep_tool_down": True},
-        "profiling_2d": {"side": "inside"},
+        "profiling_2d": {"side": "outside"},
         "parallel_finishing": {"direction_degrees": 0.0},
     }
     if operation_type not in per_type:
@@ -49,23 +59,33 @@ def build_operation_payload(spec: dict, document_state) -> dict:
             "toolNumber": int(params["tool_number"]),
             "diameter": float(params["tool_diameter"]),
             "cuttingHeight": float(params["cutting_height"]),
-            "shoulderHeight": float(params["cutting_height"]),
+            "shoulderHeight": float(params["shoulder_height"]),
+            "numFlutes": float(params["num_flutes"]),
         },
         "feedsAndSpeeds": {
             "spindleRpm": int(params["spindle_rpm"]),
             "plungeFeedrate": float(params["plunge_feedrate"]),
+            "leadInFeedrate": float(params["lead_in_feedrate"]),
             "cutFeedrate": float(params["cut_feedrate"]),
+            "leadOutFeedrate": float(params["lead_out_feedrate"]),
+            "departureFeedrate": float(params["departure_feedrate"]),
         },
-        "clearance": {"clearanceHeightType": "stock_max_z_plus_offset", "offset": float(params["clearance_offset"])},
+        "clearance": _clearance(params),
         "levels": {
-            "driveGeometryPosition": "at_top",
+            "driveGeometryPosition": params["drive_geometry_position"],
             "depthOfCut": float(params["depth_of_cut"]),
             "maxStepdown": float(params["max_stepdown"]),
         },
-        "advanced": {"operationsSorting": "selection", "chordalTolerance": 0.01},
+        "advanced": {
+            "operationsSorting": params["operations_sorting"],
+            "chordalTolerance": float(params["chordal_tolerance"]),
+        },
     }
+    regions = spec.get("regions")
+    if regions is None:
+        regions = [spec["region"]] if spec.get("region") is not None else []
     if operation_type == "pocketing_2d":
-        payload["driveGeometry"] = _drive_geometry_25d(document_state)
+        payload["driveGeometry"] = _drive_geometry_25d(regions)
         payload["cutParameters"] = {
             "clearingStrategy": params["clearing_strategy"],
             "keepToolDown": bool(params["keep_tool_down"]),
@@ -74,14 +94,14 @@ def build_operation_payload(spec: dict, document_state) -> dict:
             "stockToLeave": float(params["stock_to_leave"]),
         }
     elif operation_type == "profiling_2d":
-        payload["driveGeometry"] = _drive_geometry_25d(document_state)
+        payload["driveGeometry"] = _drive_geometry_25d(regions)
         payload["cutParameters"] = {
             "side": params["side"],
             "cutDirection": params["cut_direction"],
             "stockToLeave": float(params["stock_to_leave"]),
         }
     else:
-        payload["driveGeometry"] = _drive_geometry_2d(document_state)
+        payload["driveGeometry"] = _drive_geometry_2d(regions)
         payload["cutParameters"] = {
             "cutDirection": params["cut_direction"],
             "directionDegrees": float(params["direction_degrees"]),
@@ -91,19 +111,33 @@ def build_operation_payload(spec: dict, document_state) -> dict:
     return payload
 
 
+def _clearance(params: dict) -> dict:
+    clearance_type = params["clearance_type"]
+    if clearance_type == "automatic":
+        return {"clearanceHeightType": clearance_type}
+    if clearance_type == "absolute":
+        return {"clearanceHeightType": clearance_type, "absoluteHeight": float(params["absolute_clearance_height"])}
+    return {"clearanceHeightType": clearance_type, "offset": float(params["clearance_offset"])}
+
+
 def _stepover(params: dict) -> dict:
     return {"mode": "percentage_of_tool_diameter", "value": float(params["stepover_percent"])}
 
 
-def _region(document_state) -> dict:
-    region = document_state.region
+def _region(region) -> dict:
     if region is None:
-        raise ValueError("Select a planar region before generating this operation.")
-    normal = region.plane.get("normal", (0.0, 0.0, 1.0))
+        raise ValueError("Select a planar region in this operation before generating.")
+    if hasattr(region, "plane"):
+        region = {
+            "plane": region.plane,
+            "outer_loop": region.outer_loop,
+            "inner_loops": region.inner_loops,
+        }
+    normal = region["plane"].get("normal", (0.0, 0.0, 1.0))
     if (
         abs(normal[0]) > WORLD_XY_TOLERANCE
         or abs(normal[1]) > WORLD_XY_TOLERANCE
-        or abs(normal[2] - 1.0) > WORLD_XY_TOLERANCE
+        or abs(abs(normal[2]) - 1.0) > WORLD_XY_TOLERANCE
     ):
         raise ValueError(
             "The selected region is not parallel to World XY; setup transforms are not implemented yet."
@@ -111,15 +145,23 @@ def _region(document_state) -> dict:
     return region
 
 
-def _drive_geometry_25d(document_state) -> list[dict]:
-    region = _region(document_state)
-    z = float(region.plane["origin"][2])
-    loops = [region.outer_loop] + list(region.inner_loops)
+def _regions(values) -> list[dict]:
+    if not values:
+        raise ValueError("Select at least one planar region in this operation before generating.")
+    return [_region(value) for value in values]
+
+
+def _drive_geometry_25d(values) -> list[dict]:
+    geometry = []
+    for region in _regions(values):
+        z = float(region["plane"]["origin"][2])
+        for loop in [region["outer_loop"]] + list(region["inner_loops"]):
+            geometry.append({"z": z, "vertices": [{"x": x, "y": y} for x, y, _z in loop]})
+    return geometry
+
+
+def _drive_geometry_2d(values) -> list[dict]:
     return [
-        {"z": z, "vertices": [{"x": x, "y": y} for x, y, _z in loop]} for loop in loops
+        {"vertices": [{"x": x, "y": y} for x, y, _z in region["outer_loop"]]}
+        for region in _regions(values)
     ]
-
-
-def _drive_geometry_2d(document_state) -> list[dict]:
-    region = _region(document_state)
-    return [{"vertices": [{"x": x, "y": y} for x, y, _z in region.outer_loop]}]

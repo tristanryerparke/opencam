@@ -685,13 +685,10 @@ name = "opencam"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "devtools" },
     { name = "fastapi" },
     { name = "gmsh" },
-    { name = "httpx" },
     { name = "manifold3d" },
     { name = "mapbox-earcut" },
-    { name = "matplotlib" },
     { name = "networkx" },
     { name = "numba" },
     { name = "numpy" },
@@ -711,15 +708,19 @@ dependencies = [
     { name = "uvicorn" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "devtools" },
+    { name = "httpx" },
+    { name = "matplotlib" },
+]
+
 [package.metadata]
 requires-dist = [
-    { name = "devtools", specifier = ">=0.12.2" },
     { name = "fastapi", specifier = ">=0.128.0" },
     { name = "gmsh", specifier = ">=4.15.0" },
-    { name = "httpx", specifier = ">=0.28.1" },
     { name = "manifold3d", specifier = ">=3.4.1" },
     { name = "mapbox-earcut", specifier = ">=2.0.0" },
-    { name = "matplotlib", specifier = ">=3.11.0" },
     { name = "networkx", specifier = ">=3.6.1" },
     { name = "numba", specifier = ">=0.65.1" },
     { name = "numpy", specifier = ">=2.4.4" },
@@ -736,6 +737,13 @@ requires-dist = [
     { name = "tinydb", specifier = ">=4.8.2" },
     { name = "trimesh", specifier = ">=4.12.0" },
     { name = "uvicorn", specifier = ">=0.40.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "devtools", specifier = ">=0.12.2" },
+    { name = "httpx", specifier = ">=0.28.1" },
+    { name = "matplotlib", specifier = ">=3.11.0" },
 ]
 
 [[package]]

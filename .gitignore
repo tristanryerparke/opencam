@@ -36,6 +36,7 @@ htmlcov/
 
 # Frontend
 /frontend/node_modules
+/rhino_plugin/web/node_modules
 /frontend/dist
 /frontend/dist-ssr
 /frontend/*.local

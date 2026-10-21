@@ -2,15 +2,30 @@
 
 from __future__ import annotations
 
-from . import runtime
+from . import runtime, state
+
+
+def _restore_document(document_serial_number):
+    import Rhino
+
+    doc = Rhino.RhinoDoc.FromRuntimeSerialNumber(int(document_serial_number))
+    if doc is None:
+        return False
+    runtime.restore_document(doc, state.load(doc))
+    return True
 
 
 def startup():
-    """Reserved for explicit application-wide initialization; creates no conduit."""
+    """Restore documents that were already open when the plug-in loaded."""
+    import Rhino
+
+    for doc in Rhino.RhinoDoc.OpenDocuments(False):
+        _restore_document(doc.RuntimeSerialNumber)
 
 
-def document_opened(_document_serial_number):
-    """Previews are intentionally transient and are not restored from a .3dm."""
+def document_opened(document_serial_number):
+    """Rebuild transient display state after plug-in data has loaded."""
+    _restore_document(document_serial_number)
 
 
 def document_closing(document_serial_number):

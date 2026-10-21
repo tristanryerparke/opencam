@@ -214,6 +214,7 @@ type PendingSimulationPresentation = {
   tertiaryElapsedMs: number | null;
   shouldApply: () => boolean;
   resolve: (applied: boolean) => void;
+  timeoutId: number;
 };
 
 type MeshCacheState = "idle" | "saving" | "ready" | "error";
@@ -249,6 +250,7 @@ const CHUNK_START_MARKER_COLOR = "#22c55e";
 const CHUNK_END_MARKER_COLOR = "#ef4444";
 const CHUNK_MARKER_SIZE = 2;
 const SIMULATION_PLAYBACK_INTERVAL_MS = 30;
+const SIMULATION_MESH_LOAD_TIMEOUT_MS = 15_000;
 const SIMULATION_CONTACT_STEP_DISTANCE = 0.5;
 const SIMULATION_RAPID_FRAME_STEP_SCALE = 4;
 const CHUNK_PADDING_X = 5;
@@ -637,7 +639,6 @@ function App() {
   const [simulationCachedMeshUrl, setSimulationCachedMeshUrl] = useState<string | null>(null);
   const [simulationFinalMeshUrl, setSimulationFinalMeshUrl] = useState<string | null>(null);
   const [simulationToolMeshUrl, setSimulationToolMeshUrl] = useState<string | null>(null);
-  const [simulationToolPosition, setSimulationToolPosition] = useState<PolylinePoint | null>(null);
   const [simulationOperationId, setSimulationOperationId] = useState<string | null>(null);
   const [simulationTaskId, setSimulationTaskId] = useState<string | null>(null);
   const [generatingOperationId, setGeneratingOperationId] = useState<string | null>(null);
@@ -841,7 +842,6 @@ function App() {
     updateSimulationCachedMeshUrl(null);
     setSimulationFinalMeshUrl(null);
     setSimulationToolMeshUrl(null);
-    setSimulationToolPosition(null);
     setSimulationId(null);
     setSimulationOperationId(null);
     setSimulationTaskId(null);
@@ -893,6 +893,10 @@ function App() {
     () => strideSimulationFrames(simulationDisplayFrames, simulationStride),
     [simulationDisplayFrames, simulationStride],
   );
+  const simulationToolPosition = useMemo<PolylinePoint | null>(() => {
+    const frame = visibleSimulationFrames[simulationFrameIndex];
+    return frame ? toolPositionToPoint(frame.toolPosition) : null;
+  }, [simulationFrameIndex, visibleSimulationFrames]);
   const hasCompletedSimulationStock = Boolean(simulationFinalMeshUrl);
   const secondaryMeshUrl = isSimulationMode
     ? simulationCachedMeshUrl
@@ -952,18 +956,15 @@ function App() {
     if (!simulationFrameRecords) {
       return simulationClippingEligible ? [] : null;
     }
-    if (displayedSimulationFrameIndex == null) {
-      return [];
-    }
-    const displayedFrame = visibleSimulationFrames[displayedSimulationFrameIndex];
-    if (!displayedFrame) {
+    const playheadFrame = visibleSimulationFrames[simulationFrameIndex];
+    if (!playheadFrame) {
       return [];
     }
     return createDisplayPolylines(
-      simulationFrameRecords.slice(0, displayedFrame.sourceFrameIndex + 1),
+      simulationFrameRecords.slice(0, playheadFrame.sourceFrameIndex + 1),
     );
   }, [
-    displayedSimulationFrameIndex,
+    simulationFrameIndex,
     simulationClippingEligible,
     simulationFrameRecords,
     visibleSimulationFrames,
@@ -1044,6 +1045,7 @@ function App() {
     }
 
     pendingSimulationPresentationRef.current = null;
+    window.clearTimeout(pending.timeoutId);
     if (!applied) {
       if (simulationActiveMeshUrlRef.current !== displayedSimulationActiveMeshUrlRef.current) {
         updateSimulationActiveMeshUrl(displayedSimulationActiveMeshUrlRef.current);
@@ -1081,7 +1083,6 @@ function App() {
       setSimulationFocusMeshRequestMs(tertiaryElapsedMs);
       setSimulationChunkFetchMs(secondaryElapsedMs);
       setSimulationChunkToolpathPoints([]);
-      setSimulationToolPosition(toolPositionToPoint(frame.toolPosition));
     },
     [setSimulationFrameIndex],
   );
@@ -1139,6 +1140,31 @@ function App() {
       maybeCommitPendingSimulationPresentation();
     },
     [maybeCommitPendingSimulationPresentation],
+  );
+
+  const handleSimulationMeshLoadFailed = useCallback(
+    (meshUrl: string | null, error: unknown) => {
+      const pending = pendingSimulationPresentationRef.current;
+      if (
+        !pending ||
+        (meshUrl !== null &&
+          pending.waitingForSecondaryUrl !== meshUrl &&
+          pending.waitingForTertiaryUrl !== meshUrl)
+      ) {
+        return;
+      }
+
+      console.error("Failed to present simulation frame", error);
+      setIsSimulationPlaying(false);
+      setRequestState("error");
+      setRequestMessage(
+        error instanceof Error
+          ? `Simulation mesh failed to load: ${error.message}`
+          : "Simulation mesh failed to load.",
+      );
+      resolvePendingSimulationPresentation(false);
+    },
+    [resolvePendingSimulationPresentation],
   );
 
   const applySimulationFrame = useCallback(
@@ -1200,12 +1226,20 @@ function App() {
           tertiaryElapsedMs: needsActiveMeshDisplay ? null : 0,
           shouldApply,
           resolve,
+          timeoutId: 0,
         };
+        pendingSimulationPresentationRef.current.timeoutId = window.setTimeout(() => {
+          handleSimulationMeshLoadFailed(
+            null,
+            new Error(`Simulation mesh did not load within ${SIMULATION_MESH_LOAD_TIMEOUT_MS / 1000} seconds.`),
+          );
+        }, SIMULATION_MESH_LOAD_TIMEOUT_MS);
         maybeCommitPendingSimulationPresentation();
       });
     },
     [
       commitSimulationFramePresentation,
+      handleSimulationMeshLoadFailed,
       maybeCommitPendingSimulationPresentation,
       resolvePendingSimulationPresentation,
       updateSimulationActiveMeshUrl,
@@ -1315,10 +1349,6 @@ function App() {
       return undefined;
     }
 
-    if (displayedSimulationFrameIndex !== simulationFrameIndex) {
-      return undefined;
-    }
-
     let cancelled = false;
     const timeoutId = window.setTimeout(() => {
       void (async () => {
@@ -1361,7 +1391,6 @@ function App() {
     };
   }, [
     applySimulationFrame,
-    displayedSimulationFrameIndex,
     isSimulationPlaying,
     simulationFrameCount,
     simulationFrameIndex,
@@ -2171,7 +2200,7 @@ function App() {
                   selectedMeshFace={null}
                   selectedMeshFaces={highlightedMeshFaces}
                   simulationSamples={simulationSamples}
-                  simulationStep={isSimulationMode ? (displayedSimulationFrameIndex ?? simulationFrameIndex) : 0}
+                  simulationStep={isSimulationMode ? simulationFrameIndex : 0}
                   simulationToolMeshUrl={simulationToolMeshUrl}
                   simulationToolPosition={simulationToolPosition}
                   toolRenderMode={toolRenderMode}
@@ -2180,7 +2209,9 @@ function App() {
                   showOriginalMesh={!isSimulationMode}
                   onMeshFaceSelect={handleMeshFaceSelect}
                   onSecondaryMeshDisplayed={handleSecondaryMeshDisplayed}
+                  onSecondaryMeshLoadFailed={handleSimulationMeshLoadFailed}
                   onTertiaryMeshDisplayed={handleTertiaryMeshDisplayed}
+                  onTertiaryMeshLoadFailed={handleSimulationMeshLoadFailed}
                   className="h-full min-h-0 flex-1 rounded-none border-0 shadow-none"
                 />
 

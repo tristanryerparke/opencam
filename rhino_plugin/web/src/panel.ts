@@ -1,195 +1,309 @@
-/** OpenCAM Rhino panel UI. Python remains the source of truth; this is a thin, dumb view. */
-type Action = "get_state" | "select_part" | "select_region" | "generate" | "generate_operation" | "add_setup" | "add_operation" | "update_operation" | "delete_operation" | "select_operation" | "set_visibility" | "set_backend_url" | "simulate" | "simulate_status" | "show_frame" | "compare" | "show_final" | "clear_preview" | "post_process";
-type OperationSpec = { id: string; name: string; type: string; params: Record<string, unknown> };
+/** OpenCAM Rhino panel. Native Eto dialogs own blocking add/edit operation control. */
+import { contextMenu as createContextMenu } from "t-components/dom";
+
+(() => {
+type Action = "get_state" | "select_part" | "open_operation_dialog" | "generate_operation" | "generate_status" | "delete_operation" | "select_operation" | "set_visibility" | "simulate" | "simulate_status" | "show_frame";
+type OperationSpec = { id: string; name: string; type: string };
 type SetupSpec = { id: string; name: string; operations: OperationSpec[] };
-type PartState = { name: string };
 type PanelEvent = {
   request_id: string; ok?: boolean; error?: string; cancelled?: boolean;
+  selected_operation_id?: string; generation_status?: "running" | "completed" | "error"; generation_operation_id?: string;
   simulation_status?: string; frame_index?: number; frame_count?: number;
-  record_count?: number; selected_operation_id?: string;
-  state: {
-    backend_url: string; part?: PartState; region?: unknown; setups: SetupSpec[];
-    selected_operation_id?: string; visibility: Record<string, boolean>;
-    results?: Record<string, unknown>;
-  };
+  state: { part?: { name: string }; setups: SetupSpec[]; selected_operation_id?: string; visibility: Record<string, boolean>; results?: Record<string, unknown> };
+};
+type Theme = { scheme: "light" | "dark"; tokens: Record<string, string> };
+type ContextMenu = { operationId: string; x: number; y: number };
+type GenerationState = { operationId: string; status: "starting" | "running"; startRequestId?: string };
+type SimulationState = { operationId: string; status: string; frameIndex: number; frameCount: number; playing: boolean; speed: number; awaitingStart: boolean; startRequestId: string };
+
+type PanelHostWindow = Window & {
+  eto?: { postMessage(value: string): void };
+  chrome?: { webview?: { postMessage(value: string): void; addEventListener(type: "message", handler: (event: MessageEvent<string>) => void): void } };
+  opencamRhino?: { receive(value: string): void; theme(value: Theme): void };
 };
 
-export {};
-
-declare global { interface Window { chrome?: { webview?: { postMessage(value: string): void; addEventListener(type: "message", handler: (event: MessageEvent<string>) => void): void } }; opencamRhino?: { receive(value: string): void } } }
-
 const root = document.querySelector<HTMLElement>("#app")!;
+const host = window as PanelHostWindow;
 let latest: PanelEvent | undefined;
-let frameIndex = 0;
-let frameCount = 0;
-let playing = false;
-let speed = 1;
-let pollTimer: ReturnType<typeof setInterval> | undefined;
-let playTimer: ReturnType<typeof setInterval> | undefined;
-const debugLog: string[] = [];
+let contextMenu: ContextMenu | undefined;
+const collapsedSetupIds = new Set<string>();
+let generation: GenerationState | undefined;
+let generationPoll: ReturnType<typeof setInterval> | undefined;
+let simulation: SimulationState | undefined;
+let simulationPoll: ReturnType<typeof setInterval> | undefined;
+let simulationPlayback: ReturnType<typeof setInterval> | undefined;
 
-const TYPE_LABELS: Record<string, string> = { pocketing_2d: "Pocket", profiling_2d: "Profile", parallel_finishing: "Parallel Finishing" };
-
+function requestId() {
+  return crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
 function send(action: Action, payload: Record<string, unknown> = {}) {
-  const request = JSON.stringify({ protocol_version: 1, action, payload, request_id: crypto.randomUUID() });
-  window.chrome?.webview?.postMessage(request);
+  const id = requestId();
+  const request = JSON.stringify({ protocol_version: 1, action, payload, request_id: id });
+  if (host.eto) host.eto.postMessage(request);
+  else host.chrome?.webview?.postMessage(request);
+  return id;
 }
-function log(line: string) { debugLog.push(line); if (debugLog.length > 40) debugLog.shift(); }
-function startPolling() {
-  stopPolling();
-  pollTimer = setInterval(() => { if (["completed", "error", "cancelled"].includes(latest?.simulation_status ?? "")) stopPolling(); else send("simulate_status"); }, 1000);
+function stopGenerationPolling() {
+  if (generationPoll !== undefined) clearInterval(generationPoll);
+  generationPoll = undefined;
 }
-function stopPolling() { if (pollTimer !== undefined) { clearInterval(pollTimer); pollTimer = undefined; } }
-function stopPlayback() { playing = false; if (playTimer !== undefined) { clearInterval(playTimer); playTimer = undefined; } render(); }
-function startPlayback() {
-  if (frameCount < 1) return;
-  if (frameIndex >= frameCount - 1) frameIndex = 0;
-  playing = true;
-  playTimer = setInterval(() => {
-    if (!playing) return;
-    if (frameIndex >= frameCount - 1) { stopPlayback(); return; }
-    frameIndex += 1;
-    send("show_frame", { frame_index: frameIndex });
-  }, 1000 / (10 * speed));
+function pollGeneration() {
+  if (generationPoll !== undefined) return;
+  generationPoll = setInterval(() => send("generate_status"), 500);
+}
+function startRegeneration(operationId: string) {
+  const startRequestId = send("generate_operation", { operation_id: operationId });
+  generation = { operationId, status: "starting", startRequestId };
   render();
 }
-function scrubTo(value: number) { frameIndex = Math.max(0, Math.min(frameCount - 1, value)); send("show_frame", { frame_index: frameIndex }); }
+function stopSimulationPolling() {
+  if (simulationPoll !== undefined) clearInterval(simulationPoll);
+  simulationPoll = undefined;
+}
+function stopSimulationPlayback() {
+  if (simulationPlayback !== undefined) clearInterval(simulationPlayback);
+  simulationPlayback = undefined;
+  if (simulation) simulation.playing = false;
+}
+function pollSimulation() {
+  stopSimulationPolling();
+  simulationPoll = setInterval(() => send("simulate_status"), 1000);
+}
+function startSimulation(operationId: string) {
+  stopSimulationPlayback();
+  const startRequestId = send("simulate", { operation_id: operationId });
+  simulation = { operationId, status: "starting", frameIndex: 0, frameCount: 0, playing: false, speed: 1, awaitingStart: true, startRequestId };
+}
+function stepSimulation(delta: number) {
+  if (!simulation || simulation.frameCount < 1) return;
+  stopSimulationPlayback();
+  simulation.frameIndex = Math.max(0, Math.min(simulation.frameCount - 1, simulation.frameIndex + delta));
+  send("show_frame", { frame_index: simulation.frameIndex });
+}
+function toggleSimulationPlayback() {
+  if (!simulation || simulation.frameCount < 1) return;
+  if (simulation.playing) { stopSimulationPlayback(); render(); return; }
+  if (simulation.frameIndex >= simulation.frameCount - 1) simulation.frameIndex = 0;
+  simulation.playing = true;
+  simulationPlayback = setInterval(() => {
+    if (!simulation || simulation.frameIndex >= simulation.frameCount - 1) { stopSimulationPlayback(); render(); return; }
+    simulation.frameIndex += 1;
+    send("show_frame", { frame_index: simulation.frameIndex });
+  }, 1000 / (10 * simulation.speed));
+  render();
+}
+function simulationControlsHtml() {
+  const current = simulation;
+  if (!current) return "";
+  const ready = current.frameCount > 0;
+  const label = ready ? `${current.frameIndex + 1} / ${current.frameCount}` : current.status;
+  return `<div class="simulation-controls"><div class="row"><strong>Simulation</strong><span class="meta">${label}</span></div>
+<div class="row"><button data-sim="previous" ${ready ? "" : "disabled"}>◀</button><button data-sim="play" ${ready ? "" : "disabled"}>${current.playing ? "⏸" : "▶"}</button><button data-sim="next" ${ready ? "" : "disabled"}>▶|</button><input id="simulation-timeline" type="range" min="0" max="${Math.max(current.frameCount - 1, 0)}" value="${current.frameIndex}" ${ready ? "" : "disabled"}><select id="simulation-speed" ${ready ? "" : "disabled"}>${[0.25, 0.5, 1, 2, 4].map((speed) => `<option value="${speed}" ${speed === current.speed ? "selected" : ""}>${speed}×</option>`).join("")}</select></div></div>`;
+}
+function updateRunningSimulationControls() {
+  if (!simulation) return;
+  const label = root.querySelector<HTMLElement>(".simulation-controls .meta");
+  const timeline = root.querySelector<HTMLInputElement>("#simulation-timeline");
+  if (label) label.textContent = `${simulation.frameIndex + 1} / ${simulation.frameCount}`;
+  if (timeline) timeline.value = String(simulation.frameIndex);
+}
+function escapeHtml(value: string) {
+  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
+}
 
-function operationDialogHtml(): string {
-  const type = (document.querySelector<HTMLSelectElement>("#op-type")?.value ?? "pocketing_2d");
-  const common = `
-<label>Name <input id="op-name" type="text" value="${TYPE_LABELS[type] ?? "Operation"}"></label>
-<label>Tool name <input id="op-tool-name" type="text" value="Flat end mill"></label>
-<label>Tool number <input id="op-tool-number" type="number" value="1" min="1"></label>
-<label>Tool diameter <input id="op-diameter" type="number" value="6" step="0.1" min="0.1"></label>
-<label>Stepover % <input id="op-stepover" type="number" value="40" min="1" max="100"></label>
-<label>Depth of cut <input id="op-doc" type="number" value="2" step="0.1" min="0"></label>
-<label>Cut feedrate <input id="op-feed" type="number" value="800" min="1"></label>
-<label>Spindle RPM <input id="op-rpm" type="number" value="18000" min="1"></label>
-<label>Cut direction <select id="op-direction"><option value="climb">Climb</option><option value="conventional">Conventional</option></select></label>`;
-  const perType: Record<string, string> = {
-    pocketing_2d: `<label>Strategy <select id="op-strategy"><option value="offset">Offset</option><option value="adaptive">Adaptive</option></select></label>
-<label>Keep tool down <input id="op-keep-down" type="checkbox" checked></label>`,
-    profiling_2d: `<label>Side <select id="op-side"><option value="inside">Inside</option><option value="outside">Outside</option></select></label>`,
-    parallel_finishing: `<label>Slice direction ° <input id="op-angle" type="number" value="0" min="0" max="179"></label>`,
+function icon(name: "part" | "setup" | "check" | "x" | "loader" | "chevron-right" | "chevron-down") {
+  const paths: Record<string, string> = {
+    part: '<path d="M4 4h16v16H4z"/><path d="M8 8h8v8H8z"/>',
+    setup: '<path d="m12 3-9 5 9 5 9-5-9-5Z"/><path d="m3 12 9 5 9-5"/><path d="m3 17 9 5 9-5"/>',
+    check: '<path d="m5 12 4 4L19 6"/>',
+    x: '<path d="m6 6 12 12M18 6 6 18"/>',
+    loader: '<path d="M21 12a9 9 0 1 1-6.219-8.56"/>',
+    "chevron-right": '<path d="m9 18 6-6-6-6"/>',
+    "chevron-down": '<path d="m6 9 6 6 6-6"/>',
   };
-  return `<div id="op-dialog" class="dialog-backdrop"><div class="dialog">
-<h2>Add operation</h2>
-<label>Type <select id="op-type">${Object.entries(TYPE_LABELS).map(([value, label]) => `<option value="${value}" ${value === type ? "selected" : ""}>${label}</option>`).join("")}</select></label>
-${common}${perType[type] ?? ""}
-<div class="dialog-actions"><button id="op-cancel">Cancel</button><button id="op-add">Add</button></div>
-</div></div>`;
-}
-function bindOperationDialog() {
-  const dialog = document.querySelector("#op-dialog");
-  if (!dialog) return;
-  dialog.querySelector("#op-type")?.addEventListener("change", () => render(true));
-  dialog.querySelector("#op-cancel")?.addEventListener("click", () => render());
-  dialog.querySelector("#op-add")?.addEventListener("click", () => {
-    const value = (id: string) => (document.querySelector<HTMLInputElement>(`#${id}`)?.value ?? "").trim();
-    const checked = (id: string) => (document.querySelector<HTMLInputElement>(`#${id}`) as HTMLInputElement | null)?.checked ?? false;
-    const type = value("op-type");
-    const params: Record<string, unknown> = {
-      tool_name: value("op-tool-name") || "Flat end mill",
-      tool_number: Number(value("op-tool-number")) || 1,
-      tool_diameter: Number(value("op-diameter")) || 6,
-      stepover_percent: Number(value("op-stepover")) || 40,
-      depth_of_cut: Number(value("op-doc")) || 2,
-      cut_feedrate: Number(value("op-feed")) || 800,
-      spindle_rpm: Number(value("op-rpm")) || 18000,
-      cut_direction: value("op-direction") || "climb",
-    };
-    if (type === "pocketing_2d") { params.clearing_strategy = value("op-strategy"); params.keep_tool_down = checked("op-keep-down"); }
-    if (type === "profiling_2d") params.side = value("op-side");
-    if (type === "parallel_finishing") params.direction_degrees = Number(value("op-angle")) || 0;
-    send("add_operation", { name: value("op-name") || TYPE_LABELS[type], type, params });
-    render();
-  });
+  return `<svg class="tree-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name]}</svg>`;
 }
 
-function render(keepDialog = false) {
-  if (!keepDialog) {
-    const state = latest?.state;
-    frameCount = (latest?.frame_count ?? 0) || (state?.results?.frame_count as number | undefined) || frameCount;
-    if (latest?.frame_index !== undefined) frameIndex = latest.frame_index;
-    const part = state?.part?.name ?? "No part selected";
-    const region = state?.region ? "Planar region selected" : "No planar region selected";
-    const selected = state?.selected_operation_id;
-    const visibility = state?.visibility ?? {};
-    const setups = state?.setups ?? [];
-    const hasToolpath = Boolean(state?.results?.toolpath_summary);
-    const simReady = frameCount > 0;
-    const frameLabel = simReady ? `${frameIndex + 1} / ${frameCount}` : "No simulation";
-    const status = latest?.simulation_status ? ` · ${latest.simulation_status}` : "";
-    root.innerHTML = `<main>
-<div class="row"><h1>OpenCAM</h1><span class="status ${latest?.error ? "bad" : ""}">${latest?.error ?? "Ready"}</span></div>
-<div class="row"><button data-action="select_part">Select part</button><button data-action="select_region">Select region</button>
-<span class="meta">${part} · ${region}</span></div>
-<div class="row toggles">
-${["stock", "part", "toolpath", "tool"].map((flag) => `<label><input type="checkbox" data-flag="${flag}" ${visibility[flag] !== false ? "checked" : ""}> ${flag[0].toUpperCase() + flag.slice(1)}</label>`).join("")}
-</div>
-<div class="row"><button id="add-operation">＋ Operation</button><button data-action="add_setup">＋ Setup</button><button data-action="generate" ${setups.some((s) => s.operations.length) ? "" : "disabled"}>Generate</button></div>
-<div class="tree">${setups.length ? setups.map((setup) => `<div class="setup">${setup.name}<div>${setup.operations.map((op) => `
-<div class="op ${op.id === selected ? "selected" : ""}" data-op="${op.id}">
-<span class="op-name" data-select="${op.id}">${op.name}</span><span class="badge">${TYPE_LABELS[op.type] ?? op.type}</span>
-<button data-gen="${op.id}" title="Generate">▶</button><button data-del="${op.id}" title="Delete">✕</button>
-</div>`).join("")}</div></div>`).join("") : "<p class=\"empty\">No setups yet. Add an operation to create one.</p>"}</div>
-<div class="row"><button data-action="simulate" ${hasToolpath ? "" : "disabled"}>Simulate</button>
-<button data-frame="-1" ${simReady ? "" : "disabled"} title="Previous">◀</button>
-<button id="play" ${simReady ? "" : "disabled"}>${playing ? "⏸" : "▶"}</button>
-<button data-frame="1" ${simReady ? "" : "disabled"} title="Next">▶|</button>
-<input id="timeline" type="range" min="0" max="${Math.max(frameCount - 1, 0)}" value="${frameIndex}" ${simReady ? "" : "disabled"}>
-<span class="meta">${frameLabel}${status}</span>
-<select id="speed" ${simReady ? "" : "disabled"}>${[0.25, 0.5, 1, 2, 4].map((s) => `<option value="${s}" ${s === speed ? "selected" : ""}>${s}×</option>`).join("")}</select></div>
-<div class="row"><button data-action="compare" ${simReady ? "" : "disabled"}>Compare</button><button data-action="show_final" ${simReady ? "" : "disabled"}>Final stock</button><button data-action="clear_preview" ${hasToolpath || simReady ? "" : "disabled"}>Clear</button></div>
-<details class="debug"><summary>Debug</summary>
-<label>Backend <input id="backend-url" type="text" value="${state?.backend_url ?? "http://127.0.0.1:9090"}"><button id="set-backend">Set</button></label>
-<pre>${debugLog.join("\n") || "No events yet."}</pre>
-</details>
+function operationStatus(operation: OperationSpec) {
+  const summaries = latest?.state.results?.toolpath_summaries as Record<string, unknown> | undefined;
+  if (generation?.operationId === operation.id) return { className: "generating", iconName: "loader" as const, label: "Generating toolpath" };
+  if (simulation?.operationId === operation.id && simulation.status === "completed") return { className: "simulated", iconName: "check" as const, label: "Simulation complete" };
+  if (summaries?.[operation.id]) return { className: "generated", iconName: "check" as const, label: "Toolpath generated" };
+  return { className: "missing", iconName: "x" as const, label: "Toolpath not generated" };
+}
+
+function treeHtml(state: PanelEvent["state"], setups: SetupSpec[], selected: string | undefined) {
+  const part = state.part;
+  const partName = part?.name ? `<span class="tree-file">${escapeHtml(part.name)}</span>` : "";
+  const partStatus = part ? "" : '<span class="tree-status missing" aria-label="Part required">●</span>';
+  const setupRows = setups.map((setup) => {
+    const collapsed = collapsedSetupIds.has(setup.id);
+    const toggle = icon(collapsed ? "chevron-right" : "chevron-down");
+    const children = collapsed ? "" : setup.operations.map((operation) => {
+      const status = operationStatus(operation);
+      return `<div class="tree-indent" style="padding-left:16px"><button type="button" class="tree-row ${operation.id === selected ? "selected" : ""}" data-op="${operation.id}"><span class="tree-content"><span class="tree-label">${escapeHtml(operation.name)}</span></span><span class="tree-status ${status.className}" title="${status.label}">${icon(status.iconName)}</span></button></div>`;
+    }).join("") || '<p class="empty">No operations yet.</p>';
+    return `<div class="tree-indent"><button type="button" class="tree-row" data-setup="${setup.id}">${icon("setup")}<span class="tree-content"><span class="tree-label">${escapeHtml(setup.name)}</span></span><span class="tree-toggle" data-setup-toggle="${setup.id}">${toggle}</span></button></div>${children}`;
+  }).join("");
+  return `<div class="cam-tree"><div class="tree-indent"><button type="button" class="tree-row" data-action="select_part">${icon("part")}<span class="tree-content"><span class="tree-label">Part</span>${partName}</span>${partStatus}</button></div>${setupRows}</div>`;
+}
+
+function render() {
+  const state = latest?.state;
+  const selected = state?.selected_operation_id;
+  const visibility = state?.visibility ?? {};
+  const setups = state?.setups ?? [];
+  const treeState = state ?? { setups: [], visibility: {} };
+  root.innerHTML = `<main>
+<div class="row toggles">${["stock", "part", "toolpath", "tool"].map((flag) => `<label><input type="checkbox" data-flag="${flag}" ${visibility[flag] !== false ? "checked" : ""}> ${flag[0].toUpperCase() + flag.slice(1)}</label>`).join("")}</div>
+<div class="row"><button data-action="open_operation_dialog" ${state?.part && !generation ? "" : "disabled"}>Add Operation</button></div>
+${treeHtml(treeState, setups, selected)}
+${simulationControlsHtml()}
 </main>`;
-    root.querySelectorAll<HTMLButtonElement>("[data-action]").forEach((button) => {
-      button.onclick = () => {
-        const action = button.dataset.action as Action;
-        send(action);
-        if (action === "simulate") startPolling();
-        if (action === "clear_preview") { stopPlayback(); stopPolling(); frameCount = 0; frameIndex = 0; }
-      };
-    });
-    root.querySelector("#add-operation")?.addEventListener("click", () => render(true));
-    root.querySelectorAll<HTMLInputElement>("[data-flag]").forEach((box) => {
-      box.onchange = () => send("set_visibility", { flags: { [box.dataset.flag!]: box.checked } });
-    });
-    root.querySelectorAll<HTMLElement>("[data-select]").forEach((element) => {
-      element.onclick = () => send("select_operation", { operation_id: element.dataset.select });
-    });
-    root.querySelectorAll<HTMLButtonElement>("[data-gen]").forEach((button) => {
-      button.onclick = () => send("generate_operation", { operation_id: button.dataset.gen });
-    });
-    root.querySelectorAll<HTMLButtonElement>("[data-del]").forEach((button) => {
-      button.onclick = () => send("delete_operation", { operation_id: button.dataset.del });
-    });
-    root.querySelectorAll<HTMLButtonElement>("[data-frame]").forEach((button) => {
-      button.onclick = () => { stopPlayback(); scrubTo(frameIndex + Number(button.dataset.frame)); };
-    });
-    root.querySelector("#play")?.addEventListener("click", () => (playing ? stopPlayback() : startPlayback()));
-    root.querySelector("#timeline")?.addEventListener("input", (event) => scrubTo(Number((event.target as HTMLInputElement).value)));
-    root.querySelector("#speed")?.addEventListener("change", (event) => { speed = Number((event.target as HTMLSelectElement).value); if (playing) { stopPlayback(); startPlayback(); } });
-    root.querySelector("#set-backend")?.addEventListener("click", () => send("set_backend_url", { url: (root.querySelector("#backend-url") as HTMLInputElement).value }));
-    if (keepDialog) { root.insertAdjacentHTML("beforeend", operationDialogHtml()); bindOperationDialog(); }
-  } else {
-    root.querySelector("#op-dialog")?.remove();
-    root.insertAdjacentHTML("beforeend", operationDialogHtml());
-    bindOperationDialog();
-  }
+  root.querySelectorAll<HTMLButtonElement>("[data-action]").forEach((button) => {
+    button.onclick = () => send(button.dataset.action as Action);
+  });
+  root.querySelectorAll<HTMLElement>("[data-setup-toggle]").forEach((toggle) => {
+    toggle.onclick = (event) => {
+      event.stopPropagation();
+      const setupId = toggle.dataset.setupToggle;
+      if (!setupId) return;
+      if (collapsedSetupIds.has(setupId)) collapsedSetupIds.delete(setupId);
+      else collapsedSetupIds.add(setupId);
+      render();
+    };
+  });
+  root.querySelectorAll<HTMLInputElement>("[data-flag]").forEach((box) => {
+    box.onchange = () => send("set_visibility", { flags: { [box.dataset.flag!]: box.checked } });
+  });
+  root.querySelectorAll<HTMLButtonElement>("[data-sim]").forEach((button) => {
+    button.onclick = () => {
+      if (button.dataset.sim === "previous") stepSimulation(-1);
+      else if (button.dataset.sim === "next") stepSimulation(1);
+      else if (button.dataset.sim === "play") toggleSimulationPlayback();
+    };
+  });
+  root.querySelector("#simulation-timeline")?.addEventListener("input", (event) => {
+    if (!simulation) return;
+    simulation.frameIndex = Number((event.target as HTMLInputElement).value);
+    stopSimulationPlayback();
+    send("show_frame", { frame_index: simulation.frameIndex });
+  });
+  root.querySelector("#simulation-speed")?.addEventListener("change", (event) => {
+    if (!simulation) return;
+    const wasPlaying = simulation.playing;
+    stopSimulationPlayback();
+    simulation.speed = Number((event.target as HTMLSelectElement).value);
+    if (wasPlaying) toggleSimulationPlayback();
+  });
+  root.querySelectorAll<HTMLElement>("[data-op]").forEach((element) => {
+    element.onclick = () => {
+      contextMenu = undefined;
+      send("select_operation", { operation_id: element.dataset.op });
+    };
+    element.oncontextmenu = (event) => {
+      event.preventDefault();
+      contextMenu = { operationId: element.dataset.op!, x: event.clientX, y: event.clientY };
+      send("select_operation", { operation_id: element.dataset.op });
+      renderOverlay();
+    };
+  });
+  root.onclick = () => {
+    if (contextMenu) { contextMenu = undefined; renderOverlay(); }
+  };
+  renderOverlay();
+}
+function renderOverlay() {
+  root.querySelector("[data-slot='context-menu-content']")?.remove();
+  if (!contextMenu) return;
+  const value = contextMenu;
+  const summaries = latest?.state.results?.toolpath_summaries as Record<string, unknown> | undefined;
+  const generated = Boolean(summaries?.[value.operationId]);
+  const busy = generation !== undefined;
+  const select = (action: "edit" | "simulate" | "regenerate" | "delete") => () => {
+    contextMenu = undefined;
+    if (action === "edit") send("open_operation_dialog", { operation_id: value.operationId });
+    else if (action === "simulate") startSimulation(value.operationId);
+    else if (action === "regenerate") startRegeneration(value.operationId);
+    else send("delete_operation", { operation_id: value.operationId });
+    renderOverlay();
+  };
+  const menu = createContextMenu({
+    x: value.x,
+    y: value.y,
+    items: [
+      { label: "Simulate", disabled: !generated || busy, onSelect: select("simulate") },
+      { label: "Edit operation", disabled: busy, onSelect: select("edit") },
+      { label: "Regenerate", disabled: busy, onSelect: select("regenerate") },
+      { label: "Delete operation", disabled: busy, destructive: true, onSelect: select("delete") },
+    ],
+  });
+  menu.style.width = "8rem";
+  menu.style.minWidth = "8rem";
+  menu.style.boxSizing = "border-box";
+  root.append(menu);
 }
 function receive(value: string) {
   const event = JSON.parse(value) as PanelEvent;
   latest = event;
-  log(`${event.request_id.slice(0, 8)} ${event.error ? "ERR " + event.error : "ok"}`);
-  if (event.simulation_status === "completed") stopPolling();
-  render();
+  const currentGeneration = generation;
+  if (currentGeneration?.startRequestId === event.request_id && !event.generation_status) {
+    stopGenerationPolling();
+    generation = undefined;
+  }
+  if (event.generation_status === "running" && event.generation_operation_id) {
+    generation = { operationId: event.generation_operation_id, status: "running" };
+    pollGeneration();
+  } else if (event.generation_status === "completed" || event.generation_status === "error") {
+    stopGenerationPolling();
+    generation = undefined;
+  }
+  const currentSimulation = simulation;
+  let updateRunningControlsOnly = false;
+  if (currentSimulation) {
+    if (currentSimulation.awaitingStart && event.request_id === currentSimulation.startRequestId) {
+      currentSimulation.awaitingStart = false;
+      if (event.ok === false) simulation = undefined;
+      else { currentSimulation.status = "queued"; pollSimulation(); }
+    }
+    if (event.simulation_status) {
+      currentSimulation.status = event.simulation_status;
+      currentSimulation.frameCount = event.frame_count ?? currentSimulation.frameCount;
+      if (["completed", "cancelled", "error"].includes(currentSimulation.status)) stopSimulationPolling();
+      if (["cancelled", "error"].includes(currentSimulation.status)) simulation = undefined;
+    }
+    if (event.frame_index !== undefined) {
+      currentSimulation.frameIndex = event.frame_index;
+      updateRunningControlsOnly = currentSimulation.playing;
+    }
+    if (event.frame_count !== undefined) currentSimulation.frameCount = event.frame_count;
+  }
+  if (updateRunningControlsOnly) updateRunningSimulationControls();
+  else render();
 }
-window.opencamRhino = { receive };
-window.chrome?.webview?.addEventListener("message", (event) => receive(event.data));
+function applyTheme(theme: Theme) {
+  const tokens = theme.tokens;
+  document.documentElement.style.colorScheme = theme.scheme;
+  document.documentElement.classList.toggle("dark", theme.scheme === "dark");
+  for (const [name, value] of Object.entries(tokens))
+    document.documentElement.style.setProperty(`--${name}`, value);
+  const componentColors: Record<string, string | undefined> = {
+    "--background": tokens.bg,
+    "--foreground": tokens.text,
+    "--popover": tokens.surface,
+    "--popover-foreground": tokens.text,
+    "--accent": tokens["control-hover"],
+    "--accent-foreground": tokens.text,
+    "--destructive": tokens.accent,
+    "--border": tokens.border,
+    "--input": tokens.border,
+    "--ring": tokens.accent,
+  };
+  for (const [name, value] of Object.entries(componentColors))
+    if (value) document.documentElement.style.setProperty(name, value);
+}
+host.opencamRhino = { receive, theme: applyTheme };
+host.chrome?.webview?.addEventListener("message", (event) => receive(event.data));
 render();
 send("get_state");
+})();

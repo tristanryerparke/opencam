@@ -64,7 +64,7 @@ function generatedSchemasPlugin(): PluginOption {
 export default defineConfig({
   base: "./",
   build: {
-    outDir: "../csharp/OpenCamRhinoPlugin/web",
+    outDir: "dist",
     emptyOutDir: true,
   },
   plugins: [

@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
 PROTOCOL_VERSION = 1
-DOCUMENT_SCHEMA_VERSION = 2
+DOCUMENT_SCHEMA_VERSION = 6
 
 DEFAULT_VISIBILITY = {"stock": True, "part": True, "toolpath": True, "tool": True}
 
@@ -31,6 +31,7 @@ class PlanarRegion:
     plane: dict[str, list[float]]
     outer_loop: list[list[float]]
     inner_loops: list[list[list[float]]] = field(default_factory=list)
+    source_object_names: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -39,6 +40,7 @@ class OperationSpec:
     name: str
     type: str
     params: dict[str, Any] = field(default_factory=dict)
+    regions: list[PlanarRegion] = field(default_factory=list)
 
 
 @dataclass
@@ -48,14 +50,19 @@ class SetupSpec:
     operations: list[OperationSpec] = field(default_factory=list)
 
 
+def default_setup() -> SetupSpec:
+    return SetupSpec(id="setup-1", name="Setup 1")
+
+
 @dataclass
 class DocumentState:
     schema_version: int = DOCUMENT_SCHEMA_VERSION
     backend_url: str = "http://127.0.0.1:9090"
     part: PartSelection | None = None
-    region: PlanarRegion | None = None
-    setups: list[SetupSpec] = field(default_factory=list)
+    setups: list[SetupSpec] = field(default_factory=lambda: [default_setup()])
     selected_operation_id: str | None = None
+    toolpath_previews: dict[str, dict[str, Any]] = field(default_factory=dict)
+    toolpaths: dict[str, dict[str, Any]] = field(default_factory=dict)
     visibility: dict[str, bool] = field(default_factory=lambda: dict(DEFAULT_VISIBILITY))
     results: dict[str, Any] = field(default_factory=dict)
 
@@ -78,10 +85,10 @@ class DocumentState:
 class PanelRequest:
     action: Literal[
         "get_state", "select_part", "select_region", "generate", "generate_operation",
-        "add_setup", "add_operation", "update_operation", "delete_operation",
+        "generate_status", "open_operation_dialog", "add_operation", "update_operation",
+        "delete_operation",
         "select_operation", "set_visibility", "set_backend_url",
-        "simulate", "simulate_status", "show_frame", "compare", "show_final",
-        "clear_preview", "post_process",
+        "simulate", "simulate_status", "show_frame", "clear_preview", "post_process",
     ]
     request_id: str = ""
     payload: dict[str, Any] = field(default_factory=dict)
@@ -99,9 +106,12 @@ class PanelRequest:
 
 
 def panel_event(request: PanelRequest, state: DocumentState, **extra: Any) -> dict[str, Any]:
+    panel_state = state.to_dict()
+    panel_state.pop("toolpath_previews", None)
+    panel_state.pop("toolpaths", None)
     return {
         "protocol_version": PROTOCOL_VERSION,
         "request_id": request.request_id,
-        "state": state.to_dict(),
+        "state": panel_state,
         **extra,
     }

@@ -1,5 +1,5 @@
 #! python 3
-"""Live-Rhino probe: mesh layers + frame stepping with local GLB fixtures."""
+"""Live-Rhino probe: tool-only frame stepping with a local GLB fixture."""
 import json
 import sys
 from pathlib import Path
@@ -18,14 +18,10 @@ with logger:
     probe_dir = Path("/tmp/opencam_rhino_mesh_probe")
 
     def fetcher(path):
-        if "tool-mesh" in path:
-            return (probe_dir / "tool.glb").read_bytes()
-        if "active-meshes" in path:
-            return (probe_dir / "active.glb").read_bytes()
-        return (probe_dir / "rest.glb").read_bytes()
+        return (probe_dir / "tool.glb").read_bytes()
 
     session = runtime.start_session(doc, "probe-task")
-    runtime.complete_session(doc, session, {
+    runtime.complete_session(session, {
         "simulationId": "probe-sim",
         "toolMeshUrl": "/tool-mesh.glb",
         "chunks": [{
@@ -37,8 +33,7 @@ with logger:
             }],
         }],
     }, fetcher)
-    index = runtime.SimulationSession.show_frame(session, doc, 0, fetcher)
-    runtime.show_mesh_layer(doc, "comparison", (probe_dir / "comparison.glb").read_bytes())
+    index = runtime.SimulationSession.show_frame(session, doc, 0)
 
     conduit = runtime.active_conduit()
     serial = int(doc.RuntimeSerialNumber)
@@ -47,9 +42,7 @@ with logger:
         "frames": len(session.frames),
         "frame_index": index,
         "layer_roles": sorted(layers),
-        "rest_faces": sum(mesh.Faces.Count for mesh in layers["rest"]),
         "tool_vertices": sum(mesh.Vertices.Count for mesh in layers["tool"]),
-        "comparison_faces": sum(mesh.Faces.Count for mesh in layers["comparison"]),
         "enabled": conduit.enabled,
     }
     runtime.clear_document(doc)

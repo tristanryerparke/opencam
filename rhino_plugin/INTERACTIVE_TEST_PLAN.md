@@ -21,12 +21,12 @@ aggregated here; no background watcher is required.
 
 1. Operation tree: ＋ Setup / ＋ Operation (dialog with per-type fields),
    per-row ▶ Generate and ✕ Delete, click-to-select highlighting.
-2. Visibility toggles Stock / Part / Toolpath / Tool hide exactly their layers
-   without dropping cached simulation meshes; re-enabling restores instantly.
+2. Visibility toggles Stock / Part / Toolpath / Tool hide exactly their layers;
+   re-enabling restores instantly.
 3. Simulate → polling status → transport ◀ ▶/⏸ ▶|, timeline scrubbing, and
-   0.25–4× speed playback stepping frames with the tool mesh following.
-4. Compare (vertex-colored mesh) and Final stock render in shaded viewport
-   modes; toggling Part off is useful to see them without occlusion.
+   0.25–4× speed playback stepping frames with only the tool mesh moving.
+4. Confirm simulation keeps Rhino stock/part display unchanged and never draws
+   rest, active-cut, final-stock, or comparison meshes.
 5. Debug panel: backend URL Set applies without restart; event log shows
    request results and errors truncated.
 
@@ -35,8 +35,9 @@ aggregated here; no background watcher is required.
 1. Open `assets/CAM_Demos.3dm`; run **OpenCam**.
 2. Select a closed planar Brep face with an inner loop. Confirm the panel shows
    a part/stock box and one outer loop plus the face's islands.
-3. Repeat using separately selected Brep edges that form the same outer loop.
-   Confirm the loop joins, follows its face plane, and rejects an open chain.
+3. Repeat using Brep edges for multiple disconnected closed loops in one picker.
+   Confirm every loop becomes a separate geometry row, follows its own plane,
+   and any open chain rejects the full selection.
 4. Select a polysurface part. Confirm mesh counts are nonzero and stock bounds
    match Rhino's `BoundingBox` in document units. Confirm a mesh or a sub-face
    is rejected as the part selection.
@@ -59,17 +60,16 @@ aggregated here; no background watcher is required.
    document, and confirm no preview draws there; return and confirm the first
    document still shows its own preview.
 4. ~~Probe the current simulation router~~ Done: the host integration test in
-   `tests/test_simulation_meshes.py` drives the real app end to end, and a
-   live Rhino probe confirmed the mesh layers (rest/active/tool/comparison)
-   draw document-keyed and clear cleanly. Remaining interactive checks:
-   run Simulate from the panel against the real backend and watch the frame
-   stepping, Compare vertex colors, and Final stock rendering in shaded mode;
-   confirm mesh previews do not appear in another open document.
+   `tests/test_simulation_meshes.py` drives the real app end to end. Remaining
+   interactive check: run Simulate from the panel against the real backend,
+   confirm only the tool follows frame positions, and confirm no simulation
+   mesh appears in either the active or another open document.
 
 ## Acceptance before shipping
 
-- Save/reopen a `.3dm`: selected IDs, setup, operations, and result references
-  restore; backend geometry/results regenerate rather than being embedded.
+- Save/reopen a `.3dm`: selected IDs, setup, operations, full generated
+  toolpaths, and optimized previews restore without regeneration; simulation
+  meshes regenerate when requested.
 - Rhino command buttons and panel buttons reach the identical Python actions.
 - No Python 3.12+ dependency is imported in Rhino's CPython runtime.
 - Run generation and simulation only from explicit UI commands, never from

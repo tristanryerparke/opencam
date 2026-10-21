@@ -1,0 +1,38 @@
+{
+  "host": {
+    "name": "Rhino3D",
+    "version": "8.34.26223+11002",
+    "os": "macOS",
+    "arch": "arm64"
+  },
+  "id": "6c6d73ff-d448-4408-890a-2a96fc9f7337",
+  "identity": {
+    "name": "OpenCamRhinoBridge",
+    "version": "0.1.0",
+    "publisher": {
+      "email": "tristanryerparke@gmail.com",
+      "name": "Tristan Ryer Parke"
+    },
+    "description": "OpenCAM TypeScript panel hosted by Rhino with Python 3 actions."
+  },
+  "settings": {
+    "buildTarget": {
+      "host": {"name": "Rhino3D", "version": "8"},
+      "title": "Rhino3D (8.*)",
+      "slug": "rh8"
+    },
+    "publishTarget": {"title": "McNeel Yak Server"}
+  },
+  "codes": [
+    {
+      "id": "b2227222-6428-47c1-9a5a-a7172cbcd97e",
+      "language": {
+        "id": "*.*.python",
+        "version": "*.*.*"
+      },
+      "title": "OpenCamBridgeHost",
+      "uri": "commands/bridge_host.py"
+    }
+  ],
+  "libraries": []
+}

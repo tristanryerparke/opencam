@@ -1,5 +1,9 @@
 # Progress
 
+## Development workflow
+
+- User authorizes replacement of development `OpenCamRhinoBridge.rhp` whenever required by OpenCAM changes; rebuild/install without asking. State when Rhino restart is required.
+
 - [x] Merge `test-parallel-finishing` into `main`.
 - [x] Switch working tree to `main` and verify status.
 - [x] Create and switch to `post-processor-beginnings` from `main`.
@@ -83,15 +87,136 @@ Combined C now uses two drive geometries in one OpenCAM operation and two select
 
 Keep-down links now compare cutter sweeps with material removed by prior paths. Links entering uncut stock emit cutting motion role; already-cleared links retain linking role for a future rapid-only policy. Offset B regression uses 1/4-inch tool and B drive curve; adaptive regression verifies both roles. Maintained suite: 104 passed.
 
+## Live simulation speed control
+
+- [x] Stop frame-response renders from replacing playback controls while running.
+- [x] Keep frame label/timeline synchronized without rebuilding speed selector.
+- [x] Validate WebView build and reload development plug-in.
+
+Playback frame responses now update only frame label and timeline value while running. Speed selector DOM remains stable, so changing speed restarts playback timer immediately without dropdown replacement. WebView TypeScript/build passed and development reload dispatched.
+
+## Bottom geometry defaults and multi-loop Rhino selection
+
+- [x] Make Rhino defaults match core `at_bottom` level semantics for every operation.
+- [x] Return every selected closed planar edge loop as operation-local drive geometry.
+- [x] Update dialog/action handling for multi-region picker results.
+- [x] Validate payloads, WebView build, and development reload.
+
+Core `CAMLevels` already defaulted to `at_bottom`; Rhino operation defaults/editor now match for pocketing, profiling, and parallel finishing. One picker selection may return multiple faces or disconnected joined edge loops; dialog appends each as its own region. Rhino plug-in tests: 13 passed. WebView build, focused selection Ruff, multi-loop smoke check, and development reload passed/dispatched.
+
+## Profiling default side
+
+- [x] Make Rhino profiling default side `outside` in payload and operation editor.
+- [x] Validate default-side payload and rebuild/reload Rhino panel.
+
+Core Pydantic schema already defaulted profiling to `outside`; Rhino payload defaults and operation-dialog draft now match it. Rhino plug-in tests: 13 passed. WebView build passed and development reload dispatched.
+
+## Rhino World-XY face orientation fix
+
+- [x] Accept both +Z and -Z plane normals as parallel to World XY.
+- [x] Prevent failed unsaved operation drafts from leaking into panel state.
+- [x] Validate profiling payload and Rhino plug-in checks; reload development plug-in.
+
+World-XY validation now accepts unit normals in either Z direction, covering Rhino faces whose parameterization reports `-Z`. Failed actions reload persisted document state before replying, so unsaved draft rows cannot trigger follow-on missing-operation errors. Rhino plug-in tests: 13 passed. WebView build and development reload passed/dispatched.
+
+## Non-blocking Rhino toolpath generation
+
+- [x] Move generate/regenerate backend HTTP work off Rhino UI thread.
+- [x] Poll document-scoped generation tasks and commit completed paths on UI thread.
+- [x] Show frontend-style green spinner on operation being generated.
+- [x] Handle completion, failure, document close, and panel reload without stale tasks.
+- [x] Validate tests/build and reload development plug-in.
+
+Generate/regenerate now starts one daemon worker per document for `POST /cam/toolpath`; 500 ms panel polls commit completed previews on Rhino's UI thread. Operation rows show frontend-matched green loader, and generation controls disable until completion. Rhino plug-in tests: 13 passed. WebView TypeScript/build, Python compile, focused runtime Ruff, diff check, and async-task smoke check passed. Development reload dispatched to running Rhino.
+
+## Rhino tool-only simulation
+
+- [x] Stop loading and drawing rest, active-cut, final-stock, and comparison simulation meshes.
+- [x] Keep simulation playback moving only tool mesh through backend frame positions.
+- [x] Remove Rhino comparison/final-stock controls and action paths.
+- [x] Validate Rhino plug-in tests and WebView build; reload development plug-in.
+
+Rhino now fetches only backend tool mesh after simulation completes; frame stepping translates that mesh through returned tool positions while stock and part remain unchanged. Rhino plug-in tests: 13 passed. WebView TypeScript/build, Python compile, focused Ruff, diff check, and tool-only frame smoke check passed. Development reload dispatched to running Rhino.
+
+## Rhino document persistence and selected toolpaths
+
+- [x] Persist compact generated toolpath previews per operation in `.3dm` plug-in data.
+- [x] Restore stock, visibility, and selected-operation preview when documents open.
+- [x] Show only selected operation's toolpath; clear stale/deleted previews.
+- [x] Invalidate persisted and runtime toolpaths when generation inputs change.
+- [x] Build and run maintained Rhino plug-in checks.
+
+Schema v5 stores generation-hashed preview segments, not full CL records. Open/startup rebuilds stock, visibility, and selected preview; selection swaps one document-scoped conduit path. Rhino plug-in tests: 13 passed. WebView TypeScript/build passed. Development reload dispatched to running Rhino.
+
 ## Rhino integration
 
 - [x] Inspect existing pocketing APIs, demo conventions, and toolpath display colors.
 - [x] Add Rhino Python 3 demo script with sticky curve selection, Duet G-code export, and persistent conduit.
 - [x] Validate script syntax and generated output path assumptions.
 
+## Rhino WebView bridge and manual testing
+
+- [x] Create installable `OpenCamRhinoBridge` from Python-plugin template.
+- [x] Host TypeScript panel in Eto WebView and bridge JSON to Python actions.
+- [x] Build/install development bundle at `~/Library/Application Support/McNeel/Rhinoceros/8.0/MacPlugIns/OpenCamRhinoBridge.rhp`.
+- [ ] Restart Rhino and manually test panel in Rhino 8.
+- [x] Replace failed native Eto operation controls with blocking TypeScript WebView dialogs; temporarily close for geometry selection.
+- [x] Restore frontend-style operation Simulate/Compare context actions; show simulation transport only during active simulation.
+- [x] Remove Rhino-only Clear preview control to match frontend operation workflow.
+- [x] Keep operation left-click selection-only; open settings only from context-menu Edit.
+- [x] Make Part visibility toggle hide/show selected source polysurface, not conduit mesh.
+- [x] Add frontend-style operation context menu and paginated operation-options dialog.
+- [x] Fix CPython `Curve.TryGetPolyline` selection conversion for polyline regions.
+- [x] Add Tack-style development reload for OpenCAM Python and WebView panel without Rhino restart.
+- [x] Couple region selection to operation editing; hide simulation, comparison, debug, and top-level region controls; mirror frontend operation flow.
+- [x] Preload one `Setup 1` machining setup; remove setup-add control.
+- [x] Route OpenCAM panel-action errors to Rhino command history; never render errors in panel.
+- [x] Serve one self-contained panel page, support macOS `window.eto`, and apply Rhino theme/font tokens.
+- [x] Bundle React-free `t-components/dom` controls and matching Tailwind styles into self-contained Rhino panel and operation-dialog pages.
+- [x] Add frontend operation-picker graphics to Rhino blocking WebView picker.
+- [x] Lay out operation choices in columns without picker scrolling.
+- [x] Match Rhino operation-picker and operation-settings dialog styling to frontend.
+- [x] Preserve frontend SVG stroke colors and resize operation dialog by current content mode.
+- [x] Fix operation-picker resize message reaching Python as an invalid dialog response.
+- [x] Remove OpenCAM title and Ready status from Rhino panel.
+- [x] Apply Rhino light/dark theme tokens to blocking operation dialog.
+- [x] Remove operation-dialog outer chrome, fix sidebar tab sizing, and disable resizing.
+- [x] Size editor dialog for fields and eliminate horizontal overflow bounce.
+- [x] Restore frontend dialog interior padding and move operation title to native window bar.
+- [x] Add Tailwind preflight to Rhino WebViews so DOM primitives match frontend layout resets.
+- [x] Put injected Tailwind preflight in base layer so component border utilities retain precedence.
+- [x] Reduce picker and editor native client sizes by 80 px in each dimension.
+- [x] Reduce editor height by 100 px and make editor content fill native window height.
+- [x] Constrain panel operation context menu and map its DOM component colors to Rhino theme.
+- [x] Match Rhino panel setup/operation tree visual hierarchy to frontend tree components.
+- [x] Load Rhino operation-dialog tools from backend tool library like frontend.
+- [x] Render all Rhino toolpath lines at 1 px and endpoint dots at 3 px.
+- [x] Match operation context-menu item gap to its edge padding.
+- [x] Disable native browser context menus in OpenCAM panel and operation WebViews.
+- [x] Tessellate non-polyline face loops with Rhino 8's supported four-argument `Curve.ToPolyline` overload.
+- [x] Support multiple operation-local planar regions: persisted contract migration, dialog add/delete rows, and multi-loop backend payloads.
+- [x] Classify camelCase backend motion fields in Rhino toolpath preview so travel/linking colors match frontend.
+- [x] Tessellate backend arc records in the Rhino toolpath preview conduit.
+- [x] Prune degenerate offset-collapse slivers that caused a pointless opening plunge in offset pocketing.
+- [x] Apply frontend base border token after WebView preflight for outline operation cards.
+- [x] Add selected geometry table to Rhino operation editor.
+- [x] Use frontend global theme tokens in operation dialog; use Rhino only for light/dark mode.
+- [x] Align Rhino operation-editor section order and coverage with frontend operation schema.
+- [x] Add frontend-sized React-free checkbox primitive for Rhino operation dialog.
 ### Terminal-driven Rhino demo
 
 - [x] Inspect Tack run-in-rhino test configuration and Rhino execution conventions.
 - [x] Add editable local `run-in-rhino` dependency for its `rhino-watch` CLI.
 - [x] Adapt the Rhino pocketing demo to run OpenCAM locally while run-in-rhino selects geometry and refreshes the conduit.
 - [ ] Run the terminal integration path and verify Rhino-visible output.
+
+## Simulation playback sync and failure handling
+
+- [x] Make tool and completed toolpath follow simulation playhead during mesh loading.
+- [x] Surface mesh-load failures and stop playback instead of silently stalling.
+- [x] Validate frontend TypeScript build and focused lint.
+
+## Timeline slider hit target
+
+- [x] Expand animation timeline slider vertical pointer target without changing visual track or stride slider.
+- [x] Validate focused frontend lint.

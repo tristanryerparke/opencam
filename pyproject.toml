@@ -10,12 +10,9 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "gmsh>=4.15.0",
-    "devtools>=0.12.2",
     "fastapi>=0.128.0",
-    "httpx>=0.28.1",
     "manifold3d>=3.4.1",
     "mapbox-earcut>=2.0.0",
-    "matplotlib>=3.11.0",
     "networkx>=3.6.1",
     "numba>=0.65.1",
     "numpy>=2.4.4",
@@ -40,3 +37,10 @@ run-in-rhino = { path = "../run-in-rhino", editable = true }
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[dependency-groups]
+dev = [
+    "devtools>=0.12.2",
+    "httpx>=0.28.1",
+    "matplotlib>=3.11.0",
+]

@@ -139,7 +139,7 @@ export function AnimationBar({
           value={[frameIndex]}
           onValueChange={onFrameChange}
           disabled={disabled}
-          className="flex-1"
+          className="-my-3 h-10 flex-1"
         />
 
         <div className="w-20">

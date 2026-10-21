@@ -61,7 +61,9 @@ export type PolylineViewerProps = {
   showOriginalMesh?: boolean;
   onMeshFaceSelect?: (selection: MeshFaceSelection) => void;
   onSecondaryMeshDisplayed?: (meshUrl: string, elapsedMs: number) => void;
+  onSecondaryMeshLoadFailed?: (meshUrl: string, error: unknown) => void;
   onTertiaryMeshDisplayed?: (meshUrl: string, elapsedMs: number) => void;
+  onTertiaryMeshLoadFailed?: (meshUrl: string, error: unknown) => void;
 };
 
 export type PolylineViewerSceneProps = Omit<PolylineViewerProps, "className">;

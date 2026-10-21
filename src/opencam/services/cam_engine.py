@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from opencam.engine.clearance import compute_clearance_height, validate_clearance_height
+from opencam.engine.facing.toolpath import build_facing_records, facing_max_cut_z
 from opencam.engine.parallel_finishing.operation import (
     build_parallel_finishing_operation_records,
 )
@@ -20,6 +21,7 @@ from opencam.schemas.operations.base import (
     BaseCAMOperation,
     PartMaxZPlusOffsetClearance,
 )
+from opencam.schemas.operations.facing import Facing2dOp
 from opencam.schemas.operations.parallel_finishing import ParallelFinishingOp
 from opencam.schemas.operations.pocketing import Pocketing2dOp
 from opencam.schemas.operations.profiling import Profiling2dOp
@@ -97,6 +99,23 @@ def _build_cam_operation(
             operation,
             clearance_plane_height=clearance_plane_height,
         )
+        return OperationRecord3D(
+            tool=operation.tool,
+            spindle_rpm=operation.feeds_and_speeds.spindle_rpm,
+            clearance_plane_height=clearance_plane_height,
+            records=records,
+        )
+
+    if isinstance(operation, Facing2dOp):
+        operation_max_z = facing_max_cut_z(operation)
+        clearance_plane_height = compute_clearance_height(
+            setup,
+            operation,
+            operation_max_z=operation_max_z,
+            part_max_z=max(vertex[2] for vertex in resolved_mesh.vertices) if resolved_mesh is not None else None,
+        )
+        validate_clearance_height(clearance_plane_height, operation_max_z)
+        records = build_facing_records(operation, clearance_plane_height=clearance_plane_height)
         return OperationRecord3D(
             tool=operation.tool,
             spindle_rpm=operation.feeds_and_speeds.spindle_rpm,

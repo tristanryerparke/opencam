@@ -2251,6 +2251,7 @@ function App() {
           onOpenChange={setIsOperationTypeDialogOpen}
           onSelectPocketing={() => handleAddTypedOperation("pocketing_2d")}
           onSelectProfiling={() => handleAddTypedOperation("profiling_2d")}
+          onSelectFacing={() => handleAddTypedOperation("facing_2d")}
           onSelectParallelFinishing={() => handleAddTypedOperation("parallel_finishing")}
         />
 

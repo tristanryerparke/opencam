@@ -46,17 +46,20 @@ export type SchemaSection = {
 
 export const pocketOperationSchema = camSchemaBundle.pocket2dOperation as JsonSchema;
 export const profileOperationSchema = camSchemaBundle.profile2dOperation as JsonSchema;
+export const facingOperationSchema = camSchemaBundle.facing2dOperation as JsonSchema;
 export const parallelFinishingOperationSchema = camSchemaBundle.parallelFinishingOperation as JsonSchema;
 
 const operationSchemas: Record<OperationType, JsonSchema> = {
   pocketing_2d: pocketOperationSchema,
   profiling_2d: profileOperationSchema,
+  facing_2d: facingOperationSchema,
   parallel_finishing: parallelFinishingOperationSchema,
 };
 
 const operationLabels: Record<OperationType, string> = {
   pocketing_2d: "2D Pocket",
   profiling_2d: "2D Profile",
+  facing_2d: "2.5D Facing",
   parallel_finishing: "Parallel Finishing",
 };
 
@@ -81,11 +84,12 @@ const operationSectionTitles: Record<string, string> = {
 };
 
 function operationTypeFromValue(value: OperationType | DraftObject | Operation | null | undefined): OperationType {
-  if (value === "profiling_2d" || value === "pocketing_2d" || value === "parallel_finishing") {
+  if (value === "profiling_2d" || value === "pocketing_2d" || value === "facing_2d" || value === "parallel_finishing") {
     return value;
   }
   const type = value && typeof value === "object" && !Array.isArray(value) ? value.type : undefined;
   if (type === "profiling_2d") return "profiling_2d";
+  if (type === "facing_2d") return "facing_2d";
   if (type === "parallel_finishing") return "parallel_finishing";
   return "pocketing_2d";
 }

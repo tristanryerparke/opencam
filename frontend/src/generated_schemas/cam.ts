@@ -61,12 +61,8 @@ export interface SetupStock {
   maxZ?: number;
   [k: string]: unknown;
 }
-export interface GenerateToolpathRequest {
-  setup?: CAMSetup;
-  operation: Pocketing2DOp | Profiling2DOp | ParallelFinishingOp;
-}
-export interface Pocketing2DOp {
-  type?: "pocketing_2d";
+export interface Facing2DOp {
+  type?: "facing_2d";
   id?: string;
   displayName?: string;
   tool: CylindricalTool | BallTool | VTool;
@@ -76,9 +72,10 @@ export interface Pocketing2DOp {
   advanced?: CAMAdvancedParameters;
   /**
    * @minItems 1
+   * @maxItems 1
    */
-  driveGeometry: [ClosedPolyline25D, ...ClosedPolyline25D[]];
-  cutParameters?: PocketingCutSettings;
+  driveGeometry: [ClosedPolyline25D];
+  cutParameters?: FacingCutSettings;
 }
 export interface CylindricalTool {
   id?: string;
@@ -167,17 +164,49 @@ export interface Point2D {
   y: number;
   [k: string]: unknown;
 }
+export interface FacingCutSettings {
+  cutDirection?: "climb" | "conventional" | "mixed";
+  stepover?: StepoverMode;
+  /**
+   * Angle of cutting passes measured counterclockwise from the X axis.
+   */
+  directionDegrees?: number;
+  /**
+   * Additional cutter-center travel beyond each side and corner.
+   */
+  edgeOvertravel?: number;
+  [k: string]: unknown;
+}
+export interface StepoverMode {
+  mode?: "percentage_of_tool_diameter" | "absolute";
+  value?: number;
+  [k: string]: unknown;
+}
+export interface GenerateToolpathRequest {
+  setup?: CAMSetup;
+  operation: Pocketing2DOp | Profiling2DOp | Facing2DOp | ParallelFinishingOp;
+}
+export interface Pocketing2DOp {
+  type?: "pocketing_2d";
+  id?: string;
+  displayName?: string;
+  tool: CylindricalTool | BallTool | VTool;
+  feedsAndSpeeds?: FeedsAndSpeeds;
+  clearance?: AutomaticClearance | AbsoluteClearance | StockMaxZPlusOffsetClearance | PartMaxZPlusOffsetClearance;
+  levels?: CAMLevels;
+  advanced?: CAMAdvancedParameters;
+  /**
+   * @minItems 1
+   */
+  driveGeometry: [ClosedPolyline25D, ...ClosedPolyline25D[]];
+  cutParameters?: PocketingCutSettings;
+}
 export interface PocketingCutSettings {
   clearingStrategy?: "offset" | "adaptive";
   keepToolDown?: boolean;
   cutDirection?: "climb" | "conventional";
   stepover?: StepoverMode;
   stockToLeave?: number;
-  [k: string]: unknown;
-}
-export interface StepoverMode {
-  mode?: "percentage_of_tool_diameter" | "absolute";
-  value?: number;
   [k: string]: unknown;
 }
 export interface Profiling2DOp {

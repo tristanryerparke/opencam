@@ -323,6 +323,145 @@ export const camSchemaBundle = {
         "title": "CylindricalTool",
         "type": "object"
       },
+      "Facing2dOp": {
+        "properties": {
+          "type": {
+            "const": "facing_2d",
+            "default": "facing_2d",
+            "title": "Type",
+            "type": "string"
+          },
+          "id": {
+            "title": "Operation ID",
+            "type": "string"
+          },
+          "displayName": {
+            "default": "2.5D Facing",
+            "title": "Operation name",
+            "type": "string"
+          },
+          "tool": {
+            "discriminator": {
+              "mapping": {
+                "ball": "#/$defs/BallTool",
+                "cylinder": "#/$defs/CylindricalTool",
+                "v": "#/$defs/VTool"
+              },
+              "propertyName": "type"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/CylindricalTool"
+              },
+              {
+                "$ref": "#/$defs/BallTool"
+              },
+              {
+                "$ref": "#/$defs/VTool"
+              }
+            ],
+            "title": "Tool"
+          },
+          "feedsAndSpeeds": {
+            "$ref": "#/$defs/FeedsAndSpeeds",
+            "title": "Feeds and speeds"
+          },
+          "clearance": {
+            "discriminator": {
+              "mapping": {
+                "absolute": "#/$defs/AbsoluteClearance",
+                "automatic": "#/$defs/AutomaticClearance",
+                "part_max_z_plus_offset": "#/$defs/PartMaxZPlusOffsetClearance",
+                "stock_max_z_plus_offset": "#/$defs/StockMaxZPlusOffsetClearance"
+              },
+              "propertyName": "clearanceHeightType"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/AutomaticClearance"
+              },
+              {
+                "$ref": "#/$defs/AbsoluteClearance"
+              },
+              {
+                "$ref": "#/$defs/StockMaxZPlusOffsetClearance"
+              },
+              {
+                "$ref": "#/$defs/PartMaxZPlusOffsetClearance"
+              }
+            ],
+            "title": "Clearance"
+          },
+          "levels": {
+            "$ref": "#/$defs/CAMLevels",
+            "title": "Levels"
+          },
+          "advanced": {
+            "$ref": "#/$defs/CAMAdvancedParameters",
+            "title": "Advanced"
+          },
+          "driveGeometry": {
+            "items": {
+              "$ref": "#/$defs/ClosedPolyline25D"
+            },
+            "maxItems": 1,
+            "minItems": 1,
+            "title": "Rectangular face boundary",
+            "type": "array"
+          },
+          "cutParameters": {
+            "$ref": "#/$defs/FacingCutSettings",
+            "title": "Cut parameters"
+          }
+        },
+        "required": [
+          "tool",
+          "driveGeometry"
+        ],
+        "title": "Facing2dOp",
+        "type": "object"
+      },
+      "FacingCutSettings": {
+        "properties": {
+          "cutDirection": {
+            "default": "mixed",
+            "enum": [
+              "climb",
+              "conventional",
+              "mixed"
+            ],
+            "title": "Cut direction",
+            "type": "string"
+          },
+          "stepover": {
+            "$ref": "#/$defs/StepoverMode",
+            "title": "Stepover"
+          },
+          "directionDegrees": {
+            "default": 0,
+            "description": "Angle of cutting passes measured counterclockwise from the X axis.",
+            "exclusiveMaximum": 180,
+            "minimum": 0,
+            "title": "Pass angle",
+            "type": "number",
+            "x-opencam": {
+              "unit": "degrees"
+            }
+          },
+          "edgeOvertravel": {
+            "default": 0,
+            "description": "Additional cutter-center travel beyond each side and corner.",
+            "minimum": 0,
+            "title": "Edge overtravel",
+            "type": "number",
+            "x-opencam": {
+              "unit": "mm"
+            }
+          }
+        },
+        "title": "FacingCutSettings",
+        "type": "object"
+      },
       "FeedsAndSpeeds": {
         "properties": {
           "spindleRpm": {
@@ -1103,6 +1242,7 @@ export const camSchemaBundle = {
       "operation": {
         "discriminator": {
           "mapping": {
+            "facing_2d": "#/$defs/Facing2dOp",
             "parallel_finishing": "#/$defs/ParallelFinishingOp",
             "pocketing_2d": "#/$defs/Pocketing2dOp",
             "profiling_2d": "#/$defs/Profiling2dOp"
@@ -1115,6 +1255,9 @@ export const camSchemaBundle = {
           },
           {
             "$ref": "#/$defs/Profiling2dOp"
+          },
+          {
+            "$ref": "#/$defs/Facing2dOp"
           },
           {
             "$ref": "#/$defs/ParallelFinishingOp"
@@ -2252,6 +2395,568 @@ export const camSchemaBundle = {
       "driveGeometry"
     ],
     "title": "Profiling2dOp",
+    "type": "object"
+  },
+  "facing2dOperation": {
+    "$defs": {
+      "AbsoluteClearance": {
+        "properties": {
+          "clearanceHeightType": {
+            "const": "absolute",
+            "default": "absolute",
+            "title": "Clearanceheighttype",
+            "type": "string"
+          },
+          "absoluteHeight": {
+            "default": 25.4,
+            "title": "Absolute height",
+            "type": "number",
+            "x-opencam": {
+              "unit": "mm"
+            }
+          }
+        },
+        "title": "AbsoluteClearance",
+        "type": "object"
+      },
+      "AutomaticClearance": {
+        "properties": {
+          "clearanceHeightType": {
+            "const": "automatic",
+            "default": "automatic",
+            "title": "Clearanceheighttype",
+            "type": "string"
+          }
+        },
+        "title": "AutomaticClearance",
+        "type": "object"
+      },
+      "BallTool": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "toolNumber": {
+            "title": "Toolnumber",
+            "type": "integer"
+          },
+          "manualChange": {
+            "default": false,
+            "title": "Manualchange",
+            "type": "boolean"
+          },
+          "diameter": {
+            "title": "Diameter",
+            "type": "number"
+          },
+          "cuttingHeight": {
+            "title": "Cuttingheight",
+            "type": "number"
+          },
+          "shoulderHeight": {
+            "title": "Shoulderheight",
+            "type": "number"
+          },
+          "numFlutes": {
+            "default": 2,
+            "title": "Numflutes",
+            "type": "number"
+          },
+          "type": {
+            "const": "ball",
+            "default": "ball",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "toolNumber",
+          "diameter",
+          "cuttingHeight",
+          "shoulderHeight"
+        ],
+        "title": "BallTool",
+        "type": "object"
+      },
+      "CAMAdvancedParameters": {
+        "properties": {
+          "operationsSorting": {
+            "default": "shortest_distance",
+            "enum": [
+              "selection",
+              "shortest_distance"
+            ],
+            "title": "Operation sorting",
+            "type": "string"
+          },
+          "chordalTolerance": {
+            "default": 0.01,
+            "exclusiveMinimum": 0,
+            "title": "Chordal tolerance",
+            "type": "number",
+            "x-opencam": {
+              "unit": "mm"
+            }
+          }
+        },
+        "title": "CAMAdvancedParameters",
+        "type": "object"
+      },
+      "CAMLevels": {
+        "properties": {
+          "driveGeometryPosition": {
+            "default": "at_bottom",
+            "enum": [
+              "at_top",
+              "at_bottom"
+            ],
+            "title": "Drive geometry at",
+            "type": "string"
+          },
+          "depthOfCut": {
+            "default": 5,
+            "minimum": 0,
+            "title": "Depth of cut",
+            "type": "number",
+            "x-opencam": {
+              "unit": "mm"
+            }
+          },
+          "maxStepdown": {
+            "default": 20,
+            "exclusiveMinimum": 0,
+            "title": "Max stepdown",
+            "type": "number",
+            "x-opencam": {
+              "unit": "mm"
+            }
+          }
+        },
+        "title": "CAMLevels",
+        "type": "object"
+      },
+      "ClosedPolyline25D": {
+        "properties": {
+          "kind": {
+            "const": "closed_polyline",
+            "default": "closed_polyline",
+            "title": "Kind",
+            "type": "string"
+          },
+          "vertices": {
+            "items": {
+              "$ref": "#/$defs/Point2D"
+            },
+            "title": "Vertices",
+            "type": "array"
+          },
+          "z": {
+            "title": "Z",
+            "type": "number"
+          }
+        },
+        "required": [
+          "vertices",
+          "z"
+        ],
+        "title": "ClosedPolyline25D",
+        "type": "object"
+      },
+      "CylindricalTool": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "toolNumber": {
+            "title": "Toolnumber",
+            "type": "integer"
+          },
+          "manualChange": {
+            "default": false,
+            "title": "Manualchange",
+            "type": "boolean"
+          },
+          "diameter": {
+            "title": "Diameter",
+            "type": "number"
+          },
+          "cuttingHeight": {
+            "title": "Cuttingheight",
+            "type": "number"
+          },
+          "shoulderHeight": {
+            "title": "Shoulderheight",
+            "type": "number"
+          },
+          "numFlutes": {
+            "default": 2,
+            "title": "Numflutes",
+            "type": "number"
+          },
+          "type": {
+            "const": "cylinder",
+            "default": "cylinder",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "toolNumber",
+          "diameter",
+          "cuttingHeight",
+          "shoulderHeight"
+        ],
+        "title": "CylindricalTool",
+        "type": "object"
+      },
+      "FacingCutSettings": {
+        "properties": {
+          "cutDirection": {
+            "default": "mixed",
+            "enum": [
+              "climb",
+              "conventional",
+              "mixed"
+            ],
+            "title": "Cut direction",
+            "type": "string"
+          },
+          "stepover": {
+            "$ref": "#/$defs/StepoverMode",
+            "title": "Stepover"
+          },
+          "directionDegrees": {
+            "default": 0,
+            "description": "Angle of cutting passes measured counterclockwise from the X axis.",
+            "exclusiveMaximum": 180,
+            "minimum": 0,
+            "title": "Pass angle",
+            "type": "number",
+            "x-opencam": {
+              "unit": "degrees"
+            }
+          },
+          "edgeOvertravel": {
+            "default": 0,
+            "description": "Additional cutter-center travel beyond each side and corner.",
+            "minimum": 0,
+            "title": "Edge overtravel",
+            "type": "number",
+            "x-opencam": {
+              "unit": "mm"
+            }
+          }
+        },
+        "title": "FacingCutSettings",
+        "type": "object"
+      },
+      "FeedsAndSpeeds": {
+        "properties": {
+          "spindleRpm": {
+            "default": 12000,
+            "exclusiveMinimum": 0,
+            "title": "Spindle RPM",
+            "type": "integer"
+          },
+          "plungeFeedrate": {
+            "default": 250,
+            "exclusiveMinimum": 0,
+            "title": "Plunge feedrate",
+            "type": "number",
+            "x-opencam": {
+              "unit": "mm/min"
+            }
+          },
+          "leadInFeedrate": {
+            "default": 500,
+            "exclusiveMinimum": 0,
+            "title": "Lead-in feedrate",
+            "type": "number",
+            "x-opencam": {
+              "unit": "mm/min"
+            }
+          },
+          "cutFeedrate": {
+            "default": 500,
+            "exclusiveMinimum": 0,
+            "title": "Cut feedrate",
+            "type": "number",
+            "x-opencam": {
+              "unit": "mm/min"
+            }
+          },
+          "leadOutFeedrate": {
+            "default": 500,
+            "exclusiveMinimum": 0,
+            "title": "Lead-out feedrate",
+            "type": "number",
+            "x-opencam": {
+              "unit": "mm/min"
+            }
+          },
+          "departureFeedrate": {
+            "default": 500,
+            "exclusiveMinimum": 0,
+            "title": "Departure feedrate",
+            "type": "number",
+            "x-opencam": {
+              "unit": "mm/min"
+            }
+          }
+        },
+        "title": "FeedsAndSpeeds",
+        "type": "object"
+      },
+      "PartMaxZPlusOffsetClearance": {
+        "properties": {
+          "clearanceHeightType": {
+            "const": "part_max_z_plus_offset",
+            "default": "part_max_z_plus_offset",
+            "title": "Clearanceheighttype",
+            "type": "string"
+          },
+          "offset": {
+            "default": 5,
+            "minimum": 0,
+            "title": "Offset",
+            "type": "number",
+            "x-opencam": {
+              "unit": "mm"
+            }
+          }
+        },
+        "title": "PartMaxZPlusOffsetClearance",
+        "type": "object"
+      },
+      "Point2D": {
+        "properties": {
+          "x": {
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "title": "Y",
+            "type": "number"
+          }
+        },
+        "required": [
+          "x",
+          "y"
+        ],
+        "title": "Point2D",
+        "type": "object"
+      },
+      "StepoverMode": {
+        "properties": {
+          "mode": {
+            "default": "percentage_of_tool_diameter",
+            "enum": [
+              "percentage_of_tool_diameter",
+              "absolute"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "value": {
+            "default": 25,
+            "exclusiveMinimum": 0,
+            "title": "Value",
+            "type": "number",
+            "x-opencam": {
+              "unit": "%"
+            }
+          }
+        },
+        "title": "StepoverMode",
+        "type": "object"
+      },
+      "StockMaxZPlusOffsetClearance": {
+        "properties": {
+          "clearanceHeightType": {
+            "const": "stock_max_z_plus_offset",
+            "default": "stock_max_z_plus_offset",
+            "title": "Clearanceheighttype",
+            "type": "string"
+          },
+          "offset": {
+            "default": 5,
+            "minimum": 0,
+            "title": "Offset",
+            "type": "number",
+            "x-opencam": {
+              "unit": "mm"
+            }
+          }
+        },
+        "title": "StockMaxZPlusOffsetClearance",
+        "type": "object"
+      },
+      "VTool": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "toolNumber": {
+            "title": "Toolnumber",
+            "type": "integer"
+          },
+          "manualChange": {
+            "default": false,
+            "title": "Manualchange",
+            "type": "boolean"
+          },
+          "diameter": {
+            "title": "Diameter",
+            "type": "number"
+          },
+          "cuttingHeight": {
+            "title": "Cuttingheight",
+            "type": "number"
+          },
+          "shoulderHeight": {
+            "title": "Shoulderheight",
+            "type": "number"
+          },
+          "numFlutes": {
+            "default": 2,
+            "title": "Numflutes",
+            "type": "number"
+          },
+          "type": {
+            "const": "v",
+            "default": "v",
+            "title": "Type",
+            "type": "string"
+          },
+          "tipAngle": {
+            "title": "Tipangle",
+            "type": "number"
+          }
+        },
+        "required": [
+          "name",
+          "toolNumber",
+          "diameter",
+          "cuttingHeight",
+          "shoulderHeight",
+          "tipAngle"
+        ],
+        "title": "VTool",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "type": {
+        "const": "facing_2d",
+        "default": "facing_2d",
+        "title": "Type",
+        "type": "string"
+      },
+      "id": {
+        "title": "Operation ID",
+        "type": "string"
+      },
+      "displayName": {
+        "default": "2.5D Facing",
+        "title": "Operation name",
+        "type": "string"
+      },
+      "tool": {
+        "discriminator": {
+          "mapping": {
+            "ball": "#/$defs/BallTool",
+            "cylinder": "#/$defs/CylindricalTool",
+            "v": "#/$defs/VTool"
+          },
+          "propertyName": "type"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/CylindricalTool"
+          },
+          {
+            "$ref": "#/$defs/BallTool"
+          },
+          {
+            "$ref": "#/$defs/VTool"
+          }
+        ],
+        "title": "Tool"
+      },
+      "feedsAndSpeeds": {
+        "$ref": "#/$defs/FeedsAndSpeeds",
+        "title": "Feeds and speeds"
+      },
+      "clearance": {
+        "discriminator": {
+          "mapping": {
+            "absolute": "#/$defs/AbsoluteClearance",
+            "automatic": "#/$defs/AutomaticClearance",
+            "part_max_z_plus_offset": "#/$defs/PartMaxZPlusOffsetClearance",
+            "stock_max_z_plus_offset": "#/$defs/StockMaxZPlusOffsetClearance"
+          },
+          "propertyName": "clearanceHeightType"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/AutomaticClearance"
+          },
+          {
+            "$ref": "#/$defs/AbsoluteClearance"
+          },
+          {
+            "$ref": "#/$defs/StockMaxZPlusOffsetClearance"
+          },
+          {
+            "$ref": "#/$defs/PartMaxZPlusOffsetClearance"
+          }
+        ],
+        "title": "Clearance"
+      },
+      "levels": {
+        "$ref": "#/$defs/CAMLevels",
+        "title": "Levels"
+      },
+      "advanced": {
+        "$ref": "#/$defs/CAMAdvancedParameters",
+        "title": "Advanced"
+      },
+      "driveGeometry": {
+        "items": {
+          "$ref": "#/$defs/ClosedPolyline25D"
+        },
+        "maxItems": 1,
+        "minItems": 1,
+        "title": "Rectangular face boundary",
+        "type": "array"
+      },
+      "cutParameters": {
+        "$ref": "#/$defs/FacingCutSettings",
+        "title": "Cut parameters"
+      }
+    },
+    "required": [
+      "tool",
+      "driveGeometry"
+    ],
+    "title": "Facing2dOp",
     "type": "object"
   },
   "parallelFinishingOperation": {

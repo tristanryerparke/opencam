@@ -4,6 +4,15 @@
 
 - User authorizes replacement of development `OpenCamRhinoBridge.rhp` whenever required by OpenCAM changes; rebuild/install without asking. State when Rhino restart is required.
 
+## 2.5D facing operation
+
+- [x] Create and switch to branch `adding-facing`.
+- [x] Audit pocketing, profiling, level generation, schemas, engine dispatch, and UI operation registration.
+- [x] Add facing schema with rectangular area, edge/corner overtravel, stepover, levels, climb/conventional/mixed direction, and a 0–180° pass angle.
+- [x] Add facing path generation with complete face coverage and safe linking/retract behavior.
+- [x] Wire facing into backend dispatch and operation UI.
+- [ ] Validate formatting, type checks, and maintained tests (13 focused tests pass; direct output checks pass at 0°, 45°, and 90° with two Z levels and one-way retracts; frontend blocked by pre-existing missing `t-components/button-group`).
+
 - [x] Merge `test-parallel-finishing` into `main`.
 - [x] Switch working tree to `main` and verify status.
 - [x] Create and switch to `post-processor-beginnings` from `main`.

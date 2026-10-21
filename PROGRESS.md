@@ -238,3 +238,12 @@ Schema v5 stores generation-hashed preview segments, not full CL records. Open/s
 
 - [x] Expand animation timeline slider vertical pointer target without changing visual track or stride slider.
 - [x] Validate focused frontend lint.
+
+## Facing raster artifacts
+
+- [x] Normalize lane orientation before mixed-direction alternation.
+- [x] Remove tangent-only edge lanes and uneven remainder spacing.
+- [x] Validate axis-aligned and angled facing paths against the reported run.
+- [x] Run maintained tests and reload the development plug-in if required.
+
+Shapely returned the first boundary intersection opposite to subsequent lanes, so index-based alternation produced a 106.027 mm diagonal crossover. Lane generation also appended a 0.4 mm final remainder after 2.4 mm steps and placed exact tangent lanes on the buffered boundary. Facing now canonicalizes local lane endpoints and centers evenly distributed lanes within the coverage span. The reported run regenerates as 45 lanes at uniform 2.355556 mm spacing with short same-side links. Maintained suite: 118 passed; focused Ruff, compile, diff, 0°/45°/90° geometry checks, and the live auto-reloaded backend route pass. No Rhino plug-in reload required for this backend-only change.

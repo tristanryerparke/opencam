@@ -46,12 +46,10 @@ def _rectangle(operation: Facing2dOp) -> tuple[Polygon, float]:
 
 
 def _lane_coordinates(start: float, end: float, stepover: float) -> list[float]:
-    lanes = [start]
-    while lanes[-1] + stepover < end:
-        lanes.append(lanes[-1] + stepover)
-    if not math.isclose(lanes[-1], end):
-        lanes.append(end)
-    return lanes
+    span = end - start
+    lane_count = max(1, math.ceil(span / stepover))
+    lane_spacing = span / lane_count
+    return [start + (index + 0.5) * lane_spacing for index in range(lane_count)]
 
 
 def _facing_lanes(operation: Facing2dOp) -> list[tuple[tuple[float, float], tuple[float, float]]]:
@@ -70,7 +68,16 @@ def _facing_lanes(operation: Facing2dOp) -> list[tuple[tuple[float, float], tupl
                 continue
             coords = list(part.coords)
             if len(coords) >= 2:
-                world = rotate(LineString([coords[0], coords[-1]]), angle, origin=coverage.centroid, use_radians=False)
+                local_start, local_end = sorted(
+                    (coords[0], coords[-1]),
+                    key=lambda point: (point[0], point[1]),
+                )
+                world = rotate(
+                    LineString([local_start, local_end]),
+                    angle,
+                    origin=coverage.centroid,
+                    use_radians=False,
+                )
                 start, end = list(world.coords)
                 lanes.append(((float(start[0]), float(start[1])), (float(end[0]), float(end[1]))))
     if not lanes:

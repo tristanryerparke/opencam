@@ -11,7 +11,7 @@ counterpart and gives a dependency order.
 | Stock | world-axis bounding box generated from selected part; preview conduit | Frameworked selection, preview pending |
 | Setup origin | Rhino point getter / CPlane-aware setup dialog; persist transform | Planned |
 | Planar drive geometry | multi-select planar faces or independently joined Brep edge/curve loops via `GetObject` subobject selection | Implemented; interactive multi-loop check pending |
-| Pocket + profile | panel operation editor emits existing Pydantic JSON to `/cam/toolpath` | Generate frameworked |
+| Pocket + profile + facing | panel operation editor emits existing Pydantic JSON to `/cam/toolpath` | Generate frameworked |
 | Parallel finishing | selected Brep mesh + surface strategy JSON; `/cam/toolpath` | Planned |
 | Adaptive pocketing settings | same operation JSON controls as browser | Planned (no Rhino algorithm fork) |
 | Tool library CRUD | panel -> Python -> `/cam/tools` | Planned |
@@ -22,7 +22,7 @@ counterpart and gives a dependency order.
 | Stock/result comparison | Not exposed in Rhino; simulation intentionally keeps stock static and displays only moving tool | Removed by design |
 | Post processing | backend post endpoint/download; Eto save dialog only for user-selected output target | Planned |
 | Operation/setup tree | TypeScript state projection from persisted Python document state | Implemented (add setup/operation, per-op generate/delete, selection) |
-| Operation editing | typed Add-Operation dialog (pocket/profile/parallel finishing) mapping 1:1 to API params | Implemented; schema-driven forms deferred |
+| Operation editing | typed Add-Operation dialog (pocket/profile/facing/parallel finishing) mapping 1:1 to API params | Implemented; schema-driven forms deferred |
 | Debug panel | WebView collapsible debug: backend URL editor, event log, state echo | Implemented |
 | Save/reopen | C# JSON archive bridge; operations, settings, selected operation, and compact toolpath preview | Implemented; interactive reopen check pending |
 | Undo/Redo / deleted sources | command-end reconciliation and stable GUID validation, never auto-regenerate | Planned |

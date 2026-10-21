@@ -57,14 +57,32 @@ def test_profiling_payload_maps_side():
     assert len(payload["driveGeometry"]) == 2  # profiling also accepts every loop
 
 
-def test_parallel_finishing_payload_uses_outer_loop_only():
-    payload = build_operation_payload(
+def test_surface_operation_payloads_map_facing_and_parallel_parameters():
+    facing_region = make_region()
+    facing_region.inner_loops = []
+    facing = build_operation_payload(
+        {
+            "id": "op-facing",
+            "name": "Face",
+            "type": "facing_2d",
+            "params": {"direction_degrees": 45, "edge_overtravel": 1.5},
+            "regions": [facing_region],
+        },
+        make_state(),
+    )
+    assert facing["cutParameters"]["cutDirection"] == "mixed"
+    assert facing["cutParameters"]["directionDegrees"] == 45.0
+    assert facing["cutParameters"]["edgeOvertravel"] == 1.5
+    assert facing["levels"]["driveGeometryPosition"] == "at_bottom"
+    assert len(facing["driveGeometry"]) == 1
+
+    parallel = build_operation_payload(
         {"id": "op-3", "name": "Finish", "type": "parallel_finishing", "params": {"direction_degrees": 45}, "regions": [make_region()] },
         make_state(),
     )
-    assert payload["cutParameters"]["directionDegrees"] == 45.0
-    assert payload["levels"]["driveGeometryPosition"] == "at_bottom"
-    loops = payload["driveGeometry"]
+    assert parallel["cutParameters"]["directionDegrees"] == 45.0
+    assert parallel["levels"]["driveGeometryPosition"] == "at_bottom"
+    loops = parallel["driveGeometry"]
     assert len(loops) == 1 and "z" not in loops[0]
 
 

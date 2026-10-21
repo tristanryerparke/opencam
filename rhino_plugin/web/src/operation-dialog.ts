@@ -17,6 +17,7 @@ const host = window as OperationHostWindow;
 const labels: Record<string, string> = {
   pocketing_2d: "2.5D Pocketing",
   profiling_2d: "2.5D Profiling",
+  facing_2d: "2.5D Facing",
   parallel_finishing: "Parallel Finishing",
 };
 const pages: { id: Page; label: string }[] = [
@@ -52,6 +53,7 @@ function defaults(type: string): Record<string, unknown> {
   };
   if (type === "pocketing_2d") return { ...common, clearing_strategy: "offset", keep_tool_down: true };
   if (type === "profiling_2d") return { ...common, side: "outside" };
+  if (type === "facing_2d") return { ...common, cut_direction: "mixed", direction_degrees: 0, edge_overtravel: 0 };
   return { ...common, direction_degrees: 0 };
 }
 
@@ -185,7 +187,10 @@ function pageContent(value: Draft) {
       field("Stepover %", paramInput("stepover_percent", params.stepover_percent ?? 40, "number")),
       field("Cut direction", paramSelect("cut_direction", params.cut_direction, [
         { value: "climb", label: "Climb" }, { value: "conventional", label: "Conventional" },
+        ...(value.type === "facing_2d" ? [{ value: "mixed", label: "Mixed" }] : []),
       ])),
+    );
+    if (value.type !== "facing_2d") content.append(
       field("Stock to leave", paramInput("stock_to_leave", params.stock_to_leave ?? 0, "number")),
     );
     if (value.type === "pocketing_2d") content.append(
@@ -197,6 +202,10 @@ function pageContent(value: Draft) {
     if (value.type === "profiling_2d") content.append(field("Side", paramSelect("side", params.side, [
       { value: "outside", label: "Outside" }, { value: "inside", label: "Inside" },
     ])));
+    if (value.type === "facing_2d") content.append(
+      field("Pass angle °", paramInput("direction_degrees", params.direction_degrees ?? 0, "number")),
+      field("Edge overtravel", paramInput("edge_overtravel", params.edge_overtravel ?? 0, "number")),
+    );
     if (value.type === "parallel_finishing") content.append(field("Slice direction °", paramInput("direction_degrees", params.direction_degrees ?? 0, "number")));
     return content;
   }

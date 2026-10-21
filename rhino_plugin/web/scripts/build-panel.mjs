@@ -7,6 +7,7 @@ const componentCss = await Bun.file(new URL("../../../t-components/dist/style.cs
 const operationIcons = Object.entries({
   pocketing_2d: "pocketing-1.svg",
   profiling_2d: "profiling-1.svg",
+  facing_2d: "pocketing-1.svg",
   parallel_finishing: "parallel_finishing.svg",
 });
 const operationIconTemplates = (await Promise.all(operationIcons.map(async ([type, file]) => {

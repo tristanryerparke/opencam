@@ -11,7 +11,7 @@
 - [x] Add facing schema with rectangular area, edge/corner overtravel, stepover, levels, climb/conventional/mixed direction, and a 0–180° pass angle.
 - [x] Add facing path generation with complete face coverage and safe linking/retract behavior.
 - [x] Wire facing into backend dispatch and operation UI.
-- [ ] Validate formatting, type checks, and maintained tests (13 focused tests pass; direct output checks pass at 0°, 45°, and 90° with two Z levels and one-way retracts; frontend blocked by pre-existing missing `t-components/button-group`).
+- [x] Validate formatting, type checks, and maintained tests (118 backend/Rhino tests pass; direct output checks pass at 0°, 45°, and 90° with two Z levels and one-way retracts; frontend and Rhino WebView production builds pass).
 
 - [x] Merge `test-parallel-finishing` into `main`.
 - [x] Switch working tree to `main` and verify status.
@@ -95,6 +95,15 @@ Combined C now uses two drive geometries in one OpenCAM operation and two select
 ### Keep-down link stock engagement
 
 Keep-down links now compare cutter sweeps with material removed by prior paths. Links entering uncut stock emit cutting motion role; already-cleared links retain linking role for a future rapid-only policy. Offset B regression uses 1/4-inch tool and B drive curve; adaptive regression verifies both roles. Maintained suite: 104 passed.
+
+## Facing branch integration
+
+- [x] Merge `origin/adding-facing` into `rhino-integration`.
+- [x] Resolve schema/frontend conflicts while preserving Rhino integration changes.
+- [x] Extend Rhino operation support for facing where required.
+- [x] Run backend, frontend, and Rhino integration checks.
+
+Merge commit `d46e433` brings configurable rectangular facing into the backend and browser UI. Rhino now creates/edits `facing_2d` operations, serializes rectangle geometry and all facing cut controls, and generates the payload successfully through the real FastAPI route. Maintained suite: 118 passed. Frontend and Rhino WebView builds pass; development plug-in rebuilt, installed, and reload dispatched. Rhino restart required to load the replaced C# assembly and show the facing dialog title.
 
 ## Live simulation speed control
 

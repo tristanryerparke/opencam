@@ -19,7 +19,7 @@ class GenerateToolpathRequest(CamelBaseModel):
     )
 
     @model_validator(mode="after")
-    def validate_setup(self) -> "GenerateToolpathRequest":
+    def validate_setup(self) -> GenerateToolpathRequest:
         if isinstance(self.operation, ParallelFinishingOp) and self.setup.part_mesh is None:
             raise ValueError("Parallel finishing requires a part mesh in the CAM setup.")
         return self

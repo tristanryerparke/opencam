@@ -6,7 +6,12 @@ payloads the panel will send to ``POST /cam/toolpath``.
 
 from __future__ import annotations
 
-OPERATION_TYPES = ("pocketing_2d", "profiling_2d", "parallel_finishing")
+OPERATION_TYPES = (
+    "pocketing_2d",
+    "profiling_2d",
+    "facing_2d",
+    "parallel_finishing",
+)
 WORLD_XY_TOLERANCE = 1e-6
 
 
@@ -39,6 +44,11 @@ def default_params(operation_type: str) -> dict:
     per_type = {
         "pocketing_2d": {"clearing_strategy": "offset", "keep_tool_down": True},
         "profiling_2d": {"side": "outside"},
+        "facing_2d": {
+            "cut_direction": "mixed",
+            "direction_degrees": 0.0,
+            "edge_overtravel": 0.0,
+        },
         "parallel_finishing": {"direction_degrees": 0.0},
     }
     if operation_type not in per_type:
@@ -100,6 +110,14 @@ def build_operation_payload(spec: dict, document_state) -> dict:
             "cutDirection": params["cut_direction"],
             "stockToLeave": float(params["stock_to_leave"]),
         }
+    elif operation_type == "facing_2d":
+        payload["driveGeometry"] = _facing_drive_geometry(regions)
+        payload["cutParameters"] = {
+            "cutDirection": params["cut_direction"],
+            "directionDegrees": float(params["direction_degrees"]),
+            "edgeOvertravel": float(params["edge_overtravel"]),
+            "stepover": _stepover(params),
+        }
     else:
         payload["driveGeometry"] = _drive_geometry_2d(regions)
         payload["cutParameters"] = {
@@ -158,6 +176,17 @@ def _drive_geometry_25d(values) -> list[dict]:
         for loop in [region["outer_loop"]] + list(region["inner_loops"]):
             geometry.append({"z": z, "vertices": [{"x": x, "y": y} for x, y, _z in loop]})
     return geometry
+
+
+def _facing_drive_geometry(values) -> list[dict]:
+    regions = _regions(values)
+    if len(regions) != 1 or regions[0]["inner_loops"]:
+        raise ValueError("Facing requires one rectangular region without inner loops.")
+    region = regions[0]
+    return [{
+        "z": float(region["plane"]["origin"][2]),
+        "vertices": [{"x": x, "y": y} for x, y, _z in region["outer_loop"]],
+    }]
 
 
 def _drive_geometry_2d(values) -> list[dict]:

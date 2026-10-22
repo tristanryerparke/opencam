@@ -17,7 +17,7 @@ namespace RhinoCodePlatform.Rhino3D.Projects.Plugin
     string m_result = "{\"action\":\"cancel\"}";
     bool m_pageLoaded;
 
-    static readonly Eto.Drawing.Size PickerSize = new Eto.Drawing.Size(560, 320);
+    static readonly Eto.Drawing.Size PickerSize = new Eto.Drawing.Size(560, 370);
     static readonly Eto.Drawing.Size EditorSize = new Eto.Drawing.Size(780, 440);
 
     OpenCamOperationDialog(string initialJson)
@@ -37,11 +37,15 @@ namespace RhinoCodePlatform.Rhino3D.Projects.Plugin
       m_view.Url = m_page.PageUrl;
     }
 
-    internal static string Show(string initialJson)
+    internal static string Show(uint documentSerialNumber, string initialJson)
     {
       using (var dialog = new OpenCamOperationDialog(initialJson))
       {
-        dialog.ShowModal(RhinoEtoApp.MainWindow);
+        var doc = Rhino.RhinoDoc.FromRuntimeSerialNumber(documentSerialNumber);
+        var owner = doc != null ? RhinoEtoApp.MainWindowForDocument(doc) : null;
+        if (owner == null)
+          owner = RhinoEtoApp.MainWindow;
+        dialog.ShowModal(owner);
         return dialog.m_result;
       }
     }

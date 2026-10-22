@@ -278,6 +278,7 @@ Operation context-menu state now clears through one shared dismissal path for pa
 - [x] Capture all panel pointer events so controls that stop bubbling also dismiss the menu.
 - [x] Stop full re-renders from clearing an open context menu.
 - [x] Make the operation picker window 100 px taller (220→320).
+- [x] Parent the operation dialog to the active document window so it no longer floats over other applications; add another 50 px picker height (320→370).
 
 Panel dismissal now listens during pointer-event capture and ignores only clicks inside the open menu. Setup toggles and other controls that stop event bubbling therefore close the menu before handling their own action. WebView build passed and development reload was dispatched.
 

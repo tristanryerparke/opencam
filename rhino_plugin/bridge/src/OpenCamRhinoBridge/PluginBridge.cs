@@ -25,7 +25,7 @@ namespace OpenCamRhinoBridge
       string initialJson)
     {
       return RhinoCodePlatform.Rhino3D.Projects.Plugin.OpenCamOperationDialog
-        .Show(initialJson);
+        .Show(documentSerialNumber, initialJson);
     }
 
     public static int ReloadPanel(uint documentSerialNumber)

@@ -17,7 +17,7 @@ namespace RhinoCodePlatform.Rhino3D.Projects.Plugin
     string m_result = "{\"action\":\"cancel\"}";
     bool m_pageLoaded;
 
-    static readonly Eto.Drawing.Size PickerSize = new Eto.Drawing.Size(560, 220);
+    static readonly Eto.Drawing.Size PickerSize = new Eto.Drawing.Size(560, 320);
     static readonly Eto.Drawing.Size EditorSize = new Eto.Drawing.Size(780, 440);
 
     OpenCamOperationDialog(string initialJson)

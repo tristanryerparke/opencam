@@ -292,3 +292,11 @@ Panel dismissal now listens during pointer-event capture and ignores only clicks
 - [x] Validate contracts end to end and rebuild the panel.
 
 `POST /simulate` now accepts `include_stock_data` (default true). When false, the backend skips the final-mesh export and the background comparison build but keeps `toolMeshUrl`, chunk cached meshes, active-cut frame meshes, and per-frame `toolPosition` exactly as the TypeScript frontend receives them; `finalMeshUrl` is returned empty. Rhino sessions track operation and generation hash so regeneration restarts matching simulation data and repeated Simulate reuses it. Playback strides source frames like the browser, runs at 30 ms, and each tick waits for the previous frame reply. Live smoke: stock-less request completed with 175 frames, empty `finalMeshUrl`, and fetchable tool/cached meshes. Maintained suite: 119 passed (new `include_stock_data=false` contract test); focused Ruff, compile, diff, and WebView builds pass. Development reload had no running RhinoCode pipe (Rhino closed); next Rhino start loads the new panel and actions.
+
+## Rhino document dirty flag
+
+- [x] Require successful plugin-data persistence before returning from `state.save`.
+- [x] Explicitly set `RhinoDoc.Modified` after every persisted OpenCAM state change.
+- [x] Validate Rhino plug-in tests and reload development Python source.
+
+Regeneration completion persists full CL, compact preview, and operation state, then explicitly marks its owning Rhino document modified. This forces Rhino's unsaved-edit indicator and normal save prompt even if its plugin-data write did not update visible dirty state. Rhino plug-in tests: 14 passed; compile/diff and focused Ruff pass; development reload dispatched.

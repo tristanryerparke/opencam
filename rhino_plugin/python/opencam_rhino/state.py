@@ -172,7 +172,10 @@ def invalidate_toolpaths(
 
 
 def save(doc, value: DocumentState) -> None:
-    _bridge().SetDocumentDataJson(
+    persisted = _bridge().SetDocumentDataJson(
         doc.RuntimeSerialNumber,
         json.dumps(value.to_dict(), separators=(",", ":"), sort_keys=True),
     )
+    if not persisted:
+        raise RuntimeError("OpenCAM could not persist document data.")
+    doc.Modified = True

@@ -136,17 +136,18 @@ function simulationControlsHtml() {
   const atEnd = current.frameIndex >= current.frameCount - 1;
   const label = ready ? `${current.frameIndex + 1} / ${current.frameCount}` : current.status;
   const strideIndex = SIMULATION_STRIDE_OPTIONS.indexOf(current.stride as typeof SIMULATION_STRIDE_OPTIONS[number]);
-  return `<div class="simulation-controls"><div class="simulation-timeline-row">
+  return `<div class="simulation-controls"><div class="simulation-transport-row">
 <button data-sim="skip-start" title="Skip to beginning" ${ready && !atStart ? "" : "disabled"}>|◀</button>
 <button data-sim="previous" title="Step back" ${ready && !atStart ? "" : "disabled"}>◀</button>
 <button data-sim="play" title="${current.playing ? "Pause" : "Play"}" ${ready && current.frameCount > 1 ? "" : "disabled"}>${current.playing ? "⏸" : "▶"}</button>
 <button data-sim="next" title="Step forward" ${ready && !atEnd ? "" : "disabled"}>▶</button>
 <button data-sim="skip-end" title="Skip to end" ${ready && !atEnd ? "" : "disabled"}>▶|</button>
-<input id="simulation-timeline" aria-label="Simulation timeline" type="range" min="0" max="${Math.max(current.frameCount - 1, 0)}" value="${current.frameIndex}" ${ready ? "" : "disabled"}>
 <input id="simulation-stride" aria-label="Simulation frame stride" title="Frame stride: ${current.stride}" type="range" min="0" max="${SIMULATION_STRIDE_OPTIONS.length - 1}" step="1" value="${Math.max(strideIndex, 0)}" ${ready ? "" : "disabled"}>
 <span class="simulation-progress meta">${label}</span>
 <button data-sim="exit" title="Exit simulation" aria-label="Exit simulation">✕</button>
-</div></div>`;
+</div>
+<input id="simulation-timeline" aria-label="Simulation timeline" type="range" min="0" max="${Math.max(current.frameCount - 1, 0)}" value="${current.frameIndex}" ${ready ? "" : "disabled"}>
+</div>`;
 }
 function updateRunningSimulationControls() {
   if (!simulation) return;
@@ -206,7 +207,6 @@ function render() {
   const visibility = state?.visibility ?? {};
   const setups = state?.setups ?? [];
   const treeState = state ?? { setups: [], visibility: {} };
-  contextMenu = undefined;
   root.innerHTML = simulation
     ? `<main class="simulation-page"><div class="simulation-header"><strong>Simulation</strong><span class="meta">${escapeHtml(simulation.status)}</span></div>${visibilityHtml(visibility)}${simulationControlsHtml()}</main>`
     : `<main>${visibilityHtml(visibility)}

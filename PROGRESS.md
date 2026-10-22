@@ -276,6 +276,7 @@ Default `.nc` export now treats generated CL as the immutable source of its tool
 Operation context-menu state now clears through one shared dismissal path for panel clicks and browser-window blur. Clicking a Rhino viewport, another panel, or another application removes the menu when the OpenCAM WebView loses focus. TypeScript/build passed and development reload was dispatched without restart.
 
 - [x] Capture all panel pointer events so controls that stop bubbling also dismiss the menu.
+- [x] Stop full re-renders from clearing an open context menu.
 
 Panel dismissal now listens during pointer-event capture and ignores only clicks inside the open menu. Setup toggles and other controls that stop event bubbling therefore close the menu before handling their own action. WebView build passed and development reload was dispatched.
 

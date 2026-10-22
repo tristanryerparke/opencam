@@ -442,12 +442,6 @@ def run(request_data, doc):
             if operation is None:
                 operation = state.cached_toolpath(document_state, selected_operation.id)
             _require(operation, "Generate this operation before post-processing.")
-            tool = operation.get("tool") if isinstance(operation, dict) else None
-            _require(
-                isinstance(tool, dict)
-                and selected_operation.params.get("tool_id") == tool.get("id"),
-                "Edit this operation, select a library tool, and regenerate before post-processing.",
-            )
             output_path = _choose_post_process_path(selected_operation.name)
             if output_path is None:
                 return panel_event(request, document_state, cancelled=True)

@@ -32,13 +32,10 @@ def post_process_duet3d(
 
 
 @router.post("/nc", response_class=PlainTextResponse)
-def post_process_duet3d_nc(
-    operations: list[OperationRecord3D],
-    tool_library: ToolLibrary = Depends(get_tool_library),
-):
+def post_process_duet3d_nc(operations: list[OperationRecord3D]):
     """Post-process stored cutter-location records into an `.nc` download."""
     try:
-        post_processor = Duet3DPostProcessor(build_default_duet3d_machine(), tool_library)
+        post_processor = Duet3DPostProcessor(build_default_duet3d_machine(), None)
         gcode = post_processor.post_process(operations)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc

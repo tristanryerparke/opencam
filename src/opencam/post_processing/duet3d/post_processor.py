@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import math
 from collections.abc import Sequence
 
 from opencam.post_processing.duet3d.models import Duet3DMachineDefinition
 from opencam.post_processing.gcode import GcodeCommand, GcodeMove, emit_gcode
-from opencam.schemas.cl_data import ArcPositionRecord3D, FeedRatePositionRecord3D, OperationRecord3D
+from opencam.schemas.cl_data import (
+    ArcPositionRecord3D,
+    FeedRatePositionRecord3D,
+    OperationRecord3D,
+)
 from opencam.schemas.tools import Tool
 from opencam.services.tool_library import ToolLibrary
 
@@ -15,7 +20,7 @@ class Duet3DPostProcessor:
     def __init__(
         self,
         machine: Duet3DMachineDefinition,
-        tool_library: ToolLibrary,
+        tool_library: ToolLibrary | None,
         *,
         coordinate_precision: int = 3,
         verbose_comments: bool = False,
@@ -85,6 +90,8 @@ class Duet3DPostProcessor:
             raise ValueError("Spindle maximum RPM must be greater than or equal to its minimum RPM.")
 
     def _resolve_tool(self, requested_tool: Tool) -> Tool:
+        if self.tool_library is None:
+            return requested_tool
         library_tool = self.tool_library.get_tool(requested_tool.id)
         if library_tool is None:
             raise ValueError(f"Tool {requested_tool.id!r} is not present in the tool library.")

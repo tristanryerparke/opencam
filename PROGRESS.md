@@ -256,4 +256,13 @@ Shapely returned the first boundary intersection opposite to subsequent lanes, s
 - [x] Expose Post Process in the Rhino operation context menu.
 - [x] Validate backend/Rhino checks, build WebView, and reload development plug-in.
 
-Generated operation context menus now expose **Post Process** when CL data exists. Rhino confirms an output path through `Eto.Forms.SaveFileDialog`, posts the selected CL record to `/cam/post-process/duet3d/nc`, and writes returned bytes only after confirmation. Operation generation now retains backend tool-library IDs, required by Duet tool validation; newly opened editors select the existing matching tool or the first library tool. Live end-to-end smoke check emitted valid Duet G-code, 118 maintained tests pass, WebView build and focused checks pass, and development reload was dispatched. No Rhino restart required.
+Generated operation context menus now expose **Post Process** when CL data exists. Rhino confirms an output path through `Eto.Forms.SaveFileDialog`, posts the selected CL record to `/cam/post-process/duet3d/nc`, and writes returned bytes only after confirmation. Operation generation now retains backend tool-library IDs for strict configurable post requests; newly opened editors select the existing matching tool or the first library tool. Live end-to-end smoke check emitted valid Duet G-code, 118 maintained tests pass, WebView build and focused checks pass, and development reload was dispatched. No Rhino restart required.
+
+## Stored-CL Duet tool resolution
+
+- [x] Make default `.nc` export trust the tool snapshot embedded in generated CL data.
+- [x] Keep strict current-library validation for configurable Duet post requests.
+- [x] Remove Rhino-side current-library identity gate.
+- [x] Reproduce the reported missing-tool export and validate maintained checks.
+
+Default `.nc` export now treats generated CL as the immutable source of its tool snapshot instead of requiring that tool to remain in the mutable current library. The configurable Duet endpoint still resolves and validates tools against the current library. The exact failed toolpath (`26148ed5-…`, tool `01c71da6-…`) now emits 6,880 bytes of Duet G-code from 255 records. Maintained suite: 118 passed; focused Ruff, compile, and diff checks pass. Backend auto-reloaded; Rhino source reload found no running RhinoCode pipe, so the next OpenCAM load will import the action update.

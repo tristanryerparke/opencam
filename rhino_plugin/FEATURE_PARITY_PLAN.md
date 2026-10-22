@@ -20,7 +20,7 @@ counterpart and gives a dependency order.
 | Simulation start/status/frame | Python adapter to current `/simulate/*` routes; loads frame positions and tool mesh only | Implemented; interactive viewport check pending |
 | Simulation playback | WebView transport (⏮◀/play▶), timeline scrubber, speed 0.25–4×; conduit moves only tool mesh | Implemented; interactive check pending |
 | Stock/result comparison | Not exposed in Rhino; simulation intentionally keeps stock static and displays only moving tool | Removed by design |
-| Post processing | backend post endpoint/download; Eto save dialog only for user-selected output target | Planned |
+| Post processing | selected operation CL -> default Duet 3D backend post -> native Eto `.nc` save dialog | Implemented |
 | Operation/setup tree | TypeScript state projection from persisted Python document state | Implemented (add setup/operation, per-op generate/delete, selection) |
 | Operation editing | typed Add-Operation dialog (pocket/profile/facing/parallel finishing) mapping 1:1 to API params | Implemented; schema-driven forms deferred |
 | Debug panel | WebView collapsible debug: backend URL editor, event log, state echo | Implemented |

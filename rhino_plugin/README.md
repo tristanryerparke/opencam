@@ -35,6 +35,9 @@ mutation.
   thread. Operation payload remains panel-owned and retained in document data.
 - **Simulate**: submit backend jobs, poll status, and move the shaded tool mesh
   through document-isolated frame positions while keeping stock display static.
+- **Post Process**: send the selected operation's generated CL records to the
+  default Duet 3D backend post and save returned `.nc` bytes through a native
+  Eto save dialog.
 
 ## Persistence model
 

@@ -27,6 +27,23 @@ def _uuid() -> str:
     return str(uuid.uuid4())
 
 
+def _choose_post_process_path(operation_name: str) -> str | None:
+    import re
+
+    import Eto.Forms as forms
+    import Rhino
+
+    stem = re.sub(r'[\\/:*?"<>|]+', "-", operation_name.strip())
+    stem = "-".join(stem.split()) or "operation"
+    dialog = forms.SaveFileDialog()
+    dialog.Title = "Save Duet 3D G-code"
+    dialog.FileName = f"{stem}.nc"
+    dialog.Filters.Add(forms.FileFilter("NC files", ".nc"))
+    if dialog.ShowDialog(Rhino.UI.RhinoEtoApp.MainWindow) != forms.DialogResult.Ok:
+        return None
+    return str(dialog.FileName) if dialog.FileName else None
+
+
 def _target_operation(document_state: DocumentState, request: PanelRequest):
     operation_id = request.payload.get("operation_id") or document_state.selected_operation_id
     if operation_id:
@@ -419,8 +436,36 @@ def run(request_data, doc):
             document_state.results.pop("frame_count", None)
             state.save(doc, document_state)
         elif action == "post_process":
-            raise NotImplementedError(
-                "post_process is intentionally disabled until its download flow is verified."
+            _, selected_operation = _target_operation(document_state, request)
+            _require(selected_operation, "Select an operation before post-processing.")
+            operation = runtime.last_toolpath(doc, selected_operation.id)
+            if operation is None:
+                operation = state.cached_toolpath(document_state, selected_operation.id)
+            _require(operation, "Generate this operation before post-processing.")
+            tool = operation.get("tool") if isinstance(operation, dict) else None
+            _require(
+                isinstance(tool, dict)
+                and selected_operation.params.get("tool_id") == tool.get("id"),
+                "Edit this operation, select a library tool, and regenerate before post-processing.",
+            )
+            output_path = _choose_post_process_path(selected_operation.name)
+            if output_path is None:
+                return panel_event(request, document_state, cancelled=True)
+            nc_bytes = backend.post_json_bytes(
+                document_state.backend_url,
+                "/cam/post-process/duet3d/nc",
+                [operation],
+            )
+            with open(output_path, "wb") as output_file:
+                output_file.write(nc_bytes)
+            import Rhino
+
+            Rhino.RhinoApp.WriteLine(f"OpenCAM wrote Duet 3D NC: {output_path}")
+            return panel_event(
+                request,
+                document_state,
+                ok=True,
+                output_path=output_path,
             )
         else:
             raise ValueError("Unknown OpenCAM Rhino action: {}".format(action))

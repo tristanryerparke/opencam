@@ -2,7 +2,7 @@
 import { contextMenu as createContextMenu } from "t-components/dom";
 
 (() => {
-type Action = "get_state" | "select_part" | "open_operation_dialog" | "generate_operation" | "generate_status" | "delete_operation" | "select_operation" | "set_visibility" | "simulate" | "simulate_status" | "show_frame";
+type Action = "get_state" | "select_part" | "open_operation_dialog" | "generate_operation" | "generate_status" | "delete_operation" | "select_operation" | "set_visibility" | "simulate" | "simulate_status" | "show_frame" | "post_process";
 type OperationSpec = { id: string; name: string; type: string };
 type SetupSpec = { id: string; name: string; operations: OperationSpec[] };
 type PanelEvent = {
@@ -220,10 +220,11 @@ function renderOverlay() {
   const summaries = latest?.state.results?.toolpath_summaries as Record<string, unknown> | undefined;
   const generated = Boolean(summaries?.[value.operationId]);
   const busy = generation !== undefined;
-  const select = (action: "edit" | "simulate" | "regenerate" | "delete") => () => {
+  const select = (action: "edit" | "simulate" | "post_process" | "regenerate" | "delete") => () => {
     contextMenu = undefined;
     if (action === "edit") send("open_operation_dialog", { operation_id: value.operationId });
     else if (action === "simulate") startSimulation(value.operationId);
+    else if (action === "post_process") send("post_process", { operation_id: value.operationId });
     else if (action === "regenerate") startRegeneration(value.operationId);
     else send("delete_operation", { operation_id: value.operationId });
     renderOverlay();
@@ -233,6 +234,7 @@ function renderOverlay() {
     y: value.y,
     items: [
       { label: "Simulate", disabled: !generated || busy, onSelect: select("simulate") },
+      { label: "Post Process", disabled: !generated || busy, onSelect: select("post_process") },
       { label: "Edit operation", disabled: busy, onSelect: select("edit") },
       { label: "Regenerate", disabled: busy, onSelect: select("regenerate") },
       { label: "Delete operation", disabled: busy, destructive: true, onSelect: select("delete") },

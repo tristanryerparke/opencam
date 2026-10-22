@@ -247,3 +247,13 @@ Schema v5 stores generation-hashed preview segments, not full CL records. Open/s
 - [x] Run maintained tests and reload the development plug-in if required.
 
 Shapely returned the first boundary intersection opposite to subsequent lanes, so index-based alternation produced a 106.027 mm diagonal crossover. Lane generation also appended a 0.4 mm final remainder after 2.4 mm steps and placed exact tangent lanes on the buffered boundary. Facing now canonicalizes local lane endpoints and centers evenly distributed lanes within the coverage span. The reported run regenerates as 45 lanes at uniform 2.355556 mm spacing with short same-side links. Maintained suite: 118 passed; focused Ruff, compile, diff, 0°/45°/90° geometry checks, and the live auto-reloaded backend route pass. No Rhino plug-in reload required for this backend-only change.
+
+## Rhino Duet 3D post-processing
+
+- [x] Inspect backend post contract and Rhino save-dialog conventions.
+- [x] Enable selected-operation post processing through the Duet 3D backend route.
+- [x] Show a native save dialog and write returned `.nc` bytes only after user confirmation.
+- [x] Expose Post Process in the Rhino operation context menu.
+- [x] Validate backend/Rhino checks, build WebView, and reload development plug-in.
+
+Generated operation context menus now expose **Post Process** when CL data exists. Rhino confirms an output path through `Eto.Forms.SaveFileDialog`, posts the selected CL record to `/cam/post-process/duet3d/nc`, and writes returned bytes only after confirmation. Operation generation now retains backend tool-library IDs, required by Duet tool validation; newly opened editors select the existing matching tool or the first library tool. Live end-to-end smoke check emitted valid Duet G-code, 118 maintained tests pass, WebView build and focused checks pass, and development reload was dispatched. No Rhino restart required.

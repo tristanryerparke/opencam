@@ -26,6 +26,28 @@ def request_json(base_url: str, method: str, path: str, payload: dict | None = N
         raise RuntimeError("OpenCAM backend unavailable: {}".format(error.reason)) from error
 
 
+def post_json_bytes(
+    base_url: str,
+    path: str,
+    payload,
+    timeout: float = 120.0,
+) -> bytes:
+    request = Request(
+        base_url.rstrip("/") + path,
+        data=json.dumps(payload).encode("utf-8"),
+        method="POST",
+        headers={"Accept": "text/plain", "Content-Type": "application/json"},
+    )
+    try:
+        with urlopen(request, timeout=timeout) as response:  # noqa: S310 - local user-configured backend
+            return response.read()
+    except HTTPError as error:
+        detail = error.read().decode("utf-8", errors="replace")
+        raise RuntimeError("OpenCAM backend {}: {}".format(error.code, detail)) from error
+    except URLError as error:
+        raise RuntimeError("OpenCAM backend unavailable: {}".format(error.reason)) from error
+
+
 def request_bytes(base_url: str, path: str, timeout: float = 300.0) -> bytes:
     request = Request(
         base_url.rstrip("/") + path,

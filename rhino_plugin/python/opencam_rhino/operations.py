@@ -91,6 +91,8 @@ def build_operation_payload(spec: dict, document_state) -> dict:
             "chordalTolerance": float(params["chordal_tolerance"]),
         },
     }
+    if params.get("tool_id"):
+        payload["tool"]["id"] = str(params["tool_id"])
     regions = spec.get("regions")
     if regions is None:
         regions = [spec["region"]] if spec.get("region") is not None else []

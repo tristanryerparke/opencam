@@ -57,6 +57,19 @@ function defaults(type: string): Record<string, unknown> {
   return { ...common, direction_degrees: 0 };
 }
 
+function applyTool(tool: Tool) {
+  if (!draft) return;
+  Object.assign(draft.params, {
+    tool_id: tool.id,
+    tool_name: tool.name,
+    tool_number: tool.toolNumber,
+    tool_diameter: tool.diameter,
+    cutting_height: tool.cuttingHeight,
+    shoulder_height: tool.shoulderHeight,
+    num_flutes: tool.numFlutes,
+  });
+}
+
 async function loadTools() {
   if (!backendUrl) return;
   toolsLoading = true;
@@ -64,6 +77,12 @@ async function loadTools() {
   try {
     const response = await fetch(`${backendUrl.replace(/\/$/, "")}/cam/tools`);
     tools = response.ok ? await response.json() as Tool[] : [];
+    if (draft && tools.length > 0) {
+      const selectedTool = tools.find((tool) => tool.id === draft?.params.tool_id)
+        ?? tools.find((tool) => tool.name === draft?.params.tool_name && tool.toolNumber === draft?.params.tool_number)
+        ?? tools[0];
+      applyTool(selectedTool);
+    }
   } catch {
     tools = [];
   } finally {
@@ -224,16 +243,8 @@ function pageContent(value: Draft) {
     picker.disabled = toolsLoading || tools.length === 0;
     picker.addEventListener("change", () => {
       const tool = tools.find((candidate) => candidate.id === picker.value);
-      if (!draft || !tool) return;
-      Object.assign(draft.params, {
-        tool_id: tool.id,
-        tool_name: tool.name,
-        tool_number: tool.toolNumber,
-        tool_diameter: tool.diameter,
-        cutting_height: tool.cuttingHeight,
-        shoulder_height: tool.shoulderHeight,
-        num_flutes: tool.numFlutes,
-      });
+      if (!tool) return;
+      applyTool(tool);
       render();
     });
     content.append(field("Tool", picker));

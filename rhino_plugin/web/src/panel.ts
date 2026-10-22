@@ -208,13 +208,18 @@ ${simulationControlsHtml()}
       renderOverlay();
     };
   });
-  root.onclick = closeContextMenu;
   renderOverlay();
 }
 function closeContextMenu() {
   if (!contextMenu) return;
   contextMenu = undefined;
   renderOverlay();
+}
+function dismissContextMenuOnPanelPointer(event: PointerEvent) {
+  if (!contextMenu) return;
+  const target = event.target;
+  if (target instanceof Element && target.closest("[data-slot='context-menu-content']")) return;
+  closeContextMenu();
 }
 function renderOverlay() {
   root.querySelector("[data-slot='context-menu-content']")?.remove();
@@ -309,6 +314,7 @@ function applyTheme(theme: Theme) {
 }
 host.opencamRhino = { receive, theme: applyTheme };
 host.chrome?.webview?.addEventListener("message", (event) => receive(event.data));
+document.addEventListener("pointerdown", dismissContextMenuOnPanelPointer, true);
 window.addEventListener("blur", closeContextMenu);
 render();
 send("get_state");

@@ -44,6 +44,14 @@ namespace RhinoCodePlatform.Rhino3D.Projects.Plugin
       m_view.Url = m_page.ReloadUrl();
     }
 
+    internal bool PostMessage(string responseJson)
+    {
+      if (m_pageReleased || !m_pageLoaded)
+        return false;
+      Post(responseJson);
+      return true;
+    }
+
     public void PanelShown(uint documentSerialNumber, ShowPanelReason reason)
     {
       ApplyTheme();
@@ -110,7 +118,7 @@ namespace RhinoCodePlatform.Rhino3D.Projects.Plugin
         var response = PanelMessageBridge.Dispatch(
           m_documentSerialNumber,
           eventArgs.Message);
-        Post(response);
+        PostMessage(response);
       });
     }
 

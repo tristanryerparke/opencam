@@ -48,14 +48,12 @@ def reload_development():
     importlib.invalidate_caches()
     from opencam_rhino import object_tracking, runtime, state
 
-    object_tracking.subscribe()
-
     panels = 0
     restored = 0
     for document in Rhino.RhinoDoc.OpenDocuments(False):
         document_state = state.load(document)
         runtime.restore_document(document, document_state)
-        object_tracking.rebuild(document, document_state)
+        object_tracking.rebuild(document, document_state, scan_metadata=True)
         document.Views.Redraw()
         restored += 1
         panels += PluginBridge.ReloadPanel(document.RuntimeSerialNumber)

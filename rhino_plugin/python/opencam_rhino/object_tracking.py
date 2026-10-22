@@ -8,6 +8,9 @@ import uuid
 METADATA_KEY = "OpenCAM.OperationRefs"
 TRACKING_KEY = "OpenCAM.Rhino.SourceObjectTracking"
 HANDLERS_KEY = "OpenCAM.Rhino.SourceObjectHandlers"
+RECENT_OBJECT_MAX_AGE = 200
+
+_reconciling = False
 
 
 def _sticky():
@@ -80,21 +83,117 @@ def _documents(create=True) -> dict:
     return documents if documents is not None else {}
 
 
-def rebuild(doc, document_state) -> None:
-    """Rebuild transient tracking from GUIDs persisted on CAM operations."""
-    records = {}
-    for key, association in _associations(document_state).items():
-        obj = _find_object(doc, association["object_id"])
-        records[key] = {
-            "object_id": association["object_id"],
-            "operation_ids": set(association["operation_ids"]),
-            "runtime_serial": _object_serial(obj),
+def _document_tracking(doc, create=True) -> dict:
+    documents = _documents(create)
+    serial = int(doc.RuntimeSerialNumber)
+    tracking = documents.get(serial)
+    if tracking is None:
+        if not create:
+            return {"records": {}, "recent": {}}
+        tracking = {"records": {}, "recent": {}}
+        documents[serial] = tracking
+    elif "records" not in tracking:
+        tracking = {"records": tracking, "recent": {}}
+        documents[serial] = tracking
+    return tracking
+
+
+def _has_metadata(obj) -> bool:
+    return bool(
+        obj is not None
+        and obj.Attributes.UserDictionary.ContainsKey(METADATA_KEY)
+    )
+
+
+def _metadata_operation_ids(obj) -> set[str]:
+    if not _has_metadata(obj):
+        return set()
+    try:
+        payload = json.loads(str(obj.Attributes.UserDictionary[METADATA_KEY]))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return set()
+    values = payload.get("operation_ids", []) if isinstance(payload, dict) else payload
+    if not isinstance(values, list):
+        return set()
+    return {str(value) for value in values if value}
+
+
+def _metadata_associations(objects, existing_operation_ids) -> dict[str, dict]:
+    associations = {}
+    for obj in objects:
+        if obj is None or obj.IsDeleted or not _has_metadata(obj):
+            continue
+        operation_ids = _metadata_operation_ids(obj) & existing_operation_ids
+        if not operation_ids:
+            continue
+        associations[_object_key(obj.Id)] = {
+            "object_id": str(obj.Id),
+            "operation_ids": operation_ids,
         }
-    _documents()[int(doc.RuntimeSerialNumber)] = records
+    return associations
+
+
+def _new_record(doc, association, *, metadata_present=None) -> dict:
+    obj = _find_object(doc, association["object_id"])
+    if metadata_present is None:
+        metadata_present = _has_metadata(obj)
+    return {
+        "object_id": association["object_id"],
+        "operation_ids": set(association["operation_ids"]),
+        "runtime_serial": _object_serial(obj),
+        "metadata_required": bool(metadata_present),
+    }
+
+
+def rebuild(doc, document_state, *, scan_metadata=False) -> None:
+    """Rebuild transient tracking from operation GUIDs and saved object refs."""
+    associations = _associations(document_state)
+    existing_operation_ids = {
+        operation.id for _, operation in document_state.all_operations()
+    }
+    if scan_metadata:
+        for key, saved in _metadata_associations(
+            doc.Objects,
+            existing_operation_ids,
+        ).items():
+            association = associations.setdefault(
+                key,
+                {"object_id": saved["object_id"], "operation_ids": set()},
+            )
+            association["operation_ids"].update(saved["operation_ids"])
+
+    tracking = _document_tracking(doc)
+    old_records = tracking["records"]
+    recent = tracking["recent"]
+    records = {}
+    for key, association in associations.items():
+        obj = _find_object(doc, association["object_id"])
+        metadata_present = _has_metadata(obj)
+        records[key] = _new_record(
+            doc,
+            association,
+            metadata_present=metadata_present,
+        )
+        recent.pop(key, None)
+    for key, record in old_records.items():
+        if key not in records:
+            recent[key] = {**record, "age": 0}
+    tracking["records"] = records
+    if records or recent:
+        subscribe()
 
 
 def forget_document(document_serial_number) -> None:
     _documents(create=False).pop(int(document_serial_number), None)
+    if not _has_tracked_objects():
+        unsubscribe()
+
+
+def _has_tracked_objects() -> bool:
+    return any(
+        tracking.get("records") or tracking.get("recent")
+        for tracking in _documents(create=False).values()
+    )
 
 
 def source_serials(doc, operation) -> dict[str, int | None]:
@@ -105,27 +204,13 @@ def source_serials(doc, operation) -> dict[str, int | None]:
 
 
 def sources_changed(doc, serials: dict[str, int | None]) -> bool:
-    records = _documents(create=False).get(int(doc.RuntimeSerialNumber), {})
+    records = _document_tracking(doc, create=False)["records"]
     for key, original_serial in serials.items():
         record = records.get(key)
         object_id = record["object_id"] if record is not None else key
         if _object_serial(_find_object(doc, object_id)) != original_serial:
             return True
     return False
-
-
-def _metadata_operation_ids(obj) -> set[str]:
-    dictionary = obj.Attributes.UserDictionary
-    if not dictionary.ContainsKey(METADATA_KEY):
-        return set()
-    try:
-        payload = json.loads(str(dictionary[METADATA_KEY]))
-    except (TypeError, ValueError, json.JSONDecodeError):
-        return set()
-    values = payload.get("operation_ids", []) if isinstance(payload, dict) else payload
-    if not isinstance(values, list):
-        return set()
-    return {str(value) for value in values if value}
 
 
 def sync_metadata(
@@ -158,7 +243,7 @@ def sync_metadata(
                     missing.append(object_id)
                 continue
             existing = _metadata_operation_ids(obj)
-            has_metadata = obj.Attributes.UserDictionary.ContainsKey(METADATA_KEY)
+            has_metadata = _has_metadata(obj)
             if (
                 existing == desired
                 and not (force and desired)
@@ -206,45 +291,147 @@ def _command_name(event) -> str:
     )
 
 
+def _reconcile(doc, document_state) -> set[str]:
+    tracking = _document_tracking(doc, create=False)
+    records = tracking["records"]
+    recent = tracking["recent"]
+    existing_operation_ids = {
+        operation.id for _, operation in document_state.all_operations()
+    }
+    affected = set()
+
+    for key, record in list(records.items()):
+        obj = _find_object(doc, record["object_id"])
+        current_serial = _object_serial(obj)
+        old_operation_ids = set(record["operation_ids"]) & existing_operation_ids
+        if current_serial != record["runtime_serial"]:
+            affected.update(old_operation_ids)
+        if obj is None:
+            records.pop(key, None)
+            recent[key] = {
+                **record,
+                "runtime_serial": current_serial,
+                "age": 0,
+            }
+            continue
+
+        has_metadata = _has_metadata(obj)
+        saved_operation_ids = _metadata_operation_ids(obj) & existing_operation_ids
+        if has_metadata:
+            if saved_operation_ids != old_operation_ids:
+                affected.update(old_operation_ids | saved_operation_ids)
+            if not saved_operation_ids:
+                records.pop(key, None)
+                recent[key] = {
+                    **record,
+                    "runtime_serial": current_serial,
+                    "age": 0,
+                }
+                continue
+            record["operation_ids"] = saved_operation_ids
+            record["metadata_required"] = True
+        elif record["metadata_required"]:
+            affected.update(old_operation_ids)
+            records.pop(key, None)
+            recent[key] = {
+                **record,
+                "runtime_serial": current_serial,
+                "age": 0,
+            }
+            continue
+        record["runtime_serial"] = current_serial
+
+    for key, record in list(recent.items()):
+        obj = _find_object(doc, record["object_id"])
+        if obj is None:
+            continue
+        saved_operation_ids = _metadata_operation_ids(obj) & existing_operation_ids
+        if _has_metadata(obj):
+            if not saved_operation_ids:
+                continue
+            operation_ids = saved_operation_ids
+        elif not record["metadata_required"]:
+            operation_ids = set(record["operation_ids"]) & existing_operation_ids
+            if not operation_ids:
+                continue
+        else:
+            continue
+        affected.update(operation_ids)
+        records[key] = {
+            "object_id": str(obj.Id),
+            "operation_ids": operation_ids,
+            "runtime_serial": _object_serial(obj),
+            "metadata_required": _has_metadata(obj),
+        }
+        recent.pop(key, None)
+
+    for key, record in list(recent.items()):
+        age = int(record.get("age", 0)) + 1
+        if age >= RECENT_OBJECT_MAX_AGE:
+            recent.pop(key, None)
+        else:
+            record["age"] = age
+    return affected
+
+
+def _push_panel_state(doc, document_state, *, simulation_cancelled=False) -> int:
+    from OpenCamRhinoBridge import PluginBridge
+
+    from .contracts import PanelRequest, panel_event
+
+    message = panel_event(
+        PanelRequest(action="get_state", request_id="command-end"),
+        document_state,
+        ok=True,
+        **({"simulation_status": "cancelled"} if simulation_cancelled else {}),
+    )
+    encoded = json.dumps(message, separators=(",", ":"), sort_keys=True)
+    post = getattr(PluginBridge, "PostPanelMessage", None)
+    if post is None:
+        return int(PluginBridge.ReloadPanel(doc.RuntimeSerialNumber))
+    return int(post(doc.RuntimeSerialNumber, encoded))
+
+
 def end_command_handler(sender, event) -> None:
+    global _reconciling
+    if _reconciling:
+        return
+
     import Rhino
 
     doc = Rhino.RhinoDoc.ActiveDoc
     if doc is None:
         return
-    records = _documents(create=False).get(int(doc.RuntimeSerialNumber), {})
-    changed_operation_ids = set()
-    for record in records.values():
-        obj = _find_object(doc, record["object_id"])
-        current_serial = _object_serial(obj)
-        if current_serial != record["runtime_serial"]:
-            changed_operation_ids.update(record["operation_ids"])
-            record["runtime_serial"] = current_serial
-    if not changed_operation_ids:
-        return
 
     from . import actions, state
 
     document_state = state.load(doc)
-    existing_ids = {
-        operation.id for _, operation in document_state.all_operations()
-    }
-    affected = sorted(changed_operation_ids & existing_ids)
-    if not affected:
-        rebuild(doc, document_state)
-        return
-    for operation_id in affected:
-        actions.invalidate_operation_artifacts(document_state, doc, operation_id)
-    state.mark_operations_invalid(document_state, affected)
-    state.save(doc, document_state)
-    rebuild(doc, document_state)
-    Rhino.RhinoApp.WriteLine(
-        f"OpenCAM invalidated {len(affected)} operation(s) after "
-        f"{_command_name(event)} changed source geometry."
-    )
-    from OpenCamRhinoBridge import PluginBridge
+    _reconciling = True
+    try:
+        affected = sorted(_reconcile(doc, document_state))
+        if affected:
+            for operation_id in affected:
+                actions.invalidate_operation_artifacts(
+                    document_state,
+                    doc,
+                    operation_id,
+                )
+            state.mark_operations_invalid(document_state, affected)
+            state.save(doc, document_state)
+            Rhino.RhinoApp.WriteLine(
+                f"OpenCAM invalidated {len(affected)} operation(s) after "
+                f"{_command_name(event)} changed source geometry."
+            )
+        _push_panel_state(
+            doc,
+            document_state,
+            simulation_cancelled=bool(affected),
+        )
+    finally:
+        _reconciling = False
 
-    PluginBridge.ReloadPanel(doc.RuntimeSerialNumber)
+    if not _has_tracked_objects():
+        unsubscribe()
     doc.Views.Redraw()
 
 

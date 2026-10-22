@@ -309,6 +309,19 @@ Regeneration completion persists full CL, compact preview, and operation state, 
 - [x] Invalidate affected toolpaths and simulations after changed/deleted geometry at `EndCommand`.
 - [x] Show invalid operations with a red status dot until successful regeneration.
 - [x] Validate pure checks and build/reload development plug-in.
-- [ ] Run a focused Rhino interaction test for metadata, native dirty state, invalidation, and regeneration.
+- [x] Run a focused Rhino interaction test for metadata, native dirty state, invalidation, and regeneration.
 
-Schema v7 stores canonical part/drive-object GUIDs on each operation. Associated Rhino objects store `OpenCAM.OperationRefs` JSON in `Attributes.UserDictionary`; each successful generation writes a fresh metadata revision through `RhinoDoc.Objects.ModifyAttributes` inside one undo record, producing a real object-table edit on macOS. Runtime tracking is rebuilt from operation GUIDs without scanning the document. `EndCommand` compares object runtime serials, invalidates affected CL/previews/simulation, and reloads the panel with a red status dot until generation succeeds. Pure metadata lifecycle smoke checks, 14 Rhino plug-in tests, 119 maintained tests, compile, focused Ruff, diff check, and WebView build pass. Development source/panel reload dispatched; focused Rhino interaction test still requires approval.
+Schema v7 stores canonical part/drive-object GUIDs on each operation. Associated Rhino objects store `OpenCAM.OperationRefs` JSON in `Attributes.UserDictionary`; each successful generation writes a fresh metadata revision through `RhinoDoc.Objects.ModifyAttributes` inside one undo record, producing a real object-table edit on macOS. Runtime tracking is rebuilt from operation GUIDs without scanning the document. `EndCommand` compares object runtime serials, invalidates affected CL/previews/simulation, and reloads the panel with a red status dot until generation succeeds. Pure metadata lifecycle smoke checks, 14 Rhino plug-in tests, 119 maintained tests, compile, focused Ruff, diff check, and WebView build pass. Development source/panel reload dispatched.
+
+Focused Rhino interaction tests on `CAM_Demos_duplicate2.3dm` (two operations, saved clean): baseline read confirmed bidirectional metadata on part and both drive objects with the `EndCommand` handler subscribed; a scripted 0.01 mm move of one tracked curve invalidated exactly the owning operation and dropped its CL/preview/summary; a scripted metadata-only regeneration write preserved operation IDs, changed the revision, and produced the native macOS unsaved-document indicator (`RhinoDoc.Modified` stays false, as McNeel documents); a move-out/move-back/regeneration cycle kept the red-dot invalid state until generation completed, then restored toolpath/preview/summary, changed the metadata revision, and preserved source IDs. Geometry and OpenCAM plugin data were restored between tests; the final regenerated state is equivalent to the saved baseline.
+
+### Tack-style command reconciliation and panel refresh
+
+- [x] Reconcile operation references from tracked/recent object metadata after every `EndCommand`.
+- [x] Retain recently associated object GUIDs for native Undo/Redo recovery.
+- [x] Push fresh panel state directly to open WebViews instead of reloading pages.
+- [x] Validate pure checks and WebView/C# builds.
+- [x] Rebuild/install development plug-in and report restart requirement.
+- [ ] Run focused Rhino interaction test after approval and restart.
+
+OpenCAM now follows Tack's lifecycle shape: document restore scans object metadata once, active and recently associated objects are reconciled after every `EndCommand`, runtime serial changes invalidate owning operations, and recently removed objects remain observable for 200 commands so native Undo/Redo can restore tracking. Open WebViews receive fresh state directly through `PluginBridge.PostPanelMessage`; no page reload is needed to render invalid-operation dots. Tack-style metadata removal/restoration and serial-change smoke checks pass, along with 119 maintained tests, focused Ruff, compile, diff check, WebView build, and a clean C# build/install. Rhino restart required to load the replaced bridge assembly before interaction testing.

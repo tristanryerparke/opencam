@@ -13,7 +13,7 @@ def _restore_document(document_serial_number):
         return False
     document_state = state.load(doc)
     runtime.restore_document(doc, document_state)
-    object_tracking.rebuild(doc, document_state)
+    object_tracking.rebuild(doc, document_state, scan_metadata=True)
     return True
 
 
@@ -21,7 +21,6 @@ def startup():
     """Restore documents that were already open when the plug-in loaded."""
     import Rhino
 
-    object_tracking.subscribe()
     for doc in Rhino.RhinoDoc.OpenDocuments(False):
         _restore_document(doc.RuntimeSerialNumber)
 

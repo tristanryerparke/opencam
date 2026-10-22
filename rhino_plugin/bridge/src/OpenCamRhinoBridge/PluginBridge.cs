@@ -44,6 +44,22 @@ namespace OpenCamRhinoBridge
       }
       return reloaded;
     }
+
+    public static int PostPanelMessage(uint documentSerialNumber, string json)
+    {
+      var panels = Rhino.UI.Panels.GetPanels(
+        RhinoCodePlatform.Rhino3D.Projects.Plugin.OpenCamWebPanel.PanelId,
+        documentSerialNumber);
+      var posted = 0;
+      foreach (var panel in panels)
+      {
+        var openCamPanel = panel as
+          RhinoCodePlatform.Rhino3D.Projects.Plugin.OpenCamWebPanel;
+        if (openCamPanel != null && openCamPanel.PostMessage(json))
+          posted += 1;
+      }
+      return posted;
+    }
   }
 
   /// <summary>Explicit synchronous return channel from Rhino CPython to C#.</summary>

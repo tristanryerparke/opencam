@@ -61,8 +61,14 @@ select, input[type="text"], input[type="number"] { background: var(--field); col
 .context-menu button { text-align: left; border: 0; background: transparent; }
 .context-menu button.danger { color: var(--error); }
 .context-menu hr { width: 100%; border: 0; border-top: 1px solid var(--border); }
-.simulation-controls { display: flex; flex-direction: column; gap: 6px; padding: 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); }
-.simulation-controls input[type="range"] { flex: 1; min-width: 90px; }
+.simulation-page { min-width: 0; }
+.simulation-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.simulation-controls { min-width: 0; padding: 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); overflow-x: auto; }
+.simulation-timeline-row { display: flex; min-width: 560px; align-items: center; gap: 4px; flex-wrap: nowrap; }
+.simulation-timeline-row button { width: 28px; height: 26px; flex: 0 0 28px; padding: 2px; }
+#simulation-timeline { min-width: 120px; flex: 1 1 auto; }
+#simulation-stride { width: 72px; flex: 0 0 72px; }
+.simulation-progress { width: 64px; flex: 0 0 64px; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .geometry { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface-2); }
 .geometry span { color: var(--text-dim); }
 .type-picker { display: grid; gap: 6px; }

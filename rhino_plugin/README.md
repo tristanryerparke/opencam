@@ -33,8 +33,9 @@ mutation.
 - **Generate**: launch `POST /cam/toolpath` without blocking Rhino, show the
   operation's green generation spinner, then commit its preview on the UI
   thread. Operation payload remains panel-owned and retained in document data.
-- **Simulate**: submit backend jobs, poll status, and move the shaded tool mesh
-  through document-isolated frame positions while keeping stock display static.
+- **Simulate**: regenerate simulation data with each toolpath, then open a
+  dedicated panel view with stock-removal meshes, moving tool, full playback
+  controls, frame stride, timeline scrubbing, and explicit exit.
 - **Post Process**: send the selected operation's generated CL records to the
   default Duet 3D backend post and save returned `.nc` bytes through a native
   Eto save dialog.
@@ -62,7 +63,7 @@ embedded in `.3dm` files.
 1. Build/install `bridge/` and load `OpenCam`.
 2. Interactive-test part and face/edge-loop selection against real `.3dm`
    geometry, then lock down selected-object and meshing semantics.
-3. Interactive-test generation, tool-only simulation playback, post output,
+3. Interactive-test generation, simulation-view playback, post output,
    visibility, and two-document isolation.
 4. Add document migration tests.
 

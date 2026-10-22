@@ -1,8 +1,8 @@
 """Transient OpenCAM display lifecycle, modelled on Tack's document isolation.
 
-Simulation sessions, moving tool meshes, and the last generated CL data are
-runtime state: nothing here is persisted into the `.3dm`, and everything is
-keyed by document runtime serial number.
+Simulation sessions and their display meshes are transient runtime state.
+Generated CL data is also mirrored here from document persistence for fast use.
+Everything is keyed by document runtime serial number.
 """
 
 from __future__ import annotations
@@ -30,9 +30,26 @@ class GenerationTask:
 class SimulationSession:
     simulation_id: str
     task_id: str
+    operation_id: str
+    generation_hash: str
     frames: list[dict] = field(default_factory=list)
-    tool_mesh = None
+    tool_meshes: list = field(default_factory=list)
+    mesh_cache: dict[str, list] = field(default_factory=dict)
+    fetcher: object | None = None
     current_frame: int = -1
+
+    def _meshes(self, url: str):
+        meshes = self.mesh_cache.get(url)
+        if meshes is not None:
+            return meshes
+        if self.fetcher is None:
+            raise RuntimeError("Simulation mesh fetcher is unavailable.")
+        from .display import build_rhino_mesh
+        from .glb import parse_glb
+
+        meshes = [build_rhino_mesh(parsed) for parsed in parse_glb(self.fetcher(url))]
+        self.mesh_cache[url] = meshes
+        return meshes
 
     def show_frame(self, doc, index: int) -> int:
         index = max(0, min(int(index), len(self.frames) - 1))
@@ -41,16 +58,19 @@ class SimulationSession:
         import Rhino
 
         tool_meshes = []
-        if self.tool_mesh is not None:
-            tool = self.tool_mesh.DuplicateMesh()
-            position = frame["tool_position"]
+        position = frame["tool_position"]
+        for source in self.tool_meshes:
+            tool = source.DuplicateMesh()
             tool.Translate(
                 Rhino.Geometry.Vector3d(position[0], position[1], position[2])
             )
             tool_meshes.append(tool)
 
         conduit = ensure_conduit()
-        conduit.set_mesh_layer(int(doc.RuntimeSerialNumber), "tool", tool_meshes)
+        serial = int(doc.RuntimeSerialNumber)
+        conduit.set_mesh_layer(serial, "simulation_cached", self._meshes(frame["cached_mesh_url"]))
+        conduit.set_mesh_layer(serial, "simulation_active", self._meshes(frame["active_mesh_url"]))
+        conduit.set_mesh_layer(serial, "tool", tool_meshes)
         self.current_frame = index
         doc.Views.Redraw()
         return index
@@ -184,8 +204,19 @@ def session(doc) -> SimulationSession | None:
     return _sessions().get(int(doc.RuntimeSerialNumber))
 
 
-def start_session(doc, task_id: str) -> SimulationSession:
-    result = SimulationSession(simulation_id="", task_id=str(task_id))
+def start_session(
+    doc,
+    task_id: str,
+    operation_id: str,
+    generation_hash: str,
+) -> SimulationSession:
+    end_session(doc)
+    result = SimulationSession(
+        simulation_id="",
+        task_id=str(task_id),
+        operation_id=str(operation_id),
+        generation_hash=str(generation_hash),
+    )
     _sessions()[int(doc.RuntimeSerialNumber)] = result
     return result
 
@@ -196,9 +227,11 @@ def complete_session(simulation: SimulationSession, result: dict, fetcher) -> Si
 
     simulation.simulation_id = str(result["simulationId"])
     simulation.frames = []
-    for chunk in result.get("chunks", []):
+    for chunk_index, chunk in enumerate(result.get("chunks", [])):
+        cached_mesh_url = str(chunk["cachedMeshUrl"])
         for frame in chunk.get("frames", []):
             position = frame.get("toolPosition", {})
+            active_mesh_index = int(frame.get("activeMeshIndex", -1))
             simulation.frames.append(
                 {
                     "cl_record_index": int(frame.get("clRecordIndex", -1)),
@@ -207,12 +240,37 @@ def complete_session(simulation: SimulationSession, result: dict, fetcher) -> Si
                         float(position.get("y", 0.0)),
                         float(position.get("z", 0.0)),
                     ),
+                    "cached_mesh_url": cached_mesh_url,
+                    "active_mesh_url": (
+                        f"/simulate/{simulation.simulation_id}/chunks/{chunk_index}"
+                        f"/active-meshes/{active_mesh_index}.glb"
+                    ),
                 }
             )
 
-    simulation.tool_mesh = build_rhino_mesh(parse_glb(fetcher(str(result["toolMeshUrl"])))[0])
+    simulation.fetcher = fetcher
+    simulation.tool_meshes = [
+        build_rhino_mesh(parsed)
+        for parsed in parse_glb(fetcher(str(result["toolMeshUrl"])))
+    ]
+    simulation.mesh_cache.clear()
     simulation.current_frame = -1
     return simulation
+
+
+def hide_session(doc):
+    serial = int(doc.RuntimeSerialNumber)
+    conduit = active_conduit()
+    if conduit is not None:
+        conduit.set_mesh_layer(serial, "simulation_cached", [])
+        conduit.set_mesh_layer(serial, "simulation_active", [])
+        conduit.set_mesh_layer(serial, "tool", [])
+    doc.Views.Redraw()
+
+
+def end_session(doc):
+    _sessions().pop(int(doc.RuntimeSerialNumber), None)
+    hide_session(doc)
 
 
 def apply_stock_and_part(doc, document_state):

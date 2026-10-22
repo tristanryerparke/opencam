@@ -23,10 +23,11 @@ aggregated here; no background watcher is required.
    per-row ▶ Generate and ✕ Delete, click-to-select highlighting.
 2. Visibility toggles Stock / Part / Toolpath / Tool hide exactly their layers;
    re-enabling restores instantly.
-3. Simulate → polling status → transport ◀ ▶/⏸ ▶|, timeline scrubbing, and
-   0.25–4× speed playback stepping frames with only the tool mesh moving.
-4. Confirm simulation keeps Rhino stock/part display unchanged and never draws
-   rest, active-cut, final-stock, or comparison meshes.
+3. Simulate opens a dedicated panel page with skip-start, step-back,
+   play/pause, step-forward, skip-end, frame-stride, timeline, progress, and
+   exit controls kept on one horizontal row.
+4. Confirm cached stock, active-cut mesh, and tool update together while
+   scrubbing or playing; Exit returns to the operation tree and hides them.
 5. Debug panel: backend URL Set applies without restart; event log shows
    request results and errors truncated.
 
@@ -61,15 +62,15 @@ aggregated here; no background watcher is required.
    document still shows its own preview.
 4. ~~Probe the current simulation router~~ Done: the host integration test in
    `tests/test_simulation_meshes.py` drives the real app end to end. Remaining
-   interactive check: run Simulate from the panel against the real backend,
-   confirm only the tool follows frame positions, and confirm no simulation
-   mesh appears in either the active or another open document.
+   interactive check: generate and regenerate, confirm each creates current
+   simulation data, then verify cached/active/tool meshes remain isolated to
+   their source document.
 
 ## Acceptance before shipping
 
 - Save/reopen a `.3dm`: selected IDs, setup, operations, full generated
-  toolpaths, and optimized previews restore without regeneration; simulation
-  meshes regenerate when requested.
+  toolpaths, and optimized previews restore without regeneration; generating
+  or regenerating a toolpath creates matching simulation data.
 - Rhino command buttons and panel buttons reach the identical Python actions.
 - No Python 3.12+ dependency is imported in Rhino's CPython runtime.
 - Run generation and simulation only from explicit UI commands, never from

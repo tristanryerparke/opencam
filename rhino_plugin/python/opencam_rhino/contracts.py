@@ -88,7 +88,7 @@ class PanelRequest:
         "generate_status", "open_operation_dialog", "add_operation", "update_operation",
         "delete_operation",
         "select_operation", "set_visibility", "set_backend_url",
-        "simulate", "simulate_status", "show_frame", "clear_preview", "post_process",
+        "simulate", "simulate_status", "show_frame", "exit_simulation", "clear_preview", "post_process",
     ]
     request_id: str = ""
     payload: dict[str, Any] = field(default_factory=dict)

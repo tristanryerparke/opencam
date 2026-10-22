@@ -118,3 +118,70 @@ def test_simulate_contract_end_to_end():
     assert comparison_mesh.status_code == 200
     parsed = parse_glb(comparison_mesh.content)
     assert parsed and any(mesh["colors"] for mesh in parsed), "comparison mesh lacks vertex colors"
+
+
+@pytest.mark.skipif(bool(os.environ.get("OPENCA_RHINO_SKIP_INTEGRATION")), reason="explicit skip")
+def test_simulate_contract_without_stock_data():
+    """include_stock_data=false keeps TS-identical chunk/tool data but drops final stock."""
+    from fastapi.testclient import TestClient
+    from opencam.schemas.cam import GenerateToolpathRequest
+    from opencam.schemas.geometry_2_5d import ClosedPolyline25D
+    from opencam.schemas.geometry_2d import Point2D
+    from opencam.schemas.operations.base import CAMLevels, FeedsAndSpeeds
+    from opencam.schemas.operations.pocketing import Pocketing2dOp, PocketingCutSettings, StepoverMode
+    from opencam.schemas.setup import CAMSetup
+    from opencam.schemas.tools import CylindricalTool
+
+    sys.path.insert(0, str(REPO_ROOT / "src"))
+    from server.main import app  # noqa: E402  (src/server is not part of the wheel)
+
+    operation = Pocketing2dOp(
+        tool=CylindricalTool(name="6mm flat", tool_number=1, diameter=6.0, cutting_height=10.0, shoulder_height=10.0),
+        clearance={"clearance_height_type": "absolute", "absolute_height": 15.0},
+        feeds_and_speeds=FeedsAndSpeeds(cut_feedrate=800.0, spindle_rpm=18000),
+        levels=CAMLevels(depth_of_cut=5.0),
+        cut_parameters=PocketingCutSettings(stepover=StepoverMode(mode="percentage_of_tool_diameter", value=40)),
+        drive_geometry=[ClosedPolyline25D(z=5.0, vertices=[Point2D(x=x, y=y) for x, y in ((1, 1), (17, 1), (17, 17), (1, 17), (1, 1))])],
+    )
+    request = GenerateToolpathRequest(setup=CAMSetup(), operation=operation)
+
+    client = TestClient(app)
+    response = client.post("/cam/toolpath", json=json.loads(request.model_dump_json(by_alias=True)))
+    assert response.status_code == 200, response.text
+    toolpath = response.json()
+
+    start = client.post(
+        "/simulate",
+        files={"mesh": ("stock.stl", box_stl_bytes((0.0, 0.0, 0.0), (18.0, 18.0, 10.0)))},
+        data={
+            "operation": json.dumps(toolpath),
+            "chunk_step_distance": "2.0",
+            "include_stock_data": "false",
+        },
+    )
+    assert start.status_code == 200, start.text
+    task_id = start.json()["taskId"]
+
+    deadline = time.monotonic() + 180.0
+    while True:
+        status = client.get(f"/simulate/{task_id}/status").json()
+        assert status["status"] != "error", status.get("errorDetail")
+        if status["status"] == "completed":
+            break
+        assert time.monotonic() < deadline, "simulation did not complete in time"
+        time.sleep(0.5)
+
+    result = status["result"]
+    assert result["frameCount"] > 0
+    assert result["finalMeshUrl"] == ""
+    chunk = result["chunks"][0]
+    assert chunk["cachedMeshUrl"]
+    assert chunk["frames"][0]["toolPosition"]
+
+    tool_mesh = client.get(result["toolMeshUrl"])
+    assert tool_mesh.status_code == 200
+    assert parse_glb(tool_mesh.content), "tool mesh GLB did not parse"
+
+    cached = client.get(chunk["cachedMeshUrl"])
+    assert cached.status_code == 200
+    assert parse_glb(cached.content), "chunk cached mesh GLB did not parse"

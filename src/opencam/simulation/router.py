@@ -88,6 +88,7 @@ class BufferedSimulationResult:
     rapid_frame_step_scale: float = 1.0
     rotate_tool_with_path: bool = DEFAULT_ROTATE_TOOL_WITH_PATH
     include_corner_rotation_sweeps: bool = DEFAULT_INCLUDE_CORNER_ROTATION_SWEEPS
+    include_stock_data: bool = True
     stock_mesh_bytes: bytes = b""
     final_mesh_bytes: bytes = b""
     # ponytail: cache grows with viewed frames; add LRU eviction if live simulation memory proves material.
@@ -408,7 +409,11 @@ def _simulation_response(
         frame_count=len(simulation.frames),
         chunk_count=len(simulation.chunks),
         tool_mesh_url=_tool_mesh_url(simulation_id),
-        final_mesh_url=_final_mesh_url(simulation_id, len(simulation.final_mesh_bytes)),
+        final_mesh_url=(
+            ""
+            if not simulation.include_stock_data
+            else _final_mesh_url(simulation_id, len(simulation.final_mesh_bytes))
+        ),
         chunks=_simulation_chunk_mappings(simulation_id, simulation),
     )
 
@@ -534,6 +539,7 @@ def _build_buffered_simulation(
     chunk_step_distance: float,
     rotate_tool_with_path: bool,
     include_corner_rotation_sweeps: bool,
+    include_stock_data: bool = True,
     should_cancel: Callable[[], bool] | None,
     progress_callback: Callable[[int, str], None] | None = None,
 ) -> BufferedSimulationResult:
@@ -557,10 +563,14 @@ def _build_buffered_simulation(
     if not prepared_chunks:
         raise RuntimeError("Simulation produced no chunks.")
 
-    final_mesh_bytes = manifold_to_simplified_glb(
-        final_stock_manifold,
-        context="final machined stock",
-        stock_like_original_ids=prepared_chunks[0].stock_like_original_ids,
+    final_mesh_bytes = (
+        b""
+        if not include_stock_data
+        else manifold_to_simplified_glb(
+            final_stock_manifold,
+            context="final machined stock",
+            stock_like_original_ids=prepared_chunks[0].stock_like_original_ids,
+        )
     )
 
     chunks: list[SimulatedChunk] = []
@@ -610,6 +620,7 @@ def _build_buffered_simulation(
         rapid_frame_step_scale=rapid_frame_step_scale,
         rotate_tool_with_path=rotate_tool_with_path,
         include_corner_rotation_sweeps=include_corner_rotation_sweeps,
+        include_stock_data=include_stock_data,
         stock_mesh_bytes=mesh_bytes,
         final_mesh_bytes=final_mesh_bytes,
     )
@@ -715,6 +726,7 @@ def _run_swept_simulation_task(
     chunk_step_distance: float,
     rotate_tool_with_path: bool,
     include_corner_rotation_sweeps: bool,
+    include_stock_data: bool,
 ) -> None:
     def should_cancel() -> bool:
         with SIMULATION_TASKS_LOCK:
@@ -745,6 +757,7 @@ def _run_swept_simulation_task(
             chunk_step_distance=chunk_step_distance,
             rotate_tool_with_path=rotate_tool_with_path,
             include_corner_rotation_sweeps=include_corner_rotation_sweeps,
+            include_stock_data=include_stock_data,
             should_cancel=should_cancel,
             progress_callback=report_progress,
         )
@@ -759,7 +772,8 @@ def _run_swept_simulation_task(
         )
         with SIMULATION_FRAME_BUFFER_LOCK:
             SIMULATION_FRAME_BUFFER[simulation_id] = simulation
-        Thread(target=_run_comparison_mesh_build, args=(simulation,), daemon=True).start()
+        if simulation.include_stock_data:
+            Thread(target=_run_comparison_mesh_build, args=(simulation,), daemon=True).start()
 
         final_frame_index = len(simulation.frames) - 1
         final_frame = simulation.frames[final_frame_index]
@@ -799,6 +813,7 @@ async def simulate_swept(
     chunk_step_distance: float = Form(DEFAULT_CHUNK_STEP_DISTANCE),
     rotate_tool_with_path: bool = Form(DEFAULT_ROTATE_TOOL_WITH_PATH),
     include_corner_rotation_sweeps: bool = Form(DEFAULT_INCLUDE_CORNER_ROTATION_SWEEPS),
+    include_stock_data: bool = Form(True),
 ):
     try:
         parsed_operation = OperationRecord3D.model_validate_json(operation)
@@ -842,6 +857,7 @@ async def simulate_swept(
             chunk_step_distance,
             rotate_tool_with_path,
             include_corner_rotation_sweeps,
+            include_stock_data,
         ),
         daemon=True,
     ).start()

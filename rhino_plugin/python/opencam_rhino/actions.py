@@ -89,11 +89,41 @@ def _edit_operation_dialog(doc, operation, backend_url):
         raise ValueError("Unknown operation dialog action: {}".format(action))
 
 
+def _invalidate_simulation(document_state: DocumentState, doc, operation_id=None):
+    simulation = runtime.session(doc)
+    result_operation_id = document_state.results.get("simulation_operation_id")
+    matches = (
+        operation_id is None
+        or (simulation is not None and simulation.operation_id == operation_id)
+        or result_operation_id == operation_id
+    )
+    if not matches:
+        return
+    if simulation is not None:
+        if not simulation.simulation_id:
+            try:
+                backend.request_json(
+                    document_state.backend_url,
+                    "DELETE",
+                    f"/simulate/{simulation.task_id}",
+                )
+            except Exception:  # noqa: BLE001 - invalidation must still finish
+                pass
+        runtime.end_session(doc)
+    document_state.results.pop("simulation_id", None)
+    document_state.results.pop("simulation_task_id", None)
+    document_state.results.pop("simulation_operation_id", None)
+    document_state.results.pop("simulation_generation_hash", None)
+    document_state.results.pop("simulation_error", None)
+    document_state.results.pop("frame_count", None)
+
+
 def _invalidate_toolpaths(
     document_state: DocumentState,
     doc,
     operation_id: str | None = None,
 ):
+    _invalidate_simulation(document_state, doc, operation_id)
     state.invalidate_toolpath_previews(document_state, operation_id)
     state.invalidate_toolpaths(document_state, operation_id)
     runtime.forget_toolpath(doc, operation_id)
@@ -111,6 +141,7 @@ def _invalidate_toolpaths(
 
 def _start_generation(document_state: DocumentState, operation: OperationSpec, doc):
     _require(document_state.part, "Select a part before generating a toolpath.")
+    _invalidate_simulation(document_state, doc)
     operation_payload = operations.build_operation_payload(
         {
             "id": operation.id,
@@ -141,6 +172,35 @@ def _start_generation(document_state: DocumentState, operation: OperationSpec, d
     )
 
 
+def _start_simulation(
+    document_state: DocumentState,
+    operation: OperationSpec,
+    toolpath: dict,
+    doc,
+):
+    box = document_state.part.stock_box
+    task_id = backend.start_swept_simulation(
+        document_state.backend_url,
+        mesh_export.box_stl_bytes(box.min, box.max),
+        _operation_json(toolpath),
+        include_stock_data=False,
+    )
+    generation_hash = state.operation_generation_hash(document_state, operation)
+    session = runtime.start_session(
+        doc,
+        task_id,
+        operation.id,
+        generation_hash,
+    )
+    document_state.results["simulation_task_id"] = session.task_id
+    document_state.results["simulation_operation_id"] = operation.id
+    document_state.results["simulation_generation_hash"] = generation_hash
+    document_state.results.pop("simulation_id", None)
+    document_state.results.pop("frame_count", None)
+    document_state.results.pop("simulation_error", None)
+    return session
+
+
 def _apply_completed_generation(
     document_state: DocumentState,
     task: runtime.GenerationTask,
@@ -165,6 +225,13 @@ def _apply_completed_generation(
     document_state.results["toolpath_summary"] = document_state.results[
         "toolpath_summaries"
     ][operation.id]
+    try:
+        _start_simulation(document_state, operation, task.response, doc)
+    except Exception as error:  # noqa: BLE001 - toolpath generation still succeeded
+        import Rhino
+
+        Rhino.RhinoApp.WriteLine(f"OpenCAM simulation start failed: {error}")
+        document_state.results["simulation_error"] = str(error)
     return task.response
 
 
@@ -182,6 +249,18 @@ def run(request_data, doc):
                     ok=True,
                     generation_status="running",
                     generation_operation_id=generation.operation_id,
+                )
+            simulation = runtime.session(doc)
+            if simulation is not None:
+                return panel_event(
+                    request,
+                    document_state,
+                    ok=True,
+                    simulation_status=(
+                        "completed" if simulation.simulation_id else "running"
+                    ),
+                    simulation_operation_id=simulation.operation_id,
+                    frame_count=len(simulation.frames),
                 )
         elif action == "select_part":
             part = selection.select_part(doc)
@@ -362,12 +441,17 @@ def run(request_data, doc):
                     generation_status="error",
                     generation_operation_id=generation.operation_id,
                 )
+            simulation = runtime.session(doc)
             return panel_event(
                 request,
                 document_state,
                 ok=True,
                 generation_status="completed",
                 generation_operation_id=generation.operation_id,
+                simulation_status="running" if simulation is not None else None,
+                simulation_operation_id=(
+                    simulation.operation_id if simulation is not None else None
+                ),
                 record_count=len(response.get("records", [])),
             )
         elif action == "simulate":
@@ -380,14 +464,40 @@ def run(request_data, doc):
                 if operation is not None:
                     runtime.remember_toolpath(doc, operation, selected_operation.id)
             _require(operation, "Generate this operation before simulating.")
-            box = document_state.part.stock_box
-            task_id = backend.start_swept_simulation(
-                document_state.backend_url,
-                mesh_export.box_stl_bytes(box.min, box.max),
-                _operation_json(operation),
+            generation_hash = state.operation_generation_hash(
+                document_state, selected_operation
             )
-            session = runtime.start_session(doc, task_id)
-            document_state.results["simulation_task_id"] = session.task_id
+            existing = runtime.session(doc)
+            if (
+                existing is not None
+                and existing.operation_id == selected_operation.id
+                and existing.generation_hash == generation_hash
+            ):
+                if existing.simulation_id and existing.frames:
+                    index = max(existing.current_frame, 0)
+                    existing.show_frame(doc, index)
+                    return panel_event(
+                        request,
+                        document_state,
+                        ok=True,
+                        simulation_status="completed",
+                        frame_index=index,
+                        frame_count=len(existing.frames),
+                    )
+                return panel_event(
+                    request,
+                    document_state,
+                    ok=True,
+                    simulation_status="running",
+                    frame_count=0,
+                )
+            _invalidate_simulation(document_state, doc)
+            session = _start_simulation(
+                document_state,
+                selected_operation,
+                operation,
+                doc,
+            )
             state.save(doc, document_state)
         elif action == "simulate_status":
             session = runtime.session(doc)
@@ -400,7 +510,7 @@ def run(request_data, doc):
             result = status.get("result")
             if status.get("status") == "completed" and result and not session.simulation_id:
                 runtime.complete_session(session, result, _fetcher(document_state.backend_url))
-                if session.frames:
+                if session.frames and bool(request.payload.get("display", False)):
                     session.show_frame(doc, 0)
                 document_state.results["simulation_id"] = session.simulation_id
                 document_state.results["frame_count"] = len(session.frames)
@@ -410,6 +520,7 @@ def run(request_data, doc):
                 document_state,
                 ok=True,
                 simulation_status=status.get("status"),
+                simulation_operation_id=session.operation_id,
                 frame_count=len(session.frames) if session.simulation_id else 0,
             )
         elif action == "show_frame":
@@ -426,7 +537,10 @@ def run(request_data, doc):
             return panel_event(
                 request, document_state, ok=True, frame_index=index, frame_count=len(session.frames)
             )
+        elif action == "exit_simulation":
+            runtime.hide_session(doc)
         elif action == "clear_preview":
+            _invalidate_simulation(document_state, doc)
             runtime.clear_document(doc)
             state.invalidate_toolpath_previews(document_state)
             document_state.results.pop("toolpath_summary", None)

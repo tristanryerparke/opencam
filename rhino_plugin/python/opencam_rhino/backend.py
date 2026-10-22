@@ -69,6 +69,7 @@ def start_swept_simulation(
     stock_stl: bytes,
     operation_json: str,
     timeout: float = 120.0,
+    include_stock_data: bool = True,
 ) -> str:
     """POST /simulate with a stock STL and generated CL data; returns a task id."""
     boundary = "----OpenCAMRhino" + uuid.uuid4().hex
@@ -83,6 +84,7 @@ def start_swept_simulation(
         )
 
     field("operation", operation_json)
+    field("include_stock_data", "true" if include_stock_data else "false")
     body.extend(
         ("--{}\r\n".format(boundary)
          + 'Content-Disposition: form-data; name="mesh"; filename="stock.stl"\r\n'

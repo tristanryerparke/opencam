@@ -204,6 +204,12 @@ class OpenCamToolpathConduit:
                     "part": Rhino.Display.DisplayMaterial(
                         System.Drawing.Color.FromArgb(148, 163, 184), 0.55
                     ),
+                    "simulation_cached": Rhino.Display.DisplayMaterial(
+                        System.Drawing.Color.FromArgb(251, 146, 60), 0.0
+                    ),
+                    "simulation_active": Rhino.Display.DisplayMaterial(
+                        System.Drawing.Color.FromArgb(156, 163, 175), 0.0
+                    ),
                 }
 
             def _visibility(inner, serial):
@@ -232,6 +238,10 @@ class OpenCamToolpathConduit:
                     "bounding_box": Rhino.Geometry.BoundingBox(points),
                 }
 
+            def _role_visible(inner, visibility, role):
+                visibility_role = "stock" if role.startswith("simulation_") else role
+                return visibility.get(visibility_role, True)
+
             def _rebuild_bounding_box(inner, serial):
                 visibility = inner._visibility(serial)
                 points = []
@@ -244,7 +254,7 @@ class OpenCamToolpathConduit:
                     for start, end in inner.stock_boxes.get(serial, []):
                         points.extend((start, end))
                 for role, meshes in inner.mesh_layers.get(serial, {}).items():
-                    if not visibility.get(role, True):
+                    if not inner._role_visible(visibility, role):
                         continue
                     for mesh in meshes:
                         box = mesh.GetBoundingBox(True)
@@ -268,7 +278,7 @@ class OpenCamToolpathConduit:
                     return
                 visibility = inner._visibility(serial)
                 for role, meshes in inner.mesh_layers.get(serial, {}).items():
-                    if not visibility.get(role, True):
+                    if not inner._role_visible(visibility, role):
                         continue
                     material = inner.mesh_materials[role]
                     for mesh in meshes:
@@ -323,7 +333,7 @@ class OpenCamToolpathConduit:
         self._conduit._rebuild_bounding_box(serial)
 
     def set_mesh_layer(self, document_serial: int, role: str, meshes: list):
-        if role not in {"tool", "part"}:
+        if role not in {"tool", "part", "simulation_cached", "simulation_active"}:
             raise ValueError(f"Unsupported OpenCAM mesh layer: {role}")
         serial = int(document_serial)
         layers = self._conduit.mesh_layers.setdefault(serial, {})

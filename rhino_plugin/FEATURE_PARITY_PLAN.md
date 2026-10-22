@@ -17,9 +17,9 @@ counterpart and gives a dependency order.
 | Tool library CRUD | panel -> Python -> `/cam/tools` | Planned |
 | Toolpath viewport | Python `DisplayConduit`, records grouped by rapid/cut/link, no duplicate document geometry | Implemented; interactive viewport check pending |
 | Layer visibility (stock/part/toolpath/tool) | draw-time gates inside the conduit; persisted per document | Implemented; interactive check pending |
-| Simulation start/status/frame | Python adapter to current `/simulate/*` routes; loads frame positions and tool mesh only | Implemented; interactive viewport check pending |
-| Simulation playback | WebView transport (⏮◀/play▶), timeline scrubber, speed 0.25–4×; conduit moves only tool mesh | Implemented; interactive check pending |
-| Stock/result comparison | Not exposed in Rhino; simulation intentionally keeps stock static and displays only moving tool | Removed by design |
+| Simulation start/status/frame | Toolpath generation starts matching `/simulate/*` work; Rhino loads cached stock, active-cut, and tool meshes per frame | Implemented; interactive viewport check pending |
+| Simulation playback | Dedicated WebView page with skip/step/play controls, frame stride, one-line timeline, progress, and exit | Implemented; interactive check pending |
+| Stock/result comparison | Not exposed in Rhino; standard simulation displays cached and active stock without comparison coloring | Planned |
 | Post processing | selected operation CL -> default Duet 3D backend post -> native Eto `.nc` save dialog | Implemented |
 | Operation/setup tree | TypeScript state projection from persisted Python document state | Implemented (add setup/operation, per-op generate/delete, selection) |
 | Operation editing | typed Add-Operation dialog (pocket/profile/facing/parallel finishing) mapping 1:1 to API params | Implemented; schema-driven forms deferred |
@@ -50,5 +50,7 @@ counterpart and gives a dependency order.
 `GET /simulate/{task}/status` → tool/chunk-cached/active-frame/final GLBs →
 `GET /simulate/{sim}/comparison` → vertex-colored comparison GLB. All mesh
 endpoints parse with the plugin's stdlib GLB reader (`glb.py`). Rhino playback
-fetches only `toolMeshUrl`; chunk, active-cut, final-stock, and comparison meshes
-remain backend artifacts and are not loaded into Rhino.
+fetches `toolMeshUrl`, each chunk's cached mesh, and active-cut frame meshes.
+Rhino sends `include_stock_data=false`, which skips the final-stock and
+comparison artifacts while keeping chunk, active-cut, tool, and frame data
+identical to the browser contract.

@@ -2,19 +2,19 @@
 import { contextMenu as createContextMenu } from "t-components/dom";
 
 (() => {
-type Action = "get_state" | "select_part" | "open_operation_dialog" | "generate_operation" | "generate_status" | "delete_operation" | "select_operation" | "set_visibility" | "simulate" | "simulate_status" | "show_frame" | "post_process";
+type Action = "get_state" | "select_part" | "open_operation_dialog" | "generate_operation" | "generate_status" | "delete_operation" | "select_operation" | "set_visibility" | "simulate" | "simulate_status" | "show_frame" | "exit_simulation" | "post_process";
 type OperationSpec = { id: string; name: string; type: string };
 type SetupSpec = { id: string; name: string; operations: OperationSpec[] };
 type PanelEvent = {
   request_id: string; ok?: boolean; error?: string; cancelled?: boolean;
   selected_operation_id?: string; generation_status?: "running" | "completed" | "error"; generation_operation_id?: string;
-  simulation_status?: string; frame_index?: number; frame_count?: number;
+  simulation_status?: string; simulation_operation_id?: string; frame_index?: number; frame_count?: number;
   state: { part?: { name: string }; setups: SetupSpec[]; selected_operation_id?: string; visibility: Record<string, boolean>; results?: Record<string, unknown> };
 };
 type Theme = { scheme: "light" | "dark"; tokens: Record<string, string> };
 type ContextMenu = { operationId: string; x: number; y: number };
 type GenerationState = { operationId: string; status: "starting" | "running"; startRequestId?: string };
-type SimulationState = { operationId: string; status: string; frameIndex: number; frameCount: number; playing: boolean; speed: number; awaitingStart: boolean; startRequestId: string };
+type SimulationState = { operationId: string; status: string; frameIndex: number; frameCount: number; sourceFrameCount: number; stride: number; playing: boolean; awaitingStart: boolean; pendingFrame: boolean; startRequestId: string };
 
 type PanelHostWindow = Window & {
   eto?: { postMessage(value: string): void };
@@ -32,6 +32,8 @@ let generationPoll: ReturnType<typeof setInterval> | undefined;
 let simulation: SimulationState | undefined;
 let simulationPoll: ReturnType<typeof setInterval> | undefined;
 let simulationPlayback: ReturnType<typeof setInterval> | undefined;
+const SIMULATION_STRIDE_OPTIONS = [1, 2, 4, 8, 16] as const;
+const SIMULATION_PLAYBACK_INTERVAL_MS = 30;
 
 function requestId() {
   return crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -52,6 +54,7 @@ function pollGeneration() {
   generationPoll = setInterval(() => send("generate_status"), 500);
 }
 function startRegeneration(operationId: string) {
+  closeSimulationView(true);
   const startRequestId = send("generate_operation", { operation_id: operationId });
   generation = { operationId, status: "starting", startRequestId };
   render();
@@ -67,42 +70,87 @@ function stopSimulationPlayback() {
 }
 function pollSimulation() {
   stopSimulationPolling();
-  simulationPoll = setInterval(() => send("simulate_status"), 1000);
+  simulationPoll = setInterval(
+    () => send("simulate_status", { display: simulation !== undefined }),
+    1000,
+  );
+}
+function simulationFrameIndices(sourceFrameCount: number, stride: number) {
+  if (sourceFrameCount < 1) return [];
+  const indices = Array.from(
+    { length: Math.ceil(sourceFrameCount / stride) },
+    (_, index) => index * stride,
+  ).filter((index) => index < sourceFrameCount);
+  if (indices[indices.length - 1] !== sourceFrameCount - 1) indices.push(sourceFrameCount - 1);
+  return indices;
+}
+function updateSimulationFrameCount(current: SimulationState) {
+  current.frameCount = simulationFrameIndices(current.sourceFrameCount, current.stride).length;
+  current.frameIndex = Math.max(0, Math.min(current.frameIndex, Math.max(current.frameCount - 1, 0)));
+}
+function showSimulationFrame(frameIndex: number) {
+  if (!simulation || simulation.frameCount < 1) return;
+  simulation.frameIndex = Math.max(0, Math.min(simulation.frameCount - 1, frameIndex));
+  const sourceIndex = simulationFrameIndices(simulation.sourceFrameCount, simulation.stride)[simulation.frameIndex];
+  simulation.pendingFrame = true;
+  send("show_frame", { frame_index: sourceIndex });
+}
+function closeSimulationView(notifyHost: boolean) {
+  if (!simulation) return;
+  stopSimulationPlayback();
+  stopSimulationPolling();
+  simulation = undefined;
+  if (notifyHost) send("exit_simulation");
 }
 function startSimulation(operationId: string) {
-  stopSimulationPlayback();
+  closeSimulationView(true);
   const startRequestId = send("simulate", { operation_id: operationId });
-  simulation = { operationId, status: "starting", frameIndex: 0, frameCount: 0, playing: false, speed: 1, awaitingStart: true, startRequestId };
+  simulation = { operationId, status: "starting", frameIndex: 0, frameCount: 0, sourceFrameCount: 0, stride: 1, playing: false, awaitingStart: true, pendingFrame: false, startRequestId };
+  render();
 }
 function stepSimulation(delta: number) {
   if (!simulation || simulation.frameCount < 1) return;
   stopSimulationPlayback();
-  simulation.frameIndex = Math.max(0, Math.min(simulation.frameCount - 1, simulation.frameIndex + delta));
-  send("show_frame", { frame_index: simulation.frameIndex });
+  showSimulationFrame(simulation.frameIndex + delta);
 }
 function toggleSimulationPlayback() {
   if (!simulation || simulation.frameCount < 1) return;
   if (simulation.playing) { stopSimulationPlayback(); render(); return; }
-  if (simulation.frameIndex >= simulation.frameCount - 1) simulation.frameIndex = 0;
+  if (simulation.frameIndex >= simulation.frameCount - 1) showSimulationFrame(0);
   simulation.playing = true;
   simulationPlayback = setInterval(() => {
-    if (!simulation || simulation.frameIndex >= simulation.frameCount - 1) { stopSimulationPlayback(); render(); return; }
-    simulation.frameIndex += 1;
-    send("show_frame", { frame_index: simulation.frameIndex });
-  }, 1000 / (10 * simulation.speed));
+    if (!simulation) return;
+    if (simulation.frameIndex >= simulation.frameCount - 1) { stopSimulationPlayback(); render(); return; }
+    if (simulation.pendingFrame) return;
+    showSimulationFrame(simulation.frameIndex + 1);
+  }, SIMULATION_PLAYBACK_INTERVAL_MS);
   render();
 }
+function visibilityHtml(visibility: Record<string, boolean>) {
+  return `<div class="row toggles">${["stock", "part", "toolpath", "tool"].map((flag) => `<label><input type="checkbox" data-flag="${flag}" ${visibility[flag] !== false ? "checked" : ""}> ${flag[0].toUpperCase() + flag.slice(1)}</label>`).join("")}</div>`;
+}
 function simulationControlsHtml() {
-  const current = simulation;
-  if (!current) return "";
+  const current = simulation!;
   const ready = current.frameCount > 0;
+  const atStart = current.frameIndex <= 0;
+  const atEnd = current.frameIndex >= current.frameCount - 1;
   const label = ready ? `${current.frameIndex + 1} / ${current.frameCount}` : current.status;
-  return `<div class="simulation-controls"><div class="row"><strong>Simulation</strong><span class="meta">${label}</span></div>
-<div class="row"><button data-sim="previous" ${ready ? "" : "disabled"}>◀</button><button data-sim="play" ${ready ? "" : "disabled"}>${current.playing ? "⏸" : "▶"}</button><button data-sim="next" ${ready ? "" : "disabled"}>▶|</button><input id="simulation-timeline" type="range" min="0" max="${Math.max(current.frameCount - 1, 0)}" value="${current.frameIndex}" ${ready ? "" : "disabled"}><select id="simulation-speed" ${ready ? "" : "disabled"}>${[0.25, 0.5, 1, 2, 4].map((speed) => `<option value="${speed}" ${speed === current.speed ? "selected" : ""}>${speed}×</option>`).join("")}</select></div></div>`;
+  const strideIndex = SIMULATION_STRIDE_OPTIONS.indexOf(current.stride as typeof SIMULATION_STRIDE_OPTIONS[number]);
+  return `<div class="simulation-controls"><div class="simulation-timeline-row">
+<button data-sim="skip-start" title="Skip to beginning" ${ready && !atStart ? "" : "disabled"}>|◀</button>
+<button data-sim="previous" title="Step back" ${ready && !atStart ? "" : "disabled"}>◀</button>
+<button data-sim="play" title="${current.playing ? "Pause" : "Play"}" ${ready && current.frameCount > 1 ? "" : "disabled"}>${current.playing ? "⏸" : "▶"}</button>
+<button data-sim="next" title="Step forward" ${ready && !atEnd ? "" : "disabled"}>▶</button>
+<button data-sim="skip-end" title="Skip to end" ${ready && !atEnd ? "" : "disabled"}>▶|</button>
+<input id="simulation-timeline" aria-label="Simulation timeline" type="range" min="0" max="${Math.max(current.frameCount - 1, 0)}" value="${current.frameIndex}" ${ready ? "" : "disabled"}>
+<input id="simulation-stride" aria-label="Simulation frame stride" title="Frame stride: ${current.stride}" type="range" min="0" max="${SIMULATION_STRIDE_OPTIONS.length - 1}" step="1" value="${Math.max(strideIndex, 0)}" ${ready ? "" : "disabled"}>
+<span class="simulation-progress meta">${label}</span>
+<button data-sim="exit" title="Exit simulation" aria-label="Exit simulation">✕</button>
+</div></div>`;
 }
 function updateRunningSimulationControls() {
   if (!simulation) return;
-  const label = root.querySelector<HTMLElement>(".simulation-controls .meta");
+  const label = root.querySelector<HTMLElement>(".simulation-progress");
   const timeline = root.querySelector<HTMLInputElement>("#simulation-timeline");
   if (label) label.textContent = `${simulation.frameIndex + 1} / ${simulation.frameCount}`;
   if (timeline) timeline.value = String(simulation.frameIndex);
@@ -127,7 +175,11 @@ function icon(name: "part" | "setup" | "check" | "x" | "loader" | "chevron-right
 function operationStatus(operation: OperationSpec) {
   const summaries = latest?.state.results?.toolpath_summaries as Record<string, unknown> | undefined;
   if (generation?.operationId === operation.id) return { className: "generating", iconName: "loader" as const, label: "Generating toolpath" };
-  if (simulation?.operationId === operation.id && simulation.status === "completed") return { className: "simulated", iconName: "check" as const, label: "Simulation complete" };
+  const simulatedOperationId = latest?.state.results?.simulation_operation_id;
+  const hasSimulation = Boolean(latest?.state.results?.simulation_id);
+  const simulationPending = Boolean(latest?.state.results?.simulation_task_id) && !hasSimulation;
+  if (simulationPending && simulatedOperationId === operation.id) return { className: "generating", iconName: "loader" as const, label: "Preparing simulation" };
+  if ((simulation?.operationId === operation.id && simulation.status === "completed") || (hasSimulation && simulatedOperationId === operation.id)) return { className: "simulated", iconName: "check" as const, label: "Simulation complete" };
   if (summaries?.[operation.id]) return { className: "generated", iconName: "check" as const, label: "Toolpath generated" };
   return { className: "missing", iconName: "x" as const, label: "Toolpath not generated" };
 }
@@ -154,11 +206,12 @@ function render() {
   const visibility = state?.visibility ?? {};
   const setups = state?.setups ?? [];
   const treeState = state ?? { setups: [], visibility: {} };
-  root.innerHTML = `<main>
-<div class="row toggles">${["stock", "part", "toolpath", "tool"].map((flag) => `<label><input type="checkbox" data-flag="${flag}" ${visibility[flag] !== false ? "checked" : ""}> ${flag[0].toUpperCase() + flag.slice(1)}</label>`).join("")}</div>
+  contextMenu = undefined;
+  root.innerHTML = simulation
+    ? `<main class="simulation-page"><div class="simulation-header"><strong>Simulation</strong><span class="meta">${escapeHtml(simulation.status)}</span></div>${visibilityHtml(visibility)}${simulationControlsHtml()}</main>`
+    : `<main>${visibilityHtml(visibility)}
 <div class="row"><button data-action="open_operation_dialog" ${state?.part && !generation ? "" : "disabled"}>Add Operation</button></div>
 ${treeHtml(treeState, setups, selected)}
-${simulationControlsHtml()}
 </main>`;
   root.querySelectorAll<HTMLButtonElement>("[data-action]").forEach((button) => {
     button.onclick = () => send(button.dataset.action as Action);
@@ -178,23 +231,28 @@ ${simulationControlsHtml()}
   });
   root.querySelectorAll<HTMLButtonElement>("[data-sim]").forEach((button) => {
     button.onclick = () => {
-      if (button.dataset.sim === "previous") stepSimulation(-1);
+      if (button.dataset.sim === "skip-start") { stopSimulationPlayback(); showSimulationFrame(0); }
+      else if (button.dataset.sim === "previous") stepSimulation(-1);
       else if (button.dataset.sim === "next") stepSimulation(1);
+      else if (button.dataset.sim === "skip-end" && simulation) { stopSimulationPlayback(); showSimulationFrame(simulation.frameCount - 1); }
       else if (button.dataset.sim === "play") toggleSimulationPlayback();
+      else if (button.dataset.sim === "exit") { closeSimulationView(true); render(); }
     };
   });
   root.querySelector("#simulation-timeline")?.addEventListener("input", (event) => {
-    if (!simulation) return;
-    simulation.frameIndex = Number((event.target as HTMLInputElement).value);
     stopSimulationPlayback();
-    send("show_frame", { frame_index: simulation.frameIndex });
+    showSimulationFrame(Number((event.target as HTMLInputElement).value));
   });
-  root.querySelector("#simulation-speed")?.addEventListener("change", (event) => {
+  root.querySelector("#simulation-stride")?.addEventListener("input", (event) => {
     if (!simulation) return;
-    const wasPlaying = simulation.playing;
     stopSimulationPlayback();
-    simulation.speed = Number((event.target as HTMLSelectElement).value);
-    if (wasPlaying) toggleSimulationPlayback();
+    const progress = simulation.frameCount > 1 ? simulation.frameIndex / (simulation.frameCount - 1) : 0;
+    const optionIndex = Number((event.target as HTMLInputElement).value);
+    simulation.stride = SIMULATION_STRIDE_OPTIONS[optionIndex] ?? 1;
+    updateSimulationFrameCount(simulation);
+    simulation.frameIndex = Math.round(progress * Math.max(simulation.frameCount - 1, 0));
+    showSimulationFrame(simulation.frameIndex);
+    render();
   });
   root.querySelectorAll<HTMLElement>("[data-op]").forEach((element) => {
     element.onclick = () => {
@@ -262,6 +320,7 @@ function receive(value: string) {
     generation = undefined;
   }
   if (event.generation_status === "running" && event.generation_operation_id) {
+    closeSimulationView(false);
     generation = { operationId: event.generation_operation_id, status: "running" };
     pollGeneration();
   } else if (event.generation_status === "completed" || event.generation_status === "error") {
@@ -270,23 +329,34 @@ function receive(value: string) {
   }
   const currentSimulation = simulation;
   let updateRunningControlsOnly = false;
+  if (event.simulation_status && !currentSimulation) {
+    if (["completed", "cancelled", "error"].includes(event.simulation_status)) stopSimulationPolling();
+    else pollSimulation();
+  }
   if (currentSimulation) {
     if (currentSimulation.awaitingStart && event.request_id === currentSimulation.startRequestId) {
       currentSimulation.awaitingStart = false;
+      currentSimulation.pendingFrame = false;
       if (event.ok === false) simulation = undefined;
-      else { currentSimulation.status = "queued"; pollSimulation(); }
+      else if (!event.simulation_status) { currentSimulation.status = "queued"; pollSimulation(); }
     }
     if (event.simulation_status) {
       currentSimulation.status = event.simulation_status;
-      currentSimulation.frameCount = event.frame_count ?? currentSimulation.frameCount;
-      if (["completed", "cancelled", "error"].includes(currentSimulation.status)) stopSimulationPolling();
+      if (!["completed", "cancelled", "error"].includes(currentSimulation.status)) pollSimulation();
+      else stopSimulationPolling();
       if (["cancelled", "error"].includes(currentSimulation.status)) simulation = undefined;
     }
+    if (event.frame_count !== undefined) {
+      currentSimulation.sourceFrameCount = event.frame_count;
+      updateSimulationFrameCount(currentSimulation);
+    }
     if (event.frame_index !== undefined) {
-      currentSimulation.frameIndex = event.frame_index;
+      currentSimulation.pendingFrame = false;
+      const indices = simulationFrameIndices(currentSimulation.sourceFrameCount, currentSimulation.stride);
+      const exact = indices.indexOf(event.frame_index);
+      if (exact >= 0) currentSimulation.frameIndex = exact;
       updateRunningControlsOnly = currentSimulation.playing;
     }
-    if (event.frame_count !== undefined) currentSimulation.frameCount = event.frame_count;
   }
   if (updateRunningControlsOnly) updateRunningSimulationControls();
   else render();

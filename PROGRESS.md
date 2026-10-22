@@ -278,3 +278,14 @@ Operation context-menu state now clears through one shared dismissal path for pa
 - [x] Capture all panel pointer events so controls that stop bubbling also dismiss the menu.
 
 Panel dismissal now listens during pointer-event capture and ignores only clicks inside the open menu. Setup toggles and other controls that stop event bubbling therefore close the menu before handling their own action. WebView build passed and development reload was dispatched.
+
+## Rhino simulation playback parity
+
+- [x] Auto-start matching `/simulate` work whenever a toolpath generation completes.
+- [x] Move playback to a dedicated panel page with skip/step/play/exit, timeline, progress, and stride control.
+- [x] Make playback cadence 30 ms with stride options 1/2/4/8/16, like the browser frontend.
+- [x] Gate each playback tick on the previous `show_frame` reply to prevent message pile-up.
+- [x] Add backend `include_stock_data` field; Rhino sends `false` to skip final-stock and comparison artifacts while receiving browser-identical chunk, active-cut, tool, and frame data.
+- [x] Validate contracts end to end and rebuild the panel.
+
+`POST /simulate` now accepts `include_stock_data` (default true). When false, the backend skips the final-mesh export and the background comparison build but keeps `toolMeshUrl`, chunk cached meshes, active-cut frame meshes, and per-frame `toolPosition` exactly as the TypeScript frontend receives them; `finalMeshUrl` is returned empty. Rhino sessions track operation and generation hash so regeneration restarts matching simulation data and repeated Simulate reuses it. Playback strides source frames like the browser, runs at 30 ms, and each tick waits for the previous frame reply. Live smoke: stock-less request completed with 175 frames, empty `finalMeshUrl`, and fetchable tool/cached meshes. Maintained suite: 119 passed (new `include_stock_data=false` contract test); focused Ruff, compile, diff, and WebView builds pass. Development reload had no running RhinoCode pipe (Rhino closed); next Rhino start loads the new panel and actions.

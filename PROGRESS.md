@@ -266,3 +266,11 @@ Generated operation context menus now expose **Post Process** when CL data exist
 - [x] Reproduce the reported missing-tool export and validate maintained checks.
 
 Default `.nc` export now treats generated CL as the immutable source of its tool snapshot instead of requiring that tool to remain in the mutable current library. The configurable Duet endpoint still resolves and validates tools against the current library. The exact failed toolpath (`26148ed5-…`, tool `01c71da6-…`) now emits 6,880 bytes of Duet G-code from 255 records. Maintained suite: 118 passed; focused Ruff, compile, and diff checks pass. Backend auto-reloaded; Rhino source reload found no running RhinoCode pipe, so the next OpenCAM load will import the action update.
+
+## Rhino context-menu dismissal
+
+- [x] Close operation context menu for clicks elsewhere in the panel.
+- [x] Close operation context menu when the WebView loses focus to Rhino or another app.
+- [x] Build and reload the development WebView.
+
+Operation context-menu state now clears through one shared dismissal path for panel clicks and browser-window blur. Clicking a Rhino viewport, another panel, or another application removes the menu when the OpenCAM WebView loses focus. TypeScript/build passed and development reload was dispatched without restart.

@@ -208,9 +208,12 @@ ${simulationControlsHtml()}
       renderOverlay();
     };
   });
-  root.onclick = () => {
-    if (contextMenu) { contextMenu = undefined; renderOverlay(); }
-  };
+  root.onclick = closeContextMenu;
+  renderOverlay();
+}
+function closeContextMenu() {
+  if (!contextMenu) return;
+  contextMenu = undefined;
   renderOverlay();
 }
 function renderOverlay() {
@@ -306,6 +309,7 @@ function applyTheme(theme: Theme) {
 }
 host.opencamRhino = { receive, theme: applyTheme };
 host.chrome?.webview?.addEventListener("message", (event) => receive(event.data));
+window.addEventListener("blur", closeContextMenu);
 render();
 send("get_state");
 })();

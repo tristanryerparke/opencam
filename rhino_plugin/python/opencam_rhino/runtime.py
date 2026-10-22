@@ -21,6 +21,7 @@ SOURCE_PARTS_KEY = "OpenCAM.Rhino.SourceParts"
 class GenerationTask:
     operation_id: str
     generation_hash: str
+    source_serials: dict[str, int | None] = field(default_factory=dict)
     status: str = "running"
     response: dict | None = None
     error: str | None = None
@@ -47,7 +48,10 @@ class SimulationSession:
         from .display import build_rhino_mesh
         from .glb import parse_glb
 
-        meshes = [build_rhino_mesh(parsed) for parsed in parse_glb(self.fetcher(url))]
+        meshes = [
+            build_rhino_mesh(parsed)
+            for parsed in parse_glb(self.fetcher(url), allow_empty=True)
+        ]
         self.mesh_cache[url] = meshes
         return meshes
 
@@ -116,7 +120,13 @@ def _generation_tasks() -> dict:
     return tasks
 
 
-def start_generation(doc, operation_id: str, generation_hash: str, worker) -> GenerationTask:
+def start_generation(
+    doc,
+    operation_id: str,
+    generation_hash: str,
+    worker,
+    source_serials=None,
+) -> GenerationTask:
     serial = int(doc.RuntimeSerialNumber)
     existing = _generation_tasks().get(serial)
     if existing is not None:
@@ -125,6 +135,7 @@ def start_generation(doc, operation_id: str, generation_hash: str, worker) -> Ge
     task = GenerationTask(
         operation_id=str(operation_id),
         generation_hash=str(generation_hash),
+        source_serials=dict(source_serials or {}),
     )
     _generation_tasks()[serial] = task
 

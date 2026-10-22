@@ -300,3 +300,15 @@ Panel dismissal now listens during pointer-event capture and ignores only clicks
 - [x] Validate Rhino plug-in tests and reload development Python source.
 
 Regeneration completion persists full CL, compact preview, and operation state, then explicitly marks its owning Rhino document modified. This forces Rhino's unsaved-edit indicator and normal save prompt even if its plugin-data write did not update visible dirty state. Rhino plug-in tests: 14 passed; compile/diff and focused Ruff pass; development reload dispatched.
+
+## Rhino source-object tracking
+
+- [x] Persist associated Rhino object GUIDs on each CAM operation.
+- [x] Store referencing operation IDs in source-object `Attributes.UserDictionary` metadata.
+- [x] Rebuild document-scoped runtime tracking when documents open.
+- [x] Invalidate affected toolpaths and simulations after changed/deleted geometry at `EndCommand`.
+- [x] Show invalid operations with a red status dot until successful regeneration.
+- [x] Validate pure checks and build/reload development plug-in.
+- [ ] Run a focused Rhino interaction test for metadata, native dirty state, invalidation, and regeneration.
+
+Schema v7 stores canonical part/drive-object GUIDs on each operation. Associated Rhino objects store `OpenCAM.OperationRefs` JSON in `Attributes.UserDictionary`; each successful generation writes a fresh metadata revision through `RhinoDoc.Objects.ModifyAttributes` inside one undo record, producing a real object-table edit on macOS. Runtime tracking is rebuilt from operation GUIDs without scanning the document. `EndCommand` compares object runtime serials, invalidates affected CL/previews/simulation, and reloads the panel with a red status dot until generation succeeds. Pure metadata lifecycle smoke checks, 14 Rhino plug-in tests, 119 maintained tests, compile, focused Ruff, diff check, and WebView build pass. Development source/panel reload dispatched; focused Rhino interaction test still requires approval.

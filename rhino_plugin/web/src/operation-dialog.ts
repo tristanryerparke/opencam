@@ -18,7 +18,7 @@ const labels: Record<string, string> = {
   pocketing_2d: "2.5D Pocketing",
   profiling_2d: "2.5D Profiling",
   facing_2d: "2.5D Facing",
-  parallel_finishing: "Parallel Finishing",
+  parallel_finishing: "3D Parallel Finishing",
 };
 const pages: { id: Page; label: string }[] = [
   { id: "geometry", label: "Drive Geometry" }, { id: "cut", label: "Cut Parameters" },
@@ -98,7 +98,8 @@ function operationIcon(type: string) {
   icon.setAttribute("aria-hidden", "true");
   icon.style.width = "5rem";
   icon.style.height = "5rem";
-  icon.style.transform = "scale(1.5)";
+  icon.style.transform = "translateY(0.75rem) scale(1.375)";
+  icon.style.transformOrigin = "center bottom";
   return icon;
 }
 
@@ -346,12 +347,22 @@ function render() {
       });
       choice.style.height = "auto";
       choice.style.flexDirection = "column";
+      choice.style.justifyContent = "space-between";
       choice.style.gap = "0.75rem";
       choice.style.padding = "1rem";
+      const iconFrame = document.createElement("div");
+      iconFrame.style.display = "flex";
+      iconFrame.style.width = "6.25rem";
+      iconFrame.style.height = "6.25rem";
+      iconFrame.style.alignItems = "flex-end";
+      iconFrame.style.justifyContent = "center";
+      iconFrame.style.flexShrink = "0";
       const icon = operationIcon(type);
+      if (icon) iconFrame.append(icon);
       const textNode = document.createElement("span");
+      textNode.style.textAlign = "center";
       textNode.textContent = text;
-      choice.append(...(icon ? [icon] : []), textNode);
+      choice.append(iconFrame, textNode);
       picker.append(choice);
     }
     const footer = dialogFooter();

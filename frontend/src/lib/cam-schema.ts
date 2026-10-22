@@ -60,7 +60,7 @@ const operationLabels: Record<OperationType, string> = {
   pocketing_2d: "2D Pocket",
   profiling_2d: "2D Profile",
   facing_2d: "2.5D Facing",
-  parallel_finishing: "Parallel Finishing",
+  parallel_finishing: "3D Parallel Finishing",
 };
 
 const hiddenOperationFields = new Set(["type", "id", "displayName"]);

@@ -40,7 +40,7 @@ button:disabled { opacity: 0.4; cursor: default; }
 .tree-row .tree-file { min-width: 0; flex: 1; color: color-mix(in srgb, var(--text) 65%, transparent); font-size: 11px; font-weight: 400; }
 .tree-row .tree-toggle { display: grid; width: 16px; height: 16px; flex: 0 0 16px; place-items: center; color: var(--text-dim); cursor: pointer; }
 .tree-row .tree-status { width: 16px; height: 16px; flex: 0 0 16px; }
-.tree-status.missing { color: #ef4444; }.tree-status.generating, .tree-status.generated { color: #22c55e; }.tree-status.simulated { color: #3b82f6; }
+.tree-status.missing, .tree-status.invalid { color: #ef4444; }.tree-status.generating, .tree-status.generated { color: #22c55e; }.tree-status.simulated { color: #3b82f6; }
 .tree-status.generating .tree-icon { animation: opencam-spin 1s linear infinite; }
 @keyframes opencam-spin { to { transform: rotate(360deg); } }
 .empty { color: var(--text-dim); margin: 6px 8px; }
@@ -66,7 +66,10 @@ select, input[type="text"], input[type="number"] { background: var(--field); col
 .simulation-controls { min-width: 0; padding: 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); }
 .simulation-transport-row { display: flex; align-items: center; gap: 4px; flex-wrap: nowrap; }
 .simulation-transport-row button { width: 28px; height: 26px; flex: 0 0 28px; padding: 2px; }
-.simulation-transport-row #simulation-stride { width: 72px; flex: 0 0 72px; }
+.simulation-stride-control { display: grid; min-width: 72px; flex: 1 1 auto; gap: 0; color: var(--text-dim); font-size: 10px; line-height: 1; }
+.simulation-stride-control span { display: flex; justify-content: space-between; }
+.simulation-stride-control output { color: var(--text); font-variant-numeric: tabular-nums; }
+.simulation-stride-control #simulation-stride { width: 100%; min-width: 0; margin: 0; }
 #simulation-timeline { display: block; width: 100%; margin-top: 6px; }
 .simulation-progress { width: 64px; flex: 0 0 64px; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .geometry { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface-2); }

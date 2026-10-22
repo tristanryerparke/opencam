@@ -36,7 +36,7 @@ class ParallelFinishingOp(BaseCAMOperation):
     model_config = ConfigDict(title="ParallelFinishingOp")
 
     type: Literal["parallel_finishing"] = Field(default="parallel_finishing", frozen=True)
-    display_name: str = Field(default="Parallel Finishing", title="Operation name")
+    display_name: str = Field(default="3D Parallel Finishing", title="Operation name")
 
     drive_geometry: list[ClosedPolyline2D] = Field(min_length=1, title="Drive geometry")
     cut_parameters: ParallelFinishingCutSettings = Field(

@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
 PROTOCOL_VERSION = 1
-DOCUMENT_SCHEMA_VERSION = 6
+DOCUMENT_SCHEMA_VERSION = 7
 
 DEFAULT_VISIBILITY = {"stock": True, "part": True, "toolpath": True, "tool": True}
 
@@ -41,6 +41,7 @@ class OperationSpec:
     type: str
     params: dict[str, Any] = field(default_factory=dict)
     regions: list[PlanarRegion] = field(default_factory=list)
+    source_object_ids: list[str] = field(default_factory=list)
 
 
 @dataclass

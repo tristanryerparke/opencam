@@ -25,8 +25,12 @@ _COMPONENT_CHARS = {5120: "b", 5121: "B", 5122: "h", 5123: "H", 5125: "I", 5126:
 _VECTOR_LENGTHS = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4}
 
 
-def parse_glb(data: bytes) -> list[dict]:
-    """Return ``[{vertices, faces, colors?}, ...]`` for every triangle mesh."""
+def parse_glb(data: bytes, *, allow_empty: bool = False) -> list[dict]:
+    """Return ``[{vertices, faces, colors?}, ...]`` for every triangle mesh.
+
+    Empty GLBs represent an absent optional simulation overlay. Callers must
+    opt in because a tool mesh and other required geometry must have triangles.
+    """
     if len(data) < 12:
         raise ValueError("GLB payload is too short.")
     magic, _version, total = struct.unpack_from("<III", data, 0)
@@ -58,7 +62,7 @@ def parse_glb(data: bytes) -> list[dict]:
             parsed = _parse_primitive(document, binary, primitive)
             if parsed is not None and parsed["faces"]:
                 meshes.append(parsed)
-    if not meshes:
+    if not meshes and not allow_empty:
         raise ValueError("GLB contains no triangle meshes.")
     return meshes
 

@@ -646,7 +646,7 @@ export const camSchemaBundle = {
             "type": "string"
           },
           "displayName": {
-            "default": "Parallel Finishing",
+            "default": "3D Parallel Finishing",
             "title": "Operation name",
             "type": "string"
           },
@@ -3430,7 +3430,7 @@ export const camSchemaBundle = {
         "type": "string"
       },
       "displayName": {
-        "default": "Parallel Finishing",
+        "default": "3D Parallel Finishing",
         "title": "Operation name",
         "type": "string"
       },

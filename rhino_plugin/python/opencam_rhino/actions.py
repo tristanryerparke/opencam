@@ -7,7 +7,15 @@ returns a panel event with persisted document state, keeping the WebView dumb.
 
 from __future__ import annotations
 
-from . import backend, mesh_export, operations, runtime, selection, state
+from . import (
+    backend,
+    mesh_export,
+    object_tracking,
+    operations,
+    runtime,
+    selection,
+    state,
+)
 from .contracts import (
     DocumentState,
     OperationSpec,
@@ -118,7 +126,7 @@ def _invalidate_simulation(document_state: DocumentState, doc, operation_id=None
     document_state.results.pop("frame_count", None)
 
 
-def _invalidate_toolpaths(
+def invalidate_operation_artifacts(
     document_state: DocumentState,
     doc,
     operation_id: str | None = None,
@@ -137,6 +145,9 @@ def _invalidate_toolpaths(
     document_state.results.pop("toolpath_summary", None)
     if operation_id is None or document_state.selected_operation_id == operation_id:
         runtime.clear_toolpath(doc)
+
+
+_invalidate_toolpaths = invalidate_operation_artifacts
 
 
 def _start_generation(document_state: DocumentState, operation: OperationSpec, doc):
@@ -169,6 +180,7 @@ def _start_generation(document_state: DocumentState, operation: OperationSpec, d
             "/cam/toolpath",
             request_payload,
         ),
+        source_serials=object_tracking.source_serials(doc, operation),
     )
 
 
@@ -212,7 +224,16 @@ def _apply_completed_generation(
         raise ValueError("Operation inputs changed while its toolpath was generating.")
     if not isinstance(task.response, dict):
         raise TypeError("Toolpath generation returned no response.")
+    if object_tracking.sources_changed(doc, task.source_serials):
+        raise ValueError("Source geometry changed while its toolpath was generating.")
 
+    object_tracking.sync_metadata(
+        doc,
+        document_state,
+        operation.source_object_ids,
+        force=True,
+    )
+    state.clear_operation_invalid(document_state, operation.id)
     preview = runtime.show_toolpath(doc, task.response)
     runtime.remember_toolpath(doc, task.response, operation.id)
     state.store_toolpath(document_state, operation, task.response)
@@ -266,9 +287,24 @@ def run(request_data, doc):
             part = selection.select_part(doc)
             if part is None:
                 return panel_event(request, document_state, cancelled=True)
+            old_source_ids = {
+                object_id
+                for _, operation in document_state.all_operations()
+                for object_id in operation.source_object_ids
+            }
             document_state.part = part
+            object_tracking.refresh_all_source_object_ids(document_state)
+            new_source_ids = {
+                object_id
+                for _, operation in document_state.all_operations()
+                for object_id in operation.source_object_ids
+            }
+            object_tracking.sync_metadata(
+                doc, document_state, old_source_ids | new_source_ids
+            )
             _invalidate_toolpaths(document_state, doc)
             runtime.apply_stock_and_part(doc, document_state)
+            object_tracking.rebuild(doc, document_state)
             state.save(doc, document_state)
         elif action == "select_region":
             regions = selection.select_planar_regions(doc)
@@ -291,6 +327,9 @@ def run(request_data, doc):
             if draft is None:
                 return panel_event(request, document_state, cancelled=True)
             editing_existing = operation is not None
+            old_source_ids = (
+                [] if operation is None else list(operation.source_object_ids)
+            )
             if operation is None:
                 setup = document_state.setups[0]
                 operation = OperationSpec(
@@ -305,7 +344,15 @@ def run(request_data, doc):
                 operation.name = draft["name"]
                 operation.params = draft["params"]
                 operation.regions = draft["regions"]
+            object_tracking.refresh_operation_source_object_ids(
+                document_state, operation
+            )
             document_state.selected_operation_id = operation.id
+            object_tracking.sync_metadata(
+                doc,
+                document_state,
+                old_source_ids + operation.source_object_ids,
+            )
             generation = _start_generation(document_state, operation, doc)
             if editing_existing:
                 _invalidate_toolpaths(document_state, doc, operation.id)
@@ -335,6 +382,12 @@ def run(request_data, doc):
                 regions=[PlanarRegion(**region_data)] if isinstance(region_data, dict) else [],
             )
             setup.operations.append(operation)
+            object_tracking.refresh_operation_source_object_ids(
+                document_state, operation
+            )
+            object_tracking.sync_metadata(
+                doc, document_state, operation.source_object_ids
+            )
             document_state.selected_operation_id = operation.id
             runtime.sync_selected_toolpath(doc, document_state)
             state.save(doc, document_state)
@@ -342,6 +395,7 @@ def run(request_data, doc):
         elif action == "update_operation":
             setup, operation = _target_operation(document_state, request)
             _require(operation, "Select an operation to update.")
+            old_source_ids = list(operation.source_object_ids)
             if "name" in request.payload:
                 operation.name = str(request.payload["name"])
             if isinstance(request.payload.get("params"), dict):
@@ -350,13 +404,24 @@ def run(request_data, doc):
                 operation.regions = [PlanarRegion(**region) for region in request.payload["regions"]]
             elif isinstance(request.payload.get("region"), dict):
                 operation.regions = [PlanarRegion(**request.payload["region"])]
+            object_tracking.refresh_operation_source_object_ids(
+                document_state, operation
+            )
+            object_tracking.sync_metadata(
+                doc,
+                document_state,
+                old_source_ids + operation.source_object_ids,
+            )
             _invalidate_toolpaths(document_state, doc, operation.id)
             state.save(doc, document_state)
         elif action == "delete_operation":
             setup, operation = _target_operation(document_state, request)
             _require(operation, "Select an operation to delete.")
+            old_source_ids = list(operation.source_object_ids)
             setup.operations.remove(operation)
+            object_tracking.sync_metadata(doc, document_state, old_source_ids)
             _invalidate_toolpaths(document_state, doc, operation.id)
+            state.clear_operation_invalid(document_state, operation.id)
             if document_state.selected_operation_id == operation.id:
                 document_state.selected_operation_id = None
             runtime.sync_selected_toolpath(doc, document_state)
@@ -377,6 +442,7 @@ def run(request_data, doc):
             )
             runtime.set_visibility(doc, document_state.visibility)
             runtime.apply_stock_and_part(doc, document_state)
+            object_tracking.rebuild(doc, document_state)
             state.save(doc, document_state)
         elif action == "set_backend_url":
             url = str(request.payload.get("url", "")).strip()

@@ -120,7 +120,7 @@ namespace RhinoCodePlatform.Rhino3D.Projects.Plugin
       if (initialJson.IndexOf("\"type\":\"facing_2d\"", StringComparison.Ordinal) >= 0)
         return "2.5D Facing";
       if (initialJson.IndexOf("\"type\":\"parallel_finishing\"", StringComparison.Ordinal) >= 0)
-        return "Parallel Finishing";
+        return "3D Parallel Finishing";
       return "OpenCAM Operation";
     }
 

@@ -59,6 +59,10 @@ def load(doc) -> DocumentState:
                     if "regions" in operation else (
                         [PlanarRegion(**operation["region"])] if operation.get("region") else []
                     ),
+                    source_object_ids=[
+                        str(object_id)
+                        for object_id in operation.get("source_object_ids", [])
+                    ],
                 )
                 for operation in setup.get("operations", [])
             ],
@@ -76,7 +80,7 @@ def load(doc) -> DocumentState:
             else:
                 continue
             break
-    return DocumentState(
+    result = DocumentState(
         schema_version=DOCUMENT_SCHEMA_VERSION,
         backend_url=str(value.get("backend_url", "http://127.0.0.1:9090")),
         part=part,
@@ -87,6 +91,34 @@ def load(doc) -> DocumentState:
         visibility=dict(value.get("visibility") or DEFAULT_VISIBILITY),
         results=dict(value.get("results", {})),
     )
+    from .object_tracking import refresh_all_source_object_ids
+
+    refresh_all_source_object_ids(result)
+    return result
+
+
+def invalid_operation_ids(value: DocumentState) -> set[str]:
+    saved = value.results.get("invalid_operation_ids", [])
+    return (
+        {str(operation_id) for operation_id in saved}
+        if isinstance(saved, list)
+        else set()
+    )
+
+
+def mark_operations_invalid(value: DocumentState, operation_ids) -> None:
+    invalid = invalid_operation_ids(value)
+    invalid.update(str(operation_id) for operation_id in operation_ids)
+    value.results["invalid_operation_ids"] = sorted(invalid)
+
+
+def clear_operation_invalid(value: DocumentState, operation_id: str) -> None:
+    invalid = invalid_operation_ids(value)
+    invalid.discard(str(operation_id))
+    if invalid:
+        value.results["invalid_operation_ids"] = sorted(invalid)
+    else:
+        value.results.pop("invalid_operation_ids", None)
 
 
 def operation_generation_hash(value: DocumentState, operation: OperationSpec) -> str:

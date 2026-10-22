@@ -142,7 +142,7 @@ function simulationControlsHtml() {
 <button data-sim="play" title="${current.playing ? "Pause" : "Play"}" ${ready && current.frameCount > 1 ? "" : "disabled"}>${current.playing ? "⏸" : "▶"}</button>
 <button data-sim="next" title="Step forward" ${ready && !atEnd ? "" : "disabled"}>▶</button>
 <button data-sim="skip-end" title="Skip to end" ${ready && !atEnd ? "" : "disabled"}>▶|</button>
-<input id="simulation-stride" aria-label="Simulation frame stride" title="Frame stride: ${current.stride}" type="range" min="0" max="${SIMULATION_STRIDE_OPTIONS.length - 1}" step="1" value="${Math.max(strideIndex, 0)}" ${ready ? "" : "disabled"}>
+<label class="simulation-stride-control" title="Simulation frame stride: ${current.stride}×"><span>Stride <output>${current.stride}×</output></span><input id="simulation-stride" aria-label="Simulation frame stride" type="range" min="0" max="${SIMULATION_STRIDE_OPTIONS.length - 1}" step="1" value="${Math.max(strideIndex, 0)}" ${ready ? "" : "disabled"}></label>
 <span class="simulation-progress meta">${label}</span>
 <button data-sim="exit" title="Exit simulation" aria-label="Exit simulation">✕</button>
 </div>
@@ -160,12 +160,13 @@ function escapeHtml(value: string) {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 }
 
-function icon(name: "part" | "setup" | "check" | "x" | "loader" | "chevron-right" | "chevron-down") {
+function icon(name: "part" | "setup" | "check" | "x" | "dot" | "loader" | "chevron-right" | "chevron-down") {
   const paths: Record<string, string> = {
     part: '<path d="M4 4h16v16H4z"/><path d="M8 8h8v8H8z"/>',
     setup: '<path d="m12 3-9 5 9 5 9-5-9-5Z"/><path d="m3 12 9 5 9-5"/><path d="m3 17 9 5 9-5"/>',
     check: '<path d="m5 12 4 4L19 6"/>',
     x: '<path d="m6 6 12 12M18 6 6 18"/>',
+    dot: '<circle cx="12" cy="12" r="5" fill="currentColor" stroke="none"/>',
     loader: '<path d="M21 12a9 9 0 1 1-6.219-8.56"/>',
     "chevron-right": '<path d="m9 18 6-6-6-6"/>',
     "chevron-down": '<path d="m6 9 6 6 6-6"/>',
@@ -176,6 +177,8 @@ function icon(name: "part" | "setup" | "check" | "x" | "loader" | "chevron-right
 function operationStatus(operation: OperationSpec) {
   const summaries = latest?.state.results?.toolpath_summaries as Record<string, unknown> | undefined;
   if (generation?.operationId === operation.id) return { className: "generating", iconName: "loader" as const, label: "Generating toolpath" };
+  const invalidOperationIds = latest?.state.results?.invalid_operation_ids;
+  if (Array.isArray(invalidOperationIds) && invalidOperationIds.includes(operation.id)) return { className: "invalid", iconName: "dot" as const, label: "Source geometry changed; regenerate toolpath" };
   const simulatedOperationId = latest?.state.results?.simulation_operation_id;
   const hasSimulation = Boolean(latest?.state.results?.simulation_id);
   const simulationPending = Boolean(latest?.state.results?.simulation_task_id) && !hasSimulation;

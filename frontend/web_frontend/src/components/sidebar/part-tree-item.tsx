@@ -1,0 +1,74 @@
+import type { MouseEvent } from "react";
+import { ChevronDown, ChevronRight, SquareRoundCorner } from "lucide-react";
+
+import { SidebarMenuButton } from "t-components/sidebar";
+import type { TreeNodeRenderProps } from "opencam-react-ui/tree-view";
+import { cn } from "@/lib/utils";
+
+export type PartTreeItemData = {
+  label: string;
+  fileName?: string;
+  needsAttention?: boolean;
+};
+
+type PartTreeItemProps = TreeNodeRenderProps<PartTreeItemData> & {
+  onContextMenu: (event: MouseEvent) => void;
+};
+
+export function PartTreeItem({
+  node,
+  isExpanded,
+  isSelected,
+  depth,
+  hasChildren,
+  toggle,
+  select,
+  onContextMenu,
+}: PartTreeItemProps) {
+  return (
+        <div
+          className="w-full"
+          style={{ paddingLeft: depth * 16 }}
+          onClick={(event) => {
+            event.stopPropagation();
+            select(event);
+          }}
+          onContextMenu={onContextMenu}
+        >
+          <SidebarMenuButton
+            type="button"
+            isActive={isSelected}
+            className={cn(
+              "h-7 items-center gap-1.5 border-border bg-background py-1 shadow",
+              "data-[active=true]:bg-background data-[active=true]:!border-blue-500",
+            )}
+            onClick={(event) => {
+              event.stopPropagation();
+              select(event);
+            }}
+          >
+            <SquareRoundCorner className="h-4 w-4 shrink-0" />
+            <span className="flex min-w-0 flex-1 items-center gap-1.5 font-medium">
+              <span className="shrink-0">{node.data.label}</span>
+              {node.data.fileName ? (
+                <span className="min-w-0 flex-1 truncate text-xs font-normal text-sidebar-foreground/65">{node.data.fileName}</span>
+              ) : null}
+            </span>
+            {node.data.needsAttention ? (
+              <span className="ml-auto h-2 w-2 shrink-0 rounded-full bg-destructive" aria-label="Needs STEP file" />
+            ) : null}
+            {hasChildren ? (
+              <span
+                className="flex h-4 w-4 shrink-0 items-center justify-center"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  toggle();
+                }}
+              >
+                {isExpanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+              </span>
+            ) : null}
+          </SidebarMenuButton>
+        </div>
+  );
+}

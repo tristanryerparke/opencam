@@ -1,0 +1,34 @@
+{
+  "name": "opencam-react-ui",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./tree-view": "./src/tree-view/tree-view.tsx",
+    "./add-operation-button": "./src/add-operation-button.tsx",
+    "./operation-tree": "./src/operation-tree.tsx",
+    "./context-menus": "./src/context-menus.tsx",
+    "./visibility-picker": "./src/visibility-picker.tsx",
+    "./operation-dialog": "./src/operation-dialog.tsx",
+    "./operation-schema": "./src/operation-schema.ts",
+    "./generated/cam.schemas": "./src/generated/cam.schemas.ts",
+    "./styles.css": "./src/styles.css"
+  },
+  "peerDependencies": {
+    "@dnd-kit/react": "0.3.2",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "t-components": "*"
+  },
+  "dependencies": {
+    "clsx": "2.1.1",
+    "lucide-react": "^0.554.0",
+    "react-number-format": "^5.4.5",
+    "tailwind-merge": "3.4.0"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.2",
+    "@types/react-dom": "19.2.2",
+    "t-components": "file:../../../t-components",
+    "typescript": "5.9.3"
+  }
+}

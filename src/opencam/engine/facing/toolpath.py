@@ -47,7 +47,7 @@ def _facing_lanes(
     operation: Facing2dOp,
 ) -> tuple[list[tuple[tuple[float, float], tuple[float, float]]], Polygon]:
     polygon, _ = _polygon(operation)
-    extension = operation.tool.diameter / 2.0 + operation.cut_parameters.edge_overtravel
+    extension = operation.cut_parameters.edge_overtravel
     coverage = polygon.buffer(extension, join_style="mitre")
     angle = operation.cut_parameters.direction_degrees
     local = rotate(coverage, -angle, origin=coverage.centroid, use_radians=False)

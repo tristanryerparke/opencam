@@ -35,11 +35,10 @@ htmlcov/
 .env.local
 
 # Frontend
-/frontend/node_modules
-/rhino_plugin/web/node_modules
-/frontend/dist
-/frontend/dist-ssr
-/frontend/*.local
+/frontend/**/node_modules/
+/frontend/**/dist/
+/frontend/**/dist-ssr
+/frontend/**/*.local
 
 # C# / Rhino plugin
 *.rhl
@@ -49,17 +48,18 @@ htmlcov/
 /csharp/**/web-ui/dist/
 
 # Logs
-/frontend/logs
-/frontend/*.log
-/frontend/npm-debug.log*
-/frontend/yarn-debug.log*
-/frontend/yarn-error.log*
-/frontend/pnpm-debug.log*
-/frontend/lerna-debug.log*
+/frontend/**/logs/
+/frontend/**/*.log
+/frontend/**/npm-debug.log*
+/frontend/**/yarn-debug.log*
+/frontend/**/yarn-error.log*
+/frontend/**/pnpm-debug.log*
+/frontend/**/lerna-debug.log*
 
 # Generated simulation outputs
 output/
 /toolpath-runs/
+/synaptic-out/
 
 # Local backend data
 opencam-tinydb.json

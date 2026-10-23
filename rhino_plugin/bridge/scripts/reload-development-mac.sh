@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BRIDGE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 INTEGRATION_ROOT="$(cd "$BRIDGE_ROOT/.." && pwd)"
-WEB_ROOT="$INTEGRATION_ROOT/web"
+WEB_ROOT="$(cd "$INTEGRATION_ROOT/.." && pwd)/frontend/rhino_frontend"
 INSTALL_DIR="${RHINO_MAC_PLUGINS_DIR:-$HOME/Library/Application Support/McNeel/Rhinoceros/8.0/MacPlugIns}/OpenCamRhinoBridge.rhp"
 
 [[ -f "$INSTALL_DIR/development-python-root.txt" ]] || {

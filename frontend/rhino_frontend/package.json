@@ -1,0 +1,20 @@
+{
+  "name": "opencam-rhino-panel",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "bunx tsc --noEmit && bun scripts/build-panel.mjs",
+    "check": "bunx tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.2",
+    "@types/react-dom": "19.2.2",
+    "t-components": "../../../t-components",
+    "typescript": "^5.7.3"
+  },
+  "dependencies": {
+    "opencam-react-ui": "file:../opencam-ui",
+    "react": "19.2.0",
+    "react-dom": "19.2.0"
+  }
+}

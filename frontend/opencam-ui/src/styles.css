@@ -1,0 +1,263 @@
+.opencam-operation-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.opencam-add-operation-button {
+  display: inline-flex;
+  width: 100%;
+  height: 1.75rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius, 0.5rem) - 2px);
+  background: var(--primary);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 5%);
+  padding: 0 0.5rem;
+  color: var(--primary-foreground);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.opencam-add-operation-button:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--primary) 90%, transparent);
+}
+
+.opencam-add-operation-button:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.opencam-context-menu {
+  position: fixed;
+  z-index: 100;
+  display: flex;
+  pointer-events: auto;
+  width: 9rem;
+  box-sizing: border-box;
+  flex-direction: column;
+  gap: 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  background: var(--popover, var(--background));
+  box-shadow: 0 4px 16px rgb(0 0 0 / 30%);
+  padding: 0.25rem;
+  color: var(--popover-foreground, var(--foreground));
+  font-size: 0.875rem;
+}
+
+.opencam-context-menu [data-slot="opencam-context-menu-item"] {
+  width: 100%;
+  height: 1.5rem;
+  border: 0;
+  border-radius: 0.25rem;
+  background: transparent;
+  padding: 0 0.5rem;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.opencam-context-menu [data-slot="opencam-context-menu-item"]:hover:not(:disabled),
+.opencam-context-menu [data-slot="opencam-context-menu-item"]:focus-visible {
+  background: var(--accent);
+  color: var(--accent-foreground);
+  outline: none;
+}
+
+.opencam-context-menu [data-slot="opencam-context-menu-item"][data-destructive] {
+  color: var(--destructive, #ef4444);
+}
+
+.opencam-context-menu [data-slot="opencam-context-menu-item"][data-destructive]:hover:not(:disabled),
+.opencam-context-menu [data-slot="opencam-context-menu-item"][data-destructive]:focus-visible {
+  background: color-mix(in srgb, var(--destructive, #ef4444) 15%, transparent);
+  color: var(--destructive, #ef4444);
+}
+
+.opencam-context-menu [data-slot="opencam-context-menu-item"]:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+[data-slot="tree-node"] {
+  position: relative;
+  transition: transform 160ms ease, opacity 160ms ease, background-color 160ms ease;
+  will-change: transform;
+}
+
+[data-slot="tree-node"][data-dragging] {
+  opacity: 0.5;
+}
+
+[data-slot="tree-node"][data-drop-target][data-drop-position="inside"] {
+  background: color-mix(in srgb, var(--accent) 50%, transparent);
+  border-radius: 0.375rem;
+}
+
+[data-slot="tree-drop-indicator"] {
+  pointer-events: none;
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
+  height: 2px;
+  background: #3b82f6;
+  transition: opacity 120ms ease, left 160ms ease;
+}
+
+.tree-operation,
+.tree-row,
+.tree-drag-handle,
+.tree-status {
+  transition: transform 160ms ease, opacity 160ms ease, color 120ms ease, background-color 120ms ease, border-color 120ms ease;
+}
+
+.tree-drag-handle {
+  will-change: transform;
+}
+
+.tree-drag-handle:active:not(:disabled) {
+  transform: scale(0.92);
+}
+
+.tree-indent {
+  min-width: 0;
+}
+
+.tree-operation {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  gap: 0.25rem;
+  border-radius: 0.375rem;
+}
+
+.tree-operation[data-dragging] {
+  opacity: 0.5;
+}
+
+.tree-drag-handle {
+  appearance: none;
+  display: flex;
+  width: 1rem;
+  height: 1.75rem;
+  flex: 0 0 1rem;
+  align-items: center;
+  justify-content: center;
+  border: 0 !important;
+  border-radius: 0;
+  outline: 0;
+  box-shadow: none;
+  background: transparent !important;
+  color: color-mix(in srgb, var(--foreground) 65%, transparent);
+  padding: 0;
+  cursor: grab;
+}
+
+.tree-drag-handle:hover:not(:disabled) {
+  border: 0 !important;
+  background: transparent !important;
+  color: var(--foreground);
+}
+
+.tree-drag-handle:active:not(:disabled) {
+  cursor: grabbing;
+}
+
+.tree-row {
+  display: flex;
+  width: 100%;
+  height: 1.75rem;
+  min-width: 0;
+  align-items: center;
+  gap: 0.375rem;
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  background: var(--background);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 16%);
+  padding: 0 0.5rem;
+  color: var(--foreground);
+  text-align: left;
+  font-size: 0.75rem;
+}
+
+.tree-row:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
+.tree-row.selected,
+.tree-row[data-active="true"] {
+  border-color: #3b82f6;
+  background: var(--background);
+}
+
+.tree-icon {
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 1rem;
+  color: color-mix(in srgb, var(--foreground) 65%, transparent);
+}
+
+.tree-content {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 0.375rem;
+  font-weight: 600;
+}
+
+.tree-label,
+.tree-file {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tree-file {
+  min-width: 0;
+  flex: 1;
+  color: color-mix(in srgb, var(--foreground) 65%, transparent);
+  font-size: 0.6875rem;
+  font-weight: 400;
+}
+
+.tree-status {
+  width: 1rem;
+  height: 1rem;
+  flex: 0 0 1rem;
+}
+
+.tree-status.missing,
+.tree-status.invalid {
+  color: #ef4444;
+}
+
+.tree-status.generating,
+.tree-status.generated {
+  color: #22c55e;
+}
+
+.tree-status.simulated {
+  color: #3b82f6;
+}
+
+.tree-status .tree-icon {
+  color: inherit;
+}
+
+.tree-status.generating .tree-icon {
+  animation: opencam-spin 1s linear infinite;
+}
+
+@keyframes opencam-spin {
+  to { transform: rotate(360deg); }
+}

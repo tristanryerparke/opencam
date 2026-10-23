@@ -4,6 +4,21 @@
 
 - User authorizes replacement of development `OpenCamRhinoBridge.rhp` whenever required by OpenCAM changes; rebuild/install without asking. State when Rhino restart is required.
 
+## Shared schema-driven operation editor
+
+- [x] Audit the Pydantic operation-schema pipeline and identify Rhino contract gaps.
+- [x] Move the frontend schema-driven operation editor body into `frontend/opencam-ui`.
+- [x] Replace the Rhino editor’s hand-authored fields/defaults with a thin host shim over the shared editor.
+- [x] Keep the browser dialog as a thin wrapper over the shared editor and validate both frontend builds.
+
+The Pydantic operation models already generate the JSON Schema used by the browser editor. The shared UI package now owns schema traversal/validation and the operation-editor component; generation also writes the Pydantic schema bundle directly there. The browser is a tool-loading wrapper, while Rhino maps its persisted `OperationSpec`/live `PlanarRegion` bridge contract into and out of the same Pydantic-shaped draft before rendering the shared editor.
+
+Layout fix: Rhino bundles no compiled Tailwind utilities, so layout-critical sizing in the shared editor (fixed 80vh dialog body, grid rows, flex/overflow interior) and the Rhino operation picker now use inline styles; both hosts get a fixed-height editing area and a 2-column, scrollable picker.
+
+Rhino stale-bundle fix: `reload-development-mac.sh` still built from the deleted `rhino_plugin/web`; it now builds `frontend/rhino_frontend` and installs that dist. Rebuilt and reinstalled the development bundle.
+
+Rhino operation creation fix: Bun resolved the file-based shared package from `frontend/opencam-ui` and bundled its package-local React alongside the Rhino app's React, causing the shared editor to throw `Invalid hook call` before it could return a draft. The Rhino bundle script now symlinks React/ReactDOM in both source packages to the Rhino app's instances before bundling. The shared schema clone also no longer relies on unsupported `structuredClone`. Browser-level smoke checks now render both the shared editor and a panel state containing `Rough Pocket`; both frontend builds and `git diff --check` pass.
+
 ## Frontend setup operation reordering
 
 - [x] Add a drag handle to reorder operations within a setup.
@@ -505,3 +520,63 @@ Facing now accepts any valid, single closed polygon. A mixed-direction raster on
 - [x] Install Ruff with uv and run it against the changed Python files.
 
 `uv tool install ruff` installed Ruff 0.17.2. Ruff and `git diff --check` pass for the changed Python files.
+
+## Shared context menus
+
+- [x] Identify the two frontend right-click menu implementations and their shared-code path.
+- [x] Move menu styling and item highlighting to shared code, then update both frontends.
+- [x] Run relevant frontend checks.
+
+Rhino TypeScript check and browser TypeScript check pass. Browser ESLint remains blocked by two pre-existing errors in `tool-editor-dialog.tsx` and `integer-input.tsx`.
+
+## Frontend per-operation simulation status
+
+- [x] Preserve the simulated status for every completed operation.
+- [x] Clear simulated status when an operation is regenerated, edited, deleted, or invalidated.
+- [x] Run frontend type checks.
+
+Completed simulations now retain a per-operation blue status; starting a new generation only clears that operation's simulation status. Browser and Rhino TypeScript checks pass.
+
+## Visibility picker active styling
+
+- [x] Style active visibility-picker items with the shared solid primary fill.
+- [x] Run frontend type checks.
+
+Active visibility items now use the primary background and foreground in both frontends. Browser and Rhino TypeScript checks pass.
+
+## Visibility picker button-group styling
+
+- [x] Apply the `t-components` button-group geometry to visibility toggles.
+- [x] Run frontend type checks.
+
+Visibility toggles now share borders and have rounded corners only at the two outer ends, matching the `t-components` horizontal button-group geometry. Browser and Rhino TypeScript checks pass.
+
+## Visibility picker pressed styling
+
+- [x] Use a single shared border across visibility toggles.
+- [x] Use the `t-components` pressed-toggle fill for active items.
+- [x] Run frontend type checks.
+
+Visibility toggles now use the same neutral 15%-foreground pressed fill as `t-components` toggles, with one continuous border between items. Browser and Rhino TypeScript checks pass.
+
+## Disabled visibility-toggle cursor
+
+- [x] Show the native unavailable cursor for disabled visibility toggles.
+- [x] Run frontend type checks.
+
+Disabled visibility toggles now use the native unavailable cursor. Browser and Rhino TypeScript checks pass.
+
+## Visibility-toggle height
+
+- [x] Match visibility-toggle height to the Add Operation button.
+- [x] Run frontend type checks.
+
+Visibility toggles are now 1.75 rem high, matching the Add Operation button. Browser and Rhino TypeScript checks pass.
+
+## Shared Add Operation button
+
+- [x] Create a shared Add Operation button using the web frontend's button styling.
+- [x] Replace the browser and Rhino panel buttons with the shared component.
+- [x] Build and reload the Rhino development panel.
+
+The shared button now uses the browser's default-button geometry, colors, hover treatment, and disabled state. A panel-only Rhino bundle was installed and reload request `1c62118d-4539-46fc-9892-c44a64b685d1` was sent to Rhino. The full frontend build remains blocked by existing incomplete `operation-schema.ts` types and missing generated schemas in `frontend/opencam-ui`.

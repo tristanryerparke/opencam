@@ -1,13 +1,13 @@
 import json
 from pathlib import Path
 
-from opencam.schemas.cam import CAMSetup
-from opencam.schemas.cl_data import FeedRatePositionRecord3D
-from opencam.schemas.geometry_2_5d import ClosedPolyline25D
-from opencam.schemas.operations.base import CAMLevels, FeedsAndSpeeds
-from opencam.schemas.operations.pocketing import Pocketing2dOp, PocketingCutSettings, StepoverMode
-from opencam.schemas.geometry_2d import Point2D
-from opencam.schemas.tools import CylindricalTool
+from opencam_contracts.cam import CAMSetup
+from opencam_contracts.cl_data import FeedRatePositionRecord3D
+from opencam_contracts.geometry_2_5d import ClosedPolyline25D
+from opencam_contracts.operations.base import CAMLevels, FeedsAndSpeeds
+from opencam_contracts.operations.pocketing import Pocketing2dOp, PocketingCutSettings, StepoverMode
+from opencam_contracts.geometry_2d import Point2D
+from opencam_contracts.tools import CylindricalTool
 from opencam.services.cam_engine import cam_engine
 
 

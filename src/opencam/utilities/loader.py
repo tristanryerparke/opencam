@@ -2,7 +2,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import gmsh
-from opencam.schemas.mesh import Mesh
+from opencam_contracts.mesh import Mesh
 
 # ponytail: one Gmsh worker; use worker processes if conversion throughput matters.
 _GMSH_EXECUTOR = ThreadPoolExecutor(max_workers=1)

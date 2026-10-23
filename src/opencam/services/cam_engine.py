@@ -13,19 +13,19 @@ from opencam.engine.profiling.toolpath import (
     build_profiling_records,
     profiling_max_cut_z,
 )
-from opencam.schemas.cam import GenerateToolpathRequest
-from opencam.schemas.cl_data import OperationRecord3D
-from opencam.schemas.mesh import CachedMeshLoader, resolve_part_mesh
-from opencam.schemas.operations.base import (
+from opencam_contracts.cam import GenerateToolpathRequest
+from opencam_contracts.cl_data import OperationRecord3D
+from opencam_contracts.mesh import CachedMeshLoader, resolve_part_mesh
+from opencam_contracts.operations.base import (
     AutomaticClearance,
     BaseCAMOperation,
     PartMaxZPlusOffsetClearance,
 )
-from opencam.schemas.operations.facing import Facing2dOp
-from opencam.schemas.operations.parallel_finishing import ParallelFinishingOp
-from opencam.schemas.operations.pocketing import Pocketing2dOp
-from opencam.schemas.operations.profiling import Profiling2dOp
-from opencam.schemas.setup import CAMSetup
+from opencam_contracts.operations.facing import Facing2dOp
+from opencam_contracts.operations.parallel_finishing import ParallelFinishingOp
+from opencam_contracts.operations.pocketing import Pocketing2dOp
+from opencam_contracts.operations.profiling import Profiling2dOp
+from opencam_contracts.setup import CAMSetup
 from opencam.services.toolpath_run_logs import log_generated_cl
 
 

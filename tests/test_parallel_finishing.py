@@ -8,8 +8,8 @@ from fastapi.testclient import TestClient
 
 from opencam.engine.parallel_finishing.surface import TriangleSurface
 from opencam.engine.parallel_finishing.toolpath import build_parallel_finishing_records
-from opencam.schemas.mesh import Mesh
-from opencam.schemas.tools import BallTool, CylindricalTool
+from opencam_contracts.mesh import Mesh
+from opencam_contracts.tools import BallTool, CylindricalTool
 from opencam.services.tool_mesh import build_tool
 from server.main import app
 

@@ -8,9 +8,9 @@ from shapely.geometry import LineString, Polygon
 
 from opencam.engine.levels.heights import compute_layer_heights
 from opencam.engine.levels.layers import build_cut_record_sequence
-from opencam.schemas.cl_data import FeedRatePositionRecord3D, PositionRecord
-from opencam.schemas.operations.facing import Facing2dOp
-from opencam.schemas.tools import CylindricalTool
+from opencam_contracts.cl_data import FeedRatePositionRecord3D, PositionRecord
+from opencam_contracts.operations.facing import Facing2dOp
+from opencam_contracts.tools import CylindricalTool
 
 
 def facing_max_cut_z(operation: Facing2dOp) -> float:

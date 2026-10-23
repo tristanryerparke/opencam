@@ -5,12 +5,12 @@ from collections.abc import Sequence
 
 from opencam.post_processing.duet3d.models import Duet3DMachineDefinition
 from opencam.post_processing.gcode import GcodeCommand, GcodeMove, emit_gcode
-from opencam.schemas.cl_data import (
+from opencam_contracts.cl_data import (
     ArcPositionRecord3D,
     FeedRatePositionRecord3D,
     OperationRecord3D,
 )
-from opencam.schemas.tools import Tool
+from opencam_contracts.tools import Tool
 from opencam.services.tool_library import ToolLibrary
 
 

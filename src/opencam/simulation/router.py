@@ -14,7 +14,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Response, UploadFile
 from pydantic import ValidationError
 from trimesh.proximity import ProximityQuery
 
-from opencam.schemas.cl_data import OperationRecord3D, PositionRecord3D
+from opencam_contracts.cl_data import OperationRecord3D, PositionRecord3D
 from opencam.services.mesh_cache import get_mesh_cache
 from opencam.services.tool_mesh import build_tool_mesh_glb_from_tool
 from opencam.services.toolpath_run_logs import ensure_logged_cl, log_simulation_frames

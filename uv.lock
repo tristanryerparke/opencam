@@ -693,6 +693,7 @@ dependencies = [
     { name = "numba" },
     { name = "numpy" },
     { name = "numpydantic" },
+    { name = "opencam-contracts" },
     { name = "pydantic", version = "2.12.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13'" },
     { name = "pydantic", version = "2.14.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.13'" },
     { name = "pydantic-to-typescript" },
@@ -725,6 +726,7 @@ requires-dist = [
     { name = "numba", specifier = ">=0.65.1" },
     { name = "numpy", specifier = ">=2.4.4" },
     { name = "numpydantic", specifier = ">=1.10.0" },
+    { name = "opencam-contracts", editable = "contracts" },
     { name = "pydantic", specifier = ">=2.12.5" },
     { name = "pydantic-to-typescript", specifier = ">=2" },
     { name = "pymeshlab", specifier = ">=2025.7.post1" },
@@ -744,6 +746,23 @@ dev = [
     { name = "devtools", specifier = ">=0.12.2" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "matplotlib", specifier = ">=3.11.0" },
+]
+
+[[package]]
+name = "opencam-contracts"
+version = "0.1.0"
+source = { editable = "contracts" }
+dependencies = [
+    { name = "pydantic", version = "2.12.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13'" },
+    { name = "pydantic", version = "2.14.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.13'" },
+    { name = "typing-extensions", version = "4.15.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.13'" },
+    { name = "typing-extensions", version = "4.16.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.13'" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pydantic", specifier = ">=2.12.5" },
+    { name = "typing-extensions", specifier = ">=4.14" },
 ]
 
 [[package]]

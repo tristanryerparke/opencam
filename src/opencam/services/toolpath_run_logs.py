@@ -4,9 +4,9 @@ import json
 from pathlib import Path
 from uuid import UUID, uuid4
 
-from opencam.schemas.cam import GenerateToolpathRequest
-from opencam.schemas.cl_data import OperationRecord3D
-from opencam.schemas.mesh import CachedMesh, CachedMeshLoader, resolve_part_mesh
+from opencam_contracts.cam import GenerateToolpathRequest
+from opencam_contracts.cl_data import OperationRecord3D
+from opencam_contracts.mesh import CachedMesh, CachedMeshLoader, resolve_part_mesh
 
 RUN_LOG_DIR = Path(__file__).resolve().parents[3] / "toolpath-runs"
 

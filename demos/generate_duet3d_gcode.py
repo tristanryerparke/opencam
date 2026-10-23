@@ -12,7 +12,7 @@ from pathlib import Path
 
 from opencam.post_processing.duet3d.models import build_default_duet3d_machine
 from opencam.post_processing.duet3d.post_processor import Duet3DPostProcessor
-from opencam.schemas.cl_data import OperationRecord3D
+from opencam_contracts.cl_data import OperationRecord3D
 from opencam.services.tool_library import get_tool_library
 
 

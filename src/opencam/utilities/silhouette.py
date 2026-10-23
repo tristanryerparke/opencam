@@ -3,8 +3,8 @@ from __future__ import annotations
 from shapely.geometry import Polygon
 from shapely.ops import unary_union
 
-from opencam.schemas.geometry_2d import ClosedPolyline2D, Point2D
-from opencam.schemas.mesh import Mesh
+from opencam_contracts.geometry_2d import ClosedPolyline2D, Point2D
+from opencam_contracts.mesh import Mesh
 
 
 def silhouette(mesh: Mesh) -> ClosedPolyline2D:

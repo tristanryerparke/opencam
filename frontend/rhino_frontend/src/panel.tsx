@@ -431,11 +431,11 @@ function applyTheme(theme: Theme) {
   const componentColors: Record<string, string | undefined> = {
     "--background": tokens.bg,
     "--foreground": tokens.text,
-    "--popover": tokens.surface,
+    "--popover": tokens.bg,
     "--popover-foreground": tokens.text,
     "--accent": tokens["control-hover"],
     "--accent-foreground": tokens.text,
-    "--destructive": tokens.accent,
+    "--destructive": "#ef4444",
     "--border": tokens.border,
     "--input": tokens.border,
     "--ring": tokens.accent,

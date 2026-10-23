@@ -12,8 +12,8 @@ from zipfile import BadZipFile, ZipFile
 
 import trimesh
 
-from opencam.schemas.base import CamelBaseModel
-from opencam.schemas.mesh import Mesh
+from opencam_contracts.base import CamelBaseModel
+from opencam_contracts.mesh import Mesh
 
 MESH_FILE_URL = "/cam/mesh/file"
 DEFAULT_CACHE_DIR = Path(__file__).resolve().parents[3] / "mesh-cache"

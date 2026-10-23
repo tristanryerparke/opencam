@@ -29,11 +29,13 @@ dependencies = [
     "tinydb>=4.8.2",
     "trimesh>=4.12.0",
     "uvicorn>=0.40.0",
+    "opencam-contracts",
 ]
 
 [tool.uv.sources]
 rhino-python-renderer = { path = "../rhino-python-renderer", editable = true }
 run-in-rhino = { path = "../run-in-rhino", editable = true }
+opencam-contracts = { path = "contracts", editable = true }
 
 [tool.setuptools.packages.find]
 where = ["src"]

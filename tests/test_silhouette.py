@@ -1,6 +1,6 @@
 from shapely.geometry import Polygon
 
-from opencam.schemas.mesh import Mesh
+from opencam_contracts.mesh import Mesh
 from opencam.utilities.silhouette import silhouette
 
 

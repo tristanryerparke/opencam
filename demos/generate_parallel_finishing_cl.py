@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 from pathlib import Path
 
-from opencam.schemas.cam import CAMSetup
-from opencam.schemas.operations.base import FeedsAndSpeeds
-from opencam.schemas.operations.parallel_finishing import ParallelFinishingCutSettings, ParallelFinishingOp
-from opencam.schemas.operations.pocketing import StepoverMode
-from opencam.schemas.tools import BallTool
+from opencam_contracts.cam import CAMSetup
+from opencam_contracts.operations.base import FeedsAndSpeeds
+from opencam_contracts.operations.parallel_finishing import ParallelFinishingCutSettings, ParallelFinishingOp
+from opencam_contracts.operations.pocketing import StepoverMode
+from opencam_contracts.tools import BallTool
 from opencam.services.cam_engine import cam_engine
 from opencam.utilities.loader import step_to_mesh
 from opencam.utilities.silhouette import silhouette

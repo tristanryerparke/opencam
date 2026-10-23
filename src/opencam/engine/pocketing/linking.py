@@ -11,7 +11,7 @@ from shapely.geometry.base import BaseGeometry
 
 from opencam.engine.closed_polyline.offset import quad_segs_for_tolerance
 from opencam.engine.closed_polyline.validation import validate_closed_polyline
-from opencam.schemas.cl_data import ArcPositionRecord3D, FeedRatePositionRecord3D
+from opencam_contracts.cl_data import ArcPositionRecord3D, FeedRatePositionRecord3D
 
 MINIMUM_DISTANCE = 1e-9
 

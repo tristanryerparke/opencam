@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from opencam.schemas.tools import CylindricalTool
+from opencam_contracts.tools import CylindricalTool
 from opencam.services.tool_mesh import build_tool
 from server.main import app
 

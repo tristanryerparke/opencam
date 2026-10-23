@@ -17,7 +17,7 @@ from manifold3d import Error, Manifold, Mesh64, OpType
 from opencam._cgal_planar import remesh_planar_patches
 
 from opencam.engine.arc import linearize_arc_records, linearize_arc_records_with_indices
-from opencam.schemas.cl_data import OperationRecord3D, PositionRecord3D
+from opencam_contracts.cl_data import OperationRecord3D, PositionRecord3D
 from opencam.services.tool_mesh import (
     build_tool_mesh_glb_from_tool,
     build_tool_mesh_vertices_faces,

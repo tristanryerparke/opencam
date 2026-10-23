@@ -1,7 +1,7 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Button } from "t-components/button";
-import { OperationDialog, type ToolOption } from "opencam-react-ui/operation-dialog";
+import { OperationEditor, type ToolOption } from "opencam-react-ui/operation-dialog";
 import {
   type DraftObject,
   type DraftValue,
@@ -114,10 +114,32 @@ function toLegacyDraft(source: LegacyDraft, draft: DraftObject): LegacyDraft {
   return { ...source, name: String(parsed.displayName ?? source.name), params, regions: source.regions.slice(0, Array.isArray(parsed.driveGeometry) ? parsed.driveGeometry.length : 0) };
 }
 
+function OperationPickerIcon({ type }: { type: OperationType }) {
+  const frame = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const icon = document.querySelector<HTMLTemplateElement>(`#operation-icon-${type}`)?.content.firstElementChild?.cloneNode(true) as SVGSVGElement | undefined;
+    if (!icon || !frame.current) return;
+    icon.setAttribute("aria-hidden", "true");
+    icon.style.width = "5rem";
+    icon.style.height = "5rem";
+    icon.style.transform = "translateY(0.75rem) scale(1.375)";
+    icon.style.transformOrigin = "center bottom";
+    frame.current.replaceChildren(icon);
+  }, [type]);
+
+  return <div ref={frame} style={{ display: "flex", width: "6.25rem", height: "6.25rem", flexShrink: 0, alignItems: "flex-end", justifyContent: "center" }} />;
+}
+
 function OperationPicker({ onSelect }: { onSelect: (type: OperationType) => void }) {
-  return <main style={{ margin: "auto", display: "flex", flexDirection: "column", gap: "0.5rem", width: "100%", maxWidth: "36rem", maxHeight: "100%", overflowY: "auto", padding: "1rem" }}>
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "0.75rem" }}>
-      {(Object.keys(labels) as OperationType[]).map((type) => <Button key={type} variant="outline" size="lg" style={{ height: "auto", minHeight: "3rem", justifyContent: "center", padding: "0.75rem", whiteSpace: "normal" }} onClick={() => onSelect(type)}>{labels[type]}</Button>)}
+  return <main style={{ margin: "auto", display: "flex", flexDirection: "column", gap: "0.5rem", width: "100%", maxWidth: "26.75rem", maxHeight: "100%", overflowY: "auto", padding: "1rem" }}>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 11rem)", justifyContent: "center", gap: "0.75rem" }}>
+      {(Object.keys(labels) as OperationType[]).map((type) => (
+        <Button key={type} variant="outline" size="lg" style={{ width: "11rem", height: "11rem", flexDirection: "column", justifyContent: "space-between", gap: "0.75rem", padding: "1rem", whiteSpace: "normal" }} onClick={() => onSelect(type)}>
+          <OperationPickerIcon type={type} />
+          <span style={{ textAlign: "center" }}>{labels[type]}</span>
+        </Button>
+      ))}
     </div>
     <footer style={{ display: "flex", justifyContent: "flex-end" }}><Button variant="outline" onClick={() => send({ action: "cancel" })}>Cancel</Button></footer>
   </main>;
@@ -138,17 +160,31 @@ function RhinoOperationDialog({ initial }: { initial: InitialValue }) {
     send({ action: "begin", draft: { name: labels[type], type, params: {}, regions: [] } });
   };
   if (!source || !draft || !schema) return <OperationPicker onSelect={selectType} />;
-  return <OperationDialog
-    open
-    draft={draft}
-    mode={initial.draft ? "edit" : "create"}
-    rootSchema={schema}
-    loadTools={loadTools}
-    onDraftChange={setDraft}
-    onOpenChange={(open) => { if (!open) send({ action: "cancel" }); }}
-    onStartGeometrySelection={() => send({ action: "select_region", draft: toLegacyDraft(source, draft) })}
-    onSave={() => send({ action: "generate", draft: toLegacyDraft(source, draft) })}
-  />;
+  const validationMessage = (() => {
+    try {
+      parseDraftValue(schema, draft, schema, "Operation");
+      return null;
+    } catch (error) {
+      return error instanceof Error ? error.message : "Operation is invalid.";
+    }
+  })();
+
+  return (
+    <main style={{ display: "grid", gridTemplateRows: "minmax(0, 1fr) auto", height: "100%", minHeight: 0, gap: "0.75rem", padding: "0.75rem" }}>
+      <OperationEditor
+        draft={draft}
+        mode={initial.draft ? "edit" : "create"}
+        rootSchema={schema}
+        loadTools={loadTools}
+        onDraftChange={setDraft}
+        onStartGeometrySelection={() => send({ action: "select_region", draft: toLegacyDraft(source, draft) })}
+      />
+      <footer style={{ display: "flex", justifyContent: "flex-end", gap: "0.5rem" }}>
+        <Button type="button" variant="outline" onClick={() => send({ action: "cancel" })}>Cancel</Button>
+        <Button type="button" disabled={validationMessage !== null} onClick={() => send({ action: "generate", draft: toLegacyDraft(source, draft) })}>Generate</Button>
+      </footer>
+    </main>
+  );
 }
 
 const element = document.querySelector<HTMLElement>("#app");

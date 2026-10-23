@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from opencam.schemas.cam import build_frontend_cam_schema_bundle
+from opencam_contracts.cam import build_frontend_cam_schema_bundle
 
 
 if __name__ == "__main__":

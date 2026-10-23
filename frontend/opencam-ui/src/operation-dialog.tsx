@@ -117,6 +117,9 @@ function needsValues(rootSchema: JsonSchema, schema: JsonSchema, value: DraftVal
   }
 }
 
+const fieldStackStyle = { display: "flex", flexDirection: "column", gap: "0.25rem" } as const;
+const sectionStackStyle = { display: "flex", flexDirection: "column", gap: "1rem" } as const;
+
 type ControlGeometryPanelProps = {
   value: DraftValue | undefined;
   onStartGeometrySelection: () => void;
@@ -131,7 +134,7 @@ function ControlGeometryPanel({
   const rows = getControlGeometryRows(value);
 
   return (
-    <div className="space-y-3">
+    <div style={{ ...sectionStackStyle, gap: "0.75rem" }}>
       <Button type="button" onClick={onStartGeometrySelection}>
         Add XY-planar edge loop
       </Button>
@@ -196,7 +199,7 @@ function ToolSelectField({ label, description, value, onChange, loadTools }: Too
   }, [loadTools]);
 
   return (
-    <div className="space-y-1">
+    <div style={fieldStackStyle}>
       <Label>{label}</Label>
       <Select
         value={toolId}
@@ -280,8 +283,8 @@ function SchemaFields({ rootSchema, schema, value, path, onChange, onStartGeomet
     const isClearanceMode = path.length === 1 && path[0] === "clearance";
 
     return (
-      <div className="space-y-4">
-        <div className="space-y-1">
+      <div style={sectionStackStyle}>
+        <div style={fieldStackStyle}>
           <Label>{label}</Label>
           {isClearanceMode ? (
             <RadioGroup value={selectedOption.value} onValueChange={selectOption} className="gap-2">
@@ -358,7 +361,7 @@ function SchemaFields({ rootSchema, schema, value, path, onChange, onStartGeomet
 
   if (metadata.readOnly) {
     return (
-      <div className="space-y-1">
+      <div style={fieldStackStyle}>
         <Label>{label}</Label>
         <div className="rounded-md border bg-muted/40 px-2 py-2 text-sm">{formatReadOnlyValue(value)}</div>
         {resolved.description ? (
@@ -383,7 +386,7 @@ function SchemaFields({ rootSchema, schema, value, path, onChange, onStartGeomet
 
   if (resolved.properties) {
     return (
-      <div className="space-y-4">
+      <div style={sectionStackStyle}>
         {Object.entries(resolved.properties).map(([key, childSchema]) => (
           <SchemaFields
             key={[...path, key].join(".")}
@@ -409,7 +412,7 @@ function SchemaFields({ rootSchema, schema, value, path, onChange, onStartGeomet
     const currentValue = typeof value === "string" ? value : (resolved.default as string | undefined) ?? "";
 
     return (
-      <div className="space-y-1">
+      <div style={fieldStackStyle}>
         <Label>{label}</Label>
         <Select
           value={currentValue}
@@ -444,7 +447,7 @@ function SchemaFields({ rootSchema, schema, value, path, onChange, onStartGeomet
           checked={checked}
           onCheckedChange={(nextChecked) => onChange(path, nextChecked === true)}
         />
-        <div className="space-y-0.5">
+        <div style={{ ...fieldStackStyle, gap: "0.125rem" }}>
           <Label htmlFor={id}>{label}</Label>
           {resolved.description ? (
             <p className="text-xs leading-5 text-muted-foreground">{resolved.description}</p>
@@ -460,7 +463,7 @@ function SchemaFields({ rootSchema, schema, value, path, onChange, onStartGeomet
     const allowNegative = min === undefined || min < 0;
 
     return (
-      <div className="space-y-1">
+      <div style={fieldStackStyle}>
         <Label>{`${label}${unit}`}</Label>
         {resolved.type === "integer" ? (
           <IntegerInput
@@ -487,7 +490,7 @@ function SchemaFields({ rootSchema, schema, value, path, onChange, onStartGeomet
 
   const currentValue = typeof value === "string" ? value : value == null ? "" : String(value);
   return (
-    <div className="space-y-1">
+    <div style={fieldStackStyle}>
       <Label>{label}</Label>
       <Input type="text" value={currentValue} onChange={(event) => onChange(path, event.target.value)} />
       {resolved.description ? (
@@ -497,29 +500,29 @@ function SchemaFields({ rootSchema, schema, value, path, onChange, onStartGeomet
   );
 }
 
-export type OperationDialogProps = {
-  open: boolean;
+export type OperationEditorProps = {
   draft: DraftObject | null;
   mode: "create" | "edit";
   rootSchema: JsonSchema;
   onDraftChange: (draft: DraftObject) => void;
-  onOpenChange: (open: boolean) => void;
-  onSave: () => void;
   onStartGeometrySelection: () => void;
   loadTools: () => Promise<readonly ToolOption[]>;
 };
 
-export function OperationDialog({
-  open,
+export type OperationDialogProps = OperationEditorProps & {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSave: () => void;
+};
+
+export function OperationEditor({
   draft,
   mode,
   rootSchema,
   onDraftChange,
-  onOpenChange,
-  onSave,
   onStartGeometrySelection,
   loadTools,
-}: OperationDialogProps) {
+}: OperationEditorProps) {
   const sections = useMemo(() => getVisibleSections(rootSchema), [rootSchema]);
   const defaultSectionKey = useMemo(() => {
     if (mode === "create" && sections.some((section) => section.key === "driveGeometry")) {
@@ -537,10 +540,78 @@ export function OperationDialog({
     requestedSection?.sessionKey === draftSessionKey ? requestedSection.sectionKey : defaultSectionKey;
   const activeSection = sections.find((section) => section.key === requestedSectionKey) ?? sections[0];
 
+  if (!draft) {
+    return null;
+  }
+
+  return (
+    <SidebarProvider defaultOpen>
+      <div className="h-full rounded-md border" style={{ display: "flex", minHeight: 0, flex: "1 1 0", overflow: "hidden" }}>
+        <Sidebar className="bg-muted/30" style={{ "--sidebar-width": "10rem" } as React.CSSProperties}>
+          <SidebarContent>
+            <SidebarGroup>
+              <SidebarGroupContent>
+                <SidebarMenu style={{ display: "flex", flexDirection: "column", gap: "0.125rem" }}>
+                  {sections.map((section) => {
+                    const sectionNeedsValues = needsValues(rootSchema, section.schema, draft[section.key], section.title);
+                    return (
+                      <SidebarMenuItem key={section.key}>
+                        <SidebarMenuButton
+                          type="button"
+                          className="justify-between"
+                          isActive={section.key === activeSection?.key}
+                          onClick={() => setRequestedSection({ sectionKey: section.key, sessionKey: draftSessionKey })}
+                        >
+                          <span>{section.title}</span>
+                          {sectionNeedsValues ? (
+                            <>
+                              <span className="ml-auto h-2 w-2 shrink-0 rounded-full bg-destructive" aria-hidden="true" />
+                              <span className="sr-only">Needs values</span>
+                            </>
+                          ) : null}
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    );
+                  })}
+                </SidebarMenu>
+              </SidebarGroupContent>
+            </SidebarGroup>
+          </SidebarContent>
+        </Sidebar>
+
+        <div className="min-h-0" style={{ display: "flex", minWidth: 0, flex: "1 1 0", flexDirection: "column", gap: "1rem", overflowY: "auto", padding: "0.5rem" }}>
+          {activeSection ? (
+            <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+              <SchemaFields
+                rootSchema={rootSchema}
+                schema={activeSection.schema}
+                value={draft[activeSection.key]}
+                path={[activeSection.key]}
+                onChange={(nextPath, nextValue) => onDraftChange(setDraftValueAtPath(draft, nextPath, nextValue))}
+                onStartGeometrySelection={onStartGeometrySelection}
+                loadTools={loadTools}
+              />
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </SidebarProvider>
+  );
+}
+
+export function OperationDialog({
+  open,
+  draft,
+  mode,
+  rootSchema,
+  onDraftChange,
+  onOpenChange,
+  onSave,
+  onStartGeometrySelection,
+  loadTools,
+}: OperationDialogProps) {
   const validationMessage = useMemo(() => {
-    if (!draft) {
-      return "Select an edge loop to start an operation.";
-    }
+    if (!draft) return "Select an edge loop to start an operation.";
 
     try {
       parseDraftValue(rootSchema, draft, rootSchema, "Operation");
@@ -548,74 +619,27 @@ export function OperationDialog({
     } catch (error) {
       return error instanceof Error ? error.message : "Operation is invalid.";
     }
-  }, [draft]);
-
-  if (!draft) {
-    return null;
-  }
+  }, [draft, rootSchema]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         showCloseButton={mode !== "create"}
-        className="w-[calc(100%-2rem)] max-w-5xl"
-        style={{ display: "grid", gridTemplateRows: "auto minmax(0, 1fr) auto", height: "80vh", maxHeight: "90vh" }}
+        className="w-[calc(100%-2rem)]"
+        style={{ display: "grid", gridTemplateRows: "auto minmax(0, 1fr) auto", width: "calc(100% - 2rem)", maxWidth: "104rem", height: "50vh", maxHeight: "90vh" }}
       >
         <DialogHeader>
           <DialogTitle>Operation</DialogTitle>
         </DialogHeader>
 
-        <SidebarProvider defaultOpen>
-          <div className="rounded-md border" style={{ display: "flex", minHeight: 0, flex: "1 1 0", overflow: "hidden" }}>
-            <Sidebar className="bg-muted/30" style={{ "--sidebar-width": "10rem" } as React.CSSProperties}>
-              <SidebarContent>
-                <SidebarGroup>
-                  <SidebarGroupContent>
-                    <SidebarMenu style={{ display: "flex", flexDirection: "column", gap: "0.125rem" }}>
-                      {sections.map((section) => {
-                        const sectionNeedsValues = needsValues(rootSchema, section.schema, draft[section.key], section.title);
-                        return (
-                          <SidebarMenuItem key={section.key}>
-                            <SidebarMenuButton
-                              type="button"
-                              className="justify-between"
-                              isActive={section.key === activeSection?.key}
-                              onClick={() => setRequestedSection({ sectionKey: section.key, sessionKey: draftSessionKey })}
-                            >
-                              <span>{section.title}</span>
-                              {sectionNeedsValues ? (
-                                <>
-                                  <span className="ml-auto h-2 w-2 shrink-0 rounded-full bg-destructive" aria-hidden="true" />
-                                  <span className="sr-only">Needs values</span>
-                                </>
-                              ) : null}
-                            </SidebarMenuButton>
-                          </SidebarMenuItem>
-                        );
-                      })}
-                    </SidebarMenu>
-                  </SidebarGroupContent>
-                </SidebarGroup>
-              </SidebarContent>
-            </Sidebar>
-
-            <div className="min-h-0" style={{ display: "flex", minWidth: 0, flex: "1 1 0", flexDirection: "column", gap: "1rem", overflowY: "auto", padding: "0.5rem" }}>
-              {activeSection ? (
-                <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
-                  <SchemaFields
-                    rootSchema={rootSchema}
-                    schema={activeSection.schema}
-                    value={draft[activeSection.key]}
-                    path={[activeSection.key]}
-                    onChange={(nextPath, nextValue) => onDraftChange(setDraftValueAtPath(draft, nextPath, nextValue))}
-                    onStartGeometrySelection={onStartGeometrySelection}
-                    loadTools={loadTools}
-                  />
-                </div>
-              ) : null}
-            </div>
-          </div>
-        </SidebarProvider>
+        <OperationEditor
+          draft={draft}
+          mode={mode}
+          rootSchema={rootSchema}
+          onDraftChange={onDraftChange}
+          onStartGeometrySelection={onStartGeometrySelection}
+          loadTools={loadTools}
+        />
 
         <DialogFooter>
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>

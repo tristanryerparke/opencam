@@ -9,10 +9,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from opencam.post_processing.duet3d.router import (
     router as duet3d_post_processing_router,
 )
-from opencam.schemas.cam import GenerateToolpathRequest
-from opencam.schemas.cl_data import OperationRecord3D
-from opencam.schemas.mesh import Mesh
-from opencam.schemas.tools import Tool
+from opencam_contracts.cam import GenerateToolpathRequest
+from opencam_contracts.cl_data import OperationRecord3D
+from opencam_contracts.mesh import Mesh
+from opencam_contracts.tools import Tool
 from opencam.services.cam_engine import cam_engine
 from opencam.services.mesh_cache import CachedMeshMetadata, get_mesh_cache
 from opencam.services.tool_library import ToolLibrary, get_tool_library

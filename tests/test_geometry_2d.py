@@ -1,6 +1,6 @@
 import pytest
 
-from opencam.schemas.geometry_2d import ClosedPolyline2D, Point2D
+from opencam_contracts.geometry_2d import ClosedPolyline2D, Point2D
 
 
 def test_closed_polyline_2d_accepts_closed_vertices():

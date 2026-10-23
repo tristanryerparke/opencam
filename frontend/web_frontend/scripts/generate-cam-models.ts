@@ -12,7 +12,7 @@ type SchemaBundle = {
 
 const frontendRoot = process.cwd();
 const repoRoot = path.resolve(frontendRoot, "..", "..");
-const backendSchemasRoot = path.join(repoRoot, "src", "opencam", "schemas");
+const backendSchemasRoot = path.join(repoRoot, "contracts", "src", "opencam_contracts");
 const outputDir = path.join(frontendRoot, "src", "generated_schemas");
 const outputSchemasPath = path.join(outputDir, "cam.schemas.ts");
 const outputJsonPath = path.join(outputDir, "cam.schemas.json");

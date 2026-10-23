@@ -580,3 +580,72 @@ Visibility toggles are now 1.75 rem high, matching the Add Operation button. Bro
 - [x] Build and reload the Rhino development panel.
 
 The shared button now uses the browser's default-button geometry, colors, hover treatment, and disabled state. A panel-only Rhino bundle was installed and reload request `1c62118d-4539-46fc-9892-c44a64b685d1` was sent to Rhino. The full frontend build remains blocked by existing incomplete `operation-schema.ts` types and missing generated schemas in `frontend/opencam-ui`.
+
+## Shared operation editor sizing
+
+- [x] Prevent the browser operation modal shell from rendering inside Rhino's native modal.
+- [x] Make shared tabs and content panes fill their host container.
+- [x] Validate browser and Rhino frontend type checks.
+
+The shared `OperationEditor` now contains only the tab sidebar and section pane. The browser retains the web dialog shell, while Rhino supplies its native-modal content and footer directly. The editor stretches to the available host height; browser build and Rhino type check/build pass. Rhino reload job `ff79970b-90f0-4e7d-a5f1-bc55f435b2b8` was sent.
+
+## Operation-editor content spacing and picker icons
+
+- [x] Restore vertical spacing between content controls.
+- [x] Restore SVG icons in the Rhino operation picker.
+- [x] Build the Rhino operation dialog.
+- [x] Reload the Rhino operation dialog after Rhino restarts.
+
+Content-field and section spacing now uses inline flex gaps, so it is present in both hosts regardless of Tailwind class scanning. The Rhino picker again clones the bundled SVG templates into its operation buttons. Browser build and Rhino type check/build pass. Reload request `25e43e05-9c00-4bfb-b881-f1e2a92f9474` was sent after Rhino restarted.
+
+## Square operation-picker buttons
+
+- [x] Make browser and Rhino operation-picker buttons square.
+- [x] Build and reload the Rhino picker.
+
+Browser picker cards use Tailwind's `aspect-square`; Rhino picker cards use `aspectRatio: "1 / 1"`. Browser build and Rhino type check/build pass. Rhino reload request `756eada5-dba0-4c7a-b458-1093d14cfc21` was sent.
+
+## Rhino picker card size
+
+- [x] Constrain square Rhino operation-picker cards to a compact width.
+- [x] Build and reload the Rhino picker.
+
+The Rhino picker is capped at `20rem`, making its two square cards `8.625rem` wide at that maximum. Rhino type check/build pass; reload request `a42f5845-f320-42a8-a473-07e4064d59aa` was sent.
+
+## Matching operation-picker card size
+
+- [x] Use one fixed square-card size in browser and Rhino pickers.
+- [x] Build and reload the Rhino picker.
+
+Both pickers use fixed `12rem × 12rem` operation cards in a centered two-column grid. Browser build and Rhino type check/build pass. Rhino reload request `447eea62-4e74-451e-bd96-ad55478a23e6` was sent.
+
+## Rhino picker window dimensions
+
+- [x] Reduce the native Rhino picker width by 100 px and increase its height by 50 px.
+- [x] Rebuild and install the Rhino bridge.
+
+The native picker size is now `460 × 470` px. The development bridge was rebuilt and installed successfully; Rhino must restart before opening OpenCAM.
+
+## Compact operation-picker cards
+
+- [x] Set browser and Rhino operation-picker cards to `10rem × 10rem`.
+- [x] Build and reload the Rhino picker.
+
+Both operation pickers now use fixed `10rem × 10rem` cards. Browser build and Rhino type check/build pass; Rhino reload request `858d701c-8b93-4cd1-8aba-e3263023a841` was sent.
+
+## Web operation-editor dimensions
+
+- [x] Set the web operation editor to `max-w-6xl` and `70vh`.
+- [x] Set browser and Rhino operation-picker cards to `11rem × 11rem`.
+- [x] Build the web frontend and reload Rhino.
+
+The web operation editor is wider (`max-w-6xl`) and shorter (`70vh`); both pickers now use `11rem × 11rem` cards. Browser build and Rhino type check/build pass. Rhino reload request `3db45946-4046-4875-b7bb-7b372478408b` was sent.
+
+## Larger web editor and compact Rhino picker window
+
+- [x] Set the web operation editor to `max-w-10xl` (`104rem`) and `50vh`.
+- [x] Set the native Rhino picker window to `420 × 420` px.
+- [x] Build the web frontend and Rhino bridge.
+- [ ] Install the rebuilt Rhino bridge.
+
+The web operation editor now uses an explicit `104rem` maximum width, equivalent to the requested `max-w-10xl` custom size, and a `50vh` height. Browser and Rhino bridge builds pass.

@@ -33,11 +33,12 @@ export function OperationTypeDialog({
           <DialogTitle>Add Operation</DialogTitle>
         </DialogHeader>
 
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <div className="grid justify-center gap-3" style={{ gridTemplateColumns: "repeat(2, 11rem)" }}>
           <Button
             type="button"
             variant="outline"
-            className="h-auto flex-col justify-between gap-3 p-4"
+            className="flex-col justify-between gap-3 p-4"
+            style={{ width: "11rem", height: "11rem" }}
             onClick={onSelectPocketing}
           >
             <div className="flex h-[100px] w-[100px] items-end justify-center">
@@ -45,19 +46,19 @@ export function OperationTypeDialog({
             </div>
             <span className="text-center">2.5D Pocketing</span>
           </Button>
-          <Button type="button" variant="outline" className="h-auto flex-col justify-between gap-3 p-4" onClick={onSelectProfiling}>
+          <Button type="button" variant="outline" className="flex-col justify-between gap-3 p-4" style={{ width: "11rem", height: "11rem" }} onClick={onSelectProfiling}>
             <div className="flex h-[100px] w-[100px] items-end justify-center">
               <img src={profilingIconUrl} alt="" className="h-20 w-20 origin-bottom translate-y-3 scale-[1.375]" />
             </div>
             <span className="text-center">2.5D Profiling</span>
           </Button>
-          <Button type="button" variant="outline" className="h-auto flex-col justify-between gap-3 p-4" onClick={onSelectFacing}>
+          <Button type="button" variant="outline" className="flex-col justify-between gap-3 p-4" style={{ width: "11rem", height: "11rem" }} onClick={onSelectFacing}>
             <div className="flex h-[100px] w-[100px] items-end justify-center">
               <img src={facingIconUrl} alt="" className="h-20 w-20 origin-bottom translate-y-3 scale-[1.375]" />
             </div>
             <span className="text-center">2.5D Facing</span>
           </Button>
-          <Button type="button" variant="outline" className="h-auto flex-col justify-between gap-3 p-4" onClick={onSelectParallelFinishing}>
+          <Button type="button" variant="outline" className="flex-col justify-between gap-3 p-4" style={{ width: "11rem", height: "11rem" }} onClick={onSelectParallelFinishing}>
             <div className="flex h-[100px] w-[100px] items-end justify-center">
               <img src={parallelFinishingIconUrl} alt="" className="h-20 w-20 origin-bottom translate-y-3 scale-[1.375]" />
             </div>

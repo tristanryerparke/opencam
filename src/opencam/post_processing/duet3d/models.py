@@ -1,8 +1,8 @@
 from pydantic import Field
 
-from opencam.schemas.base import CamelBaseModel
-from opencam.schemas.cl_data import OperationRecord3D
-from opencam.schemas.machine import (
+from opencam_contracts.base import CamelBaseModel
+from opencam_contracts.cl_data import OperationRecord3D
+from opencam_contracts.machine import (
     MachineAxisDefinition,
     MachineDefinition,
     MachineSpindleDefinition,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from opencam.schemas.cl_data import (
+from opencam_contracts.cl_data import (
     ArcPositionRecord3D,
     FeedRatePositionRecord3D,
     PositionRecord,

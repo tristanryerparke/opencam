@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from opencam.schemas.operations.base import (
+from opencam_contracts.operations.base import (
     AbsoluteClearance,
     AutomaticClearance,
     BaseCAMOperation,
     PartMaxZPlusOffsetClearance,
     StockMaxZPlusOffsetClearance,
 )
-from opencam.schemas.setup import CAMSetup
+from opencam_contracts.setup import CAMSetup
 
 
 def compute_clearance_height(

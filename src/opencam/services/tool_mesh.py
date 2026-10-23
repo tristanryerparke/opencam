@@ -5,7 +5,7 @@ import math
 import numpy as np
 import trimesh
 
-from opencam.schemas.tools import BallTool, CylindricalTool, Tool
+from opencam_contracts.tools import BallTool, CylindricalTool, Tool
 
 TOOL_SEGMENTS = 16
 

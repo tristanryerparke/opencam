@@ -20,21 +20,21 @@ from opencam.engine.pocketing.seams import (
     longest_straight_edge_midpoint_length_near_initial_seam,
 )
 from opencam.engine.pocketing.tree import build_ordered_pocket_nodes
-from opencam.schemas.cam import CAMSetup
-from opencam.schemas.cl_data import (
+from opencam_contracts.cam import CAMSetup
+from opencam_contracts.cl_data import (
     ArcPositionRecord3D,
     FeedRatePositionRecord3D,
     RapidPositionRecord3D,
 )
-from opencam.schemas.geometry_2_5d import ClosedPolyline25D
-from opencam.schemas.geometry_2d import Point2D
-from opencam.schemas.operations.base import AbsoluteClearance, CAMLevels, FeedsAndSpeeds
-from opencam.schemas.operations.pocketing import (
+from opencam_contracts.geometry_2_5d import ClosedPolyline25D
+from opencam_contracts.geometry_2d import Point2D
+from opencam_contracts.operations.base import AbsoluteClearance, CAMLevels, FeedsAndSpeeds
+from opencam_contracts.operations.pocketing import (
     Pocketing2dOp,
     PocketingCutSettings,
     StepoverMode,
 )
-from opencam.schemas.tools import CylindricalTool
+from opencam_contracts.tools import CylindricalTool
 from opencam.services.cam_engine import cam_engine
 from opencam.services.tool_mesh import build_tool
 

@@ -12,7 +12,7 @@ from opencam.engine.closed_polyline.validation import validate_closed_polyline
 from opencam.engine.pocketing.seams import (
     longest_straight_edge_midpoint_length_near_initial_seam,
 )
-from opencam.schemas.geometry_2_5d import ClosedPolyline25D, Polyline25D
+from opencam_contracts.geometry_2_5d import ClosedPolyline25D, Polyline25D
 
 
 def build_profile_layers(

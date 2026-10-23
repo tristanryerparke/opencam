@@ -7,9 +7,9 @@ from opencam.engine.levels.layers import (
     stitch_geometry_records,
 )
 from opencam.engine.profiling.layer import build_profile_layers
-from opencam.schemas.cl_data import PositionRecord
-from opencam.schemas.operations.profiling import Profiling2dOp
-from opencam.schemas.tools import BallTool, CylindricalTool
+from opencam_contracts.cl_data import PositionRecord
+from opencam_contracts.operations.profiling import Profiling2dOp
+from opencam_contracts.tools import BallTool, CylindricalTool
 
 
 def profiling_max_cut_z(operation: Profiling2dOp) -> float:

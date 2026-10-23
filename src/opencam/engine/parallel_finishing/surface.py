@@ -39,7 +39,7 @@ import math
 import numpy as np
 from rtree import index as rtree_index
 
-from opencam.schemas.mesh import Mesh
+from opencam_contracts.mesh import Mesh
 
 _EPS = 1e-9
 

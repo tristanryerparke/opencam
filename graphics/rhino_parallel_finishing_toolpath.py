@@ -18,16 +18,16 @@ SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from opencam.schemas.cam import CAMSetup
-from opencam.schemas.cl_data import OperationRecord3D
-from opencam.schemas.operations.base import FeedsAndSpeeds
-from opencam.schemas.operations.parallel_finishing import (
+from opencam_contracts.cam import CAMSetup
+from opencam_contracts.cl_data import OperationRecord3D
+from opencam_contracts.operations.base import FeedsAndSpeeds
+from opencam_contracts.operations.parallel_finishing import (
     ParallelFinishingCutSettings,
     ParallelFinishingOp,
 )
-from opencam.schemas.operations.pocketing import StepoverMode
-from opencam.schemas.tools import BallTool
-from opencam.schemas.mesh import Mesh
+from opencam_contracts.operations.pocketing import StepoverMode
+from opencam_contracts.tools import BallTool
+from opencam_contracts.mesh import Mesh
 from opencam.services.cam_engine import cam_engine
 from opencam.utilities.silhouette import silhouette
 from rhino_renderer.file_client import FileClient

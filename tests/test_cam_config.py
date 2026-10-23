@@ -5,7 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import server.main as server_main
-from opencam.schemas.tools import BallTool, CylindricalTool
+from opencam_contracts.tools import BallTool, CylindricalTool
 from opencam.services.tool_mesh import build_tool
 from server.main import app
 

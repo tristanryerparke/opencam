@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 from opencam.engine.parallel_finishing.toolpath import build_parallel_finishing_records
-from opencam.schemas.cl_data import PositionRecord
-from opencam.schemas.mesh import Mesh
-from opencam.schemas.operations.parallel_finishing import ParallelFinishingOp
-from opencam.schemas.tools import BallTool, CylindricalTool
+from opencam_contracts.cl_data import PositionRecord
+from opencam_contracts.mesh import Mesh
+from opencam_contracts.operations.parallel_finishing import ParallelFinishingOp
+from opencam_contracts.tools import BallTool, CylindricalTool
 
 
 def build_parallel_finishing_operation_records(

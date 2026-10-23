@@ -9,7 +9,7 @@ from pydantic import TypeAdapter
 from tinydb import Query, TinyDB
 from tinydb.table import Table
 
-from opencam.schemas.tools import Tool
+from opencam_contracts.tools import Tool
 
 TOOL_ADAPTER = TypeAdapter(Tool)
 

@@ -22,13 +22,13 @@ import numpy as np
 import rhino3dm
 import trimesh
 
-from opencam.schemas.cl_data import (
+from opencam_contracts.cl_data import (
     FeedRatePositionRecord3D,
     OperationRecord3D,
     PositionRecord3D,
     RapidPositionRecord3D,
 )
-from opencam.schemas.tools import CylindricalTool
+from opencam_contracts.tools import CylindricalTool
 from opencam.simulation.swept_volume import SimulatedMeshFrame, load_stl_bounds, simulate_swept_milling_frames
 from rhino_renderer.action import ConduitAction
 from rhino_renderer.action import MeshObjectStyle

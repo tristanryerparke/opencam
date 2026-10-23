@@ -1,7 +1,7 @@
 from typing import Literal
 
-from opencam.schemas.base import CamelBaseModel
-from opencam.schemas.cl_data import PositionRecord3D
+from opencam_contracts.base import CamelBaseModel
+from opencam_contracts.cl_data import PositionRecord3D
 
 
 class SimulationFrameMapping(CamelBaseModel):

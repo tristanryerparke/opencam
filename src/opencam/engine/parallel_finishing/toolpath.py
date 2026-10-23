@@ -20,9 +20,9 @@ from shapely.geometry.base import BaseGeometry
 from opencam.engine.closed_polyline.validation import validate_closed_polyline
 from opencam.engine.levels.layers import build_cut_record_sequence
 from opencam.engine.parallel_finishing.surface import TriangleSurface
-from opencam.schemas.cl_data import FeedRatePositionRecord3D, PositionRecord
-from opencam.schemas.mesh import Mesh
-from opencam.schemas.tools import BallTool, CylindricalTool, Tool
+from opencam_contracts.cl_data import FeedRatePositionRecord3D, PositionRecord
+from opencam_contracts.mesh import Mesh
+from opencam_contracts.tools import BallTool, CylindricalTool, Tool
 
 _MAX_SUBDIVISION_DEPTH = 18
 

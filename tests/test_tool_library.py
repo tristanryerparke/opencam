@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from opencam.schemas.tools import BallTool, CylindricalTool
+from opencam_contracts.tools import BallTool, CylindricalTool
 from opencam.services.tool_library import ToolLibrary, get_tool_library
 from opencam.services.tool_mesh import TOOL_SEGMENTS, build_tool_mesh_vertices_faces
 from server.main import app

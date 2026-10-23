@@ -13,9 +13,9 @@ from opencam.engine.pocketing.linking import (
     build_linked_cut_layers,
     build_tangent_lead_in_layers,
 )
-from opencam.schemas.cl_data import PositionRecord
-from opencam.schemas.operations.pocketing import Pocketing2dOp
-from opencam.schemas.tools import BallTool, CylindricalTool
+from opencam_contracts.cl_data import PositionRecord
+from opencam_contracts.operations.pocketing import Pocketing2dOp
+from opencam_contracts.tools import BallTool, CylindricalTool
 
 
 def pocketing_max_cut_z(operation: Pocketing2dOp) -> float:

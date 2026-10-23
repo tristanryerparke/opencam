@@ -31,16 +31,25 @@ button:disabled { opacity: 0.4; cursor: default; }
 .toggles label { display: inline-flex; gap: 3px; align-items: center; margin-right: 8px; }
 .cam-tree { display: flex; flex-direction: column; gap: 4px; max-height: 240px; overflow-y: auto; }
 .tree-indent { min-width: 0; }
+.tree-operation { display: flex; min-width: 0; align-items: center; gap: 4px; border-radius: 6px; }
+.tree-operation.dragging { opacity: 0.5; }
+.tree-operation[data-drop-position] { background: color-mix(in srgb, var(--accent) 15%, transparent); }
+.tree-drag-handle { display: grid; width: 16px; height: 28px; flex: 0 0 16px; place-items: center; border: 0; background: transparent; color: var(--text-dim); padding: 0; cursor: grab; }
+.tree-drag-handle:hover:not(:disabled) { background: transparent; color: var(--text); }
+.tree-drag-handle:active:not(:disabled) { cursor: grabbing; }
+.tree-drag-handle .tree-icon { width: 16px; height: 16px; }
 .tree-row { display: flex; width: 100%; height: 28px; min-width: 0; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); box-shadow: 0 1px 2px rgb(0 0 0 / 16%); padding: 0 8px; color: var(--text); text-align: left; }
 .tree-row:hover { background: var(--control-hover); }
 .tree-row.selected { border-color: #3b82f6; background: var(--bg); }
 .tree-row .tree-icon { width: 16px; height: 16px; flex: 0 0 16px; color: var(--text-dim); }
 .tree-row .tree-content { display: flex; min-width: 0; flex: 1; align-items: center; gap: 6px; font-weight: 600; }
 .tree-row .tree-label, .tree-row .tree-file { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tree-row .tree-operation-type { color: var(--text-dim); font-weight: 400; margin-left: 6px; }
 .tree-row .tree-file { min-width: 0; flex: 1; color: color-mix(in srgb, var(--text) 65%, transparent); font-size: 11px; font-weight: 400; }
 .tree-row .tree-toggle { display: grid; width: 16px; height: 16px; flex: 0 0 16px; place-items: center; color: var(--text-dim); cursor: pointer; }
 .tree-row .tree-status { width: 16px; height: 16px; flex: 0 0 16px; }
 .tree-status.missing, .tree-status.invalid { color: #ef4444; }.tree-status.generating, .tree-status.generated { color: #22c55e; }.tree-status.simulated { color: #3b82f6; }
+.tree-row .tree-status .tree-icon { color: inherit; }
 .tree-status.generating .tree-icon { animation: opencam-spin 1s linear infinite; }
 @keyframes opencam-spin { to { transform: rotate(360deg); } }
 .empty { color: var(--text-dim); margin: 6px 8px; }

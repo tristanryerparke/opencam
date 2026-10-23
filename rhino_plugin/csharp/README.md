@@ -19,4 +19,4 @@ command-history error and produce JSON panel error instead of crashing panel.
 Never add Rhino selection, meshes, HTTP, persistence policy, toolpath drawing,
 or CAM construction here. Those remain Python/backend responsibilities.
 
-Legacy C#-only prototype has been removed. Keep this shim limited to responsibilities above.
+Keep this shim limited to responsibilities above.

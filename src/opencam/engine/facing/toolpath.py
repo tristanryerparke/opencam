@@ -25,23 +25,14 @@ def _stepover(operation: Facing2dOp) -> float:
     return value
 
 
-def _rectangle(operation: Facing2dOp) -> tuple[Polygon, float]:
+def _polygon(operation: Facing2dOp) -> tuple[Polygon, float]:
     boundary = operation.drive_geometry[0]
     points = boundary.to_numpy()
     if points.shape[0] > 1 and np.allclose(points[0], points[-1]):
         points = points[:-1]
-    if points.shape[0] != 4:
-        raise ValueError("Facing drive geometry must be a rectangle with four corners.")
     polygon = Polygon(points)
     if not polygon.is_valid or polygon.area <= 0:
-        raise ValueError("Facing drive geometry must be a valid rectangle.")
-    edges = np.roll(points, -1, axis=0) - points
-    lengths = np.linalg.norm(edges, axis=1)
-    if np.any(lengths <= 0):
-        raise ValueError("Facing drive geometry must have four positive-length edges.")
-    unit = edges / lengths[:, None]
-    if not all(abs(float(np.dot(unit[index], unit[(index + 1) % 4]))) < 1e-6 for index in range(4)):
-        raise ValueError("Facing drive geometry must be rectangular.")
+        raise ValueError("Facing drive geometry must be a valid, non-empty polygon.")
     return polygon, boundary.z
 
 
@@ -52,8 +43,10 @@ def _lane_coordinates(start: float, end: float, stepover: float) -> list[float]:
     return [start + (index + 0.5) * lane_spacing for index in range(lane_count)]
 
 
-def _facing_lanes(operation: Facing2dOp) -> list[tuple[tuple[float, float], tuple[float, float]]]:
-    polygon, _ = _rectangle(operation)
+def _facing_lanes(
+    operation: Facing2dOp,
+) -> tuple[list[tuple[tuple[float, float], tuple[float, float]]], Polygon]:
+    polygon, _ = _polygon(operation)
     extension = operation.tool.diameter / 2.0 + operation.cut_parameters.edge_overtravel
     coverage = polygon.buffer(extension, join_style="mitre")
     angle = operation.cut_parameters.direction_degrees
@@ -82,36 +75,40 @@ def _facing_lanes(operation: Facing2dOp) -> list[tuple[tuple[float, float], tupl
                 lanes.append(((float(start[0]), float(start[1])), (float(end[0]), float(end[1]))))
     if not lanes:
         raise ValueError("Facing generated no cutting passes.")
-    return lanes
+    return lanes, coverage
 
 
 def build_facing_records(operation: Facing2dOp, *, clearance_plane_height: float) -> list[PositionRecord]:
     if not isinstance(operation.tool, CylindricalTool):
         raise NotImplementedError("Facing currently supports cylindrical flat-end tools only.")
 
-    _, geometry_z = _rectangle(operation)
-    lanes = _facing_lanes(operation)
+    _, geometry_z = _polygon(operation)
+    lanes, coverage = _facing_lanes(operation)
     direction = operation.cut_parameters.cut_direction
     heights = compute_layer_heights(operation.levels.z_bounds(geometry_z), operation.levels.max_stepdown)
     cut_layers: list[list[FeedRatePositionRecord3D]] = []
 
     for z in heights:
         if direction == "mixed":
-            points: list[tuple[float, float]] = []
+            paths: list[list[tuple[float, float]]] = []
             for index, lane in enumerate(lanes):
                 start, end = lane if index % 2 == 0 else (lane[1], lane[0])
-                points.extend([start, end])
+                if paths and coverage.covers(LineString([paths[-1][-1], start])):
+                    paths[-1].extend([start, end])
+                else:
+                    paths.append([start, end])
+        else:
+            # Lanes advance to the left of their canonical travel direction,
+            # so clockwise-spindle climb cutting travels the opposite way.
+            paths = [
+                list(lane if direction == "conventional" else (lane[1], lane[0]))
+                for lane in lanes
+            ]
+        for points in paths:
             cut_layers.append([
                 FeedRatePositionRecord3D(x=x, y=y, z=z, feedrate=operation.feeds_and_speeds.cut_feedrate)
                 for x, y in points
             ])
-        else:
-            for lane in lanes:
-                start, end = lane if direction == "climb" else (lane[1], lane[0])
-                cut_layers.append([
-                    FeedRatePositionRecord3D(x=start[0], y=start[1], z=z, feedrate=operation.feeds_and_speeds.cut_feedrate),
-                    FeedRatePositionRecord3D(x=end[0], y=end[1], z=z, feedrate=operation.feeds_and_speeds.cut_feedrate),
-                ])
 
     return build_cut_record_sequence(
         cut_layers,

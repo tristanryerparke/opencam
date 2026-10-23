@@ -84,6 +84,15 @@ namespace RhinoCodePlatform.Rhino3D.Projects.Plugin
     {
       m_pageLoaded = true;
       ApplyTheme();
+      Application.Instance.AsyncInvoke(() =>
+      {
+        if (m_pageReleased || !m_pageLoaded)
+          return;
+        var response = PanelMessageBridge.Dispatch(
+          m_documentSerialNumber,
+          "{\"protocol_version\":1,\"action\":\"get_state\",\"payload\":{},\"request_id\":\"panel-loaded\"}");
+        PostMessage(response);
+      });
     }
 
     void OnThemeChanged(object sender, EventArgs eventArgs)

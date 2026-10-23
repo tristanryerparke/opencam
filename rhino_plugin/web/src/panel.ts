@@ -2,7 +2,7 @@
 import { contextMenu as createContextMenu } from "t-components/dom";
 
 (() => {
-type Action = "get_state" | "select_part" | "open_operation_dialog" | "generate_operation" | "generate_status" | "delete_operation" | "select_operation" | "set_visibility" | "simulate" | "simulate_status" | "show_frame" | "exit_simulation" | "post_process";
+type Action = "get_state" | "select_part" | "remove_part" | "open_operation_dialog" | "generate_operation" | "generate_status" | "delete_operation" | "duplicate_operation" | "reorder_operations" | "select_operation" | "set_visibility" | "simulate" | "simulate_status" | "show_frame" | "exit_simulation" | "post_process" | "post_process_setup";
 type OperationSpec = { id: string; name: string; type: string };
 type SetupSpec = { id: string; name: string; operations: OperationSpec[] };
 type PanelEvent = {
@@ -12,8 +12,12 @@ type PanelEvent = {
   state: { part?: { name: string }; setups: SetupSpec[]; selected_operation_id?: string; visibility: Record<string, boolean>; results?: Record<string, unknown> };
 };
 type Theme = { scheme: "light" | "dark"; tokens: Record<string, string> };
-type ContextMenu = { operationId: string; x: number; y: number };
+type ContextMenu =
+  | { kind: "operation"; operationId: string; x: number; y: number }
+  | { kind: "setup"; setupId: string; x: number; y: number }
+  | { kind: "part"; x: number; y: number };
 type GenerationState = { operationId: string; status: "starting" | "running"; startRequestId?: string };
+type SetupRegeneration = { setupId: string; remainingOperationIds: string[]; currentOperationId?: string; waitingForSimulation: boolean };
 type SimulationState = { operationId: string; status: string; frameIndex: number; frameCount: number; sourceFrameCount: number; stride: number; playing: boolean; awaitingStart: boolean; pendingFrame: boolean; startRequestId: string };
 
 type PanelHostWindow = Window & {
@@ -24,14 +28,22 @@ type PanelHostWindow = Window & {
 
 const root = document.querySelector<HTMLElement>("#app")!;
 const host = window as PanelHostWindow;
+const operationTypeLabels: Record<string, string> = {
+  pocketing_2d: "2.5D Pocketing",
+  profiling_2d: "2.5D Profiling",
+  facing_2d: "2.5D Facing",
+  parallel_finishing: "3D Parallel Finishing",
+};
 let latest: PanelEvent | undefined;
 let contextMenu: ContextMenu | undefined;
 const collapsedSetupIds = new Set<string>();
 let generation: GenerationState | undefined;
+let setupRegeneration: SetupRegeneration | undefined;
 let generationPoll: ReturnType<typeof setInterval> | undefined;
 let simulation: SimulationState | undefined;
 let simulationPoll: ReturnType<typeof setInterval> | undefined;
 let simulationPlayback: ReturnType<typeof setInterval> | undefined;
+let draggingOperationId: string | undefined;
 const SIMULATION_STRIDE_OPTIONS = [1, 2, 4, 8, 16] as const;
 const SIMULATION_PLAYBACK_INTERVAL_MS = 30;
 
@@ -51,13 +63,41 @@ function stopGenerationPolling() {
 }
 function pollGeneration() {
   if (generationPoll !== undefined) return;
-  generationPoll = setInterval(() => send("generate_status"), 500);
+  generationPoll = setInterval(() => send("generate_status"), 2000);
 }
 function startRegeneration(operationId: string) {
   closeSimulationView(true);
   const startRequestId = send("generate_operation", { operation_id: operationId });
   generation = { operationId, status: "starting", startRequestId };
   render();
+}
+function continueSetupRegeneration() {
+  if (!setupRegeneration || generation) return;
+  const operationId = setupRegeneration.remainingOperationIds.shift();
+  if (!operationId) {
+    setupRegeneration = undefined;
+    render();
+    return;
+  }
+  setupRegeneration.currentOperationId = operationId;
+  setupRegeneration.waitingForSimulation = false;
+  startRegeneration(operationId);
+}
+function startSetupRegeneration(setupId: string) {
+  const setup = latest?.state.setups.find((candidate) => candidate.id === setupId);
+  if (!setup || setup.operations.length === 0 || generation || setupRegeneration) return;
+  setupRegeneration = {
+    setupId,
+    remainingOperationIds: setup.operations.map((operation) => operation.id),
+    waitingForSimulation: false,
+  };
+  continueSetupRegeneration();
+}
+function finishSetupRegenerationOperation() {
+  if (!setupRegeneration) return;
+  setupRegeneration.currentOperationId = undefined;
+  setupRegeneration.waitingForSimulation = false;
+  continueSetupRegeneration();
 }
 function stopSimulationPolling() {
   if (simulationPoll !== undefined) clearInterval(simulationPoll);
@@ -72,7 +112,7 @@ function pollSimulation() {
   stopSimulationPolling();
   simulationPoll = setInterval(
     () => send("simulate_status", { display: simulation !== undefined }),
-    1000,
+    2000,
   );
 }
 function simulationFrameIndices(sourceFrameCount: number, stride: number) {
@@ -160,10 +200,11 @@ function escapeHtml(value: string) {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 }
 
-function icon(name: "part" | "setup" | "check" | "x" | "dot" | "loader" | "chevron-right" | "chevron-down") {
+function icon(name: "part" | "setup" | "grip" | "check" | "x" | "dot" | "loader" | "chevron-right" | "chevron-down") {
   const paths: Record<string, string> = {
-    part: '<path d="M4 4h16v16H4z"/><path d="M8 8h8v8H8z"/>',
-    setup: '<path d="m12 3-9 5 9 5 9-5-9-5Z"/><path d="m3 12 9 5 9-5"/><path d="m3 17 9 5 9-5"/>',
+    part: '<path d="M21 11a8 8 0 0 0-8-8"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>',
+    setup: '<path d="M5 3v16h16"/><path d="m5 19 6-6"/><path d="m2 6 3-3 3 3"/><path d="m18 16 3 3-3 3"/>',
+    grip: '<circle cx="9" cy="5" r="1" fill="currentColor" stroke="none"/><circle cx="15" cy="5" r="1" fill="currentColor" stroke="none"/><circle cx="9" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="15" cy="12" r="1" fill="currentColor" stroke="none"/><circle cx="9" cy="19" r="1" fill="currentColor" stroke="none"/><circle cx="15" cy="19" r="1" fill="currentColor" stroke="none"/>',
     check: '<path d="m5 12 4 4L19 6"/>',
     x: '<path d="m6 6 12 12M18 6 6 18"/>',
     dot: '<circle cx="12" cy="12" r="5" fill="currentColor" stroke="none"/>',
@@ -174,16 +215,23 @@ function icon(name: "part" | "setup" | "check" | "x" | "dot" | "loader" | "chevr
   return `<svg class="tree-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[name]}</svg>`;
 }
 
+function operationLabel(operation: OperationSpec) {
+  const typeLabel = operationTypeLabels[operation.type] ?? operation.type;
+  const typeSuffix = operation.name === typeLabel
+    ? ""
+    : `<span class="tree-operation-type">(${escapeHtml(typeLabel)})</span>`;
+  return `<span class="tree-label">${escapeHtml(operation.name)}${typeSuffix}</span>`;
+}
+
 function operationStatus(operation: OperationSpec) {
   const summaries = latest?.state.results?.toolpath_summaries as Record<string, unknown> | undefined;
   if (generation?.operationId === operation.id) return { className: "generating", iconName: "loader" as const, label: "Generating toolpath" };
   const invalidOperationIds = latest?.state.results?.invalid_operation_ids;
-  if (Array.isArray(invalidOperationIds) && invalidOperationIds.includes(operation.id)) return { className: "invalid", iconName: "dot" as const, label: "Source geometry changed; regenerate toolpath" };
-  const simulatedOperationId = latest?.state.results?.simulation_operation_id;
-  const hasSimulation = Boolean(latest?.state.results?.simulation_id);
-  const simulationPending = Boolean(latest?.state.results?.simulation_task_id) && !hasSimulation;
-  if (simulationPending && simulatedOperationId === operation.id) return { className: "generating", iconName: "loader" as const, label: "Preparing simulation" };
-  if ((simulation?.operationId === operation.id && simulation.status === "completed") || (hasSimulation && simulatedOperationId === operation.id)) return { className: "simulated", iconName: "check" as const, label: "Simulation complete" };
+  if (Array.isArray(invalidOperationIds) && invalidOperationIds.includes(operation.id)) return { className: "invalid", iconName: "x" as const, label: "Source geometry changed; regenerate toolpath" };
+  const simulationSummaries = latest?.state.results?.simulation_summaries as Record<string, { status?: string }> | undefined;
+  const simulationSummary = simulationSummaries?.[operation.id];
+  if (simulationSummary?.status === "running") return { className: "generating", iconName: "loader" as const, label: "Preparing simulation" };
+  if ((simulation?.operationId === operation.id && simulation.status === "completed") || simulationSummary?.status === "completed") return { className: "simulated", iconName: "check" as const, label: "Simulation complete" };
   if (summaries?.[operation.id]) return { className: "generated", iconName: "check" as const, label: "Toolpath generated" };
   return { className: "missing", iconName: "x" as const, label: "Toolpath not generated" };
 }
@@ -195,15 +243,35 @@ function treeHtml(state: PanelEvent["state"], setups: SetupSpec[], selected: str
   const setupRows = setups.map((setup) => {
     const collapsed = collapsedSetupIds.has(setup.id);
     const toggle = icon(collapsed ? "chevron-right" : "chevron-down");
+    const canReorder = !generation && !setupRegeneration;
     const children = collapsed ? "" : setup.operations.map((operation) => {
       const status = operationStatus(operation);
-      return `<div class="tree-indent" style="padding-left:16px"><button type="button" class="tree-row ${operation.id === selected ? "selected" : ""}" data-op="${operation.id}"><span class="tree-content"><span class="tree-label">${escapeHtml(operation.name)}</span></span><span class="tree-status ${status.className}" title="${status.label}">${icon(status.iconName)}</span></button></div>`;
+      return `<div class="tree-operation" style="padding-left:8px" data-operation-row="${operation.id}" data-setup-id="${setup.id}"><button type="button" class="tree-drag-handle" data-drag-handle="${operation.id}" draggable="${canReorder ? "true" : "false"}" aria-label="Reorder ${escapeHtml(operation.name)}" ${canReorder ? "" : "disabled"}>${icon("grip")}</button><button type="button" class="tree-row ${operation.id === selected ? "selected" : ""}" data-op="${operation.id}"><span class="tree-content">${operationLabel(operation)}</span><span class="tree-status ${status.className}" title="${status.label}">${icon(status.iconName)}</span></button></div>`;
     }).join("") || '<p class="empty">No operations yet.</p>';
     return `<div class="tree-indent"><button type="button" class="tree-row" data-setup="${setup.id}">${icon("setup")}<span class="tree-content"><span class="tree-label">${escapeHtml(setup.name)}</span></span><span class="tree-toggle" data-setup-toggle="${setup.id}">${toggle}</span></button></div>${children}`;
   }).join("");
-  return `<div class="cam-tree"><div class="tree-indent"><button type="button" class="tree-row" data-action="select_part">${icon("part")}<span class="tree-content"><span class="tree-label">Part</span>${partName}</span>${partStatus}</button></div>${setupRows}</div>`;
+  return `<div class="cam-tree"><div class="tree-indent"><button type="button" class="tree-row" data-action="select_part" data-part-reference="${part ? "present" : "missing"}">${icon("part")}<span class="tree-content"><span class="tree-label">Part</span>${partName}</span>${partStatus}</button></div>${setupRows}</div>`;
 }
 
+function clearOperationDragState() {
+  draggingOperationId = undefined;
+  root.querySelectorAll<HTMLElement>("[data-operation-row]").forEach((row) => {
+    row.classList.remove("dragging");
+    delete row.dataset.dropPosition;
+  });
+}
+function reorderOperations(setupId: string, sourceId: string, targetId: string, before: boolean) {
+  const setup = latest?.state.setups.find((candidate) => candidate.id === setupId);
+  if (!setup || sourceId === targetId) return;
+  const operationIds = setup.operations.map((operation) => operation.id);
+  const sourceIndex = operationIds.indexOf(sourceId);
+  if (sourceIndex < 0 || !operationIds.includes(targetId)) return;
+  operationIds.splice(sourceIndex, 1);
+  const targetIndex = operationIds.indexOf(targetId);
+  operationIds.splice(targetIndex + (before ? 0 : 1), 0, sourceId);
+  if (operationIds.every((operationId, index) => operationId === setup.operations[index]?.id)) return;
+  send("reorder_operations", { setup_id: setupId, operation_ids: operationIds });
+}
 function render() {
   const state = latest?.state;
   const selected = state?.selected_operation_id;
@@ -213,11 +281,18 @@ function render() {
   root.innerHTML = simulation
     ? `<main class="simulation-page"><div class="simulation-header"><strong>Simulation</strong><span class="meta">${escapeHtml(simulation.status)}</span></div>${visibilityHtml(visibility)}${simulationControlsHtml()}</main>`
     : `<main>${visibilityHtml(visibility)}
-<div class="row"><button data-action="open_operation_dialog" ${state?.part && !generation ? "" : "disabled"}>Add Operation</button></div>
+<div class="row"><button data-action="open_operation_dialog" ${!generation && !setupRegeneration ? "" : "disabled"}>Add Operation</button></div>
 ${treeHtml(treeState, setups, selected)}
 </main>`;
   root.querySelectorAll<HTMLButtonElement>("[data-action]").forEach((button) => {
     button.onclick = () => send(button.dataset.action as Action);
+  });
+  root.querySelectorAll<HTMLElement>("[data-setup]").forEach((element) => {
+    element.oncontextmenu = (event) => {
+      event.preventDefault();
+      contextMenu = { kind: "setup", setupId: element.dataset.setup!, x: event.clientX, y: event.clientY };
+      renderOverlay();
+    };
   });
   root.querySelectorAll<HTMLElement>("[data-setup-toggle]").forEach((toggle) => {
     toggle.onclick = (event) => {
@@ -229,6 +304,14 @@ ${treeHtml(treeState, setups, selected)}
       render();
     };
   });
+  const partElement = root.querySelector<HTMLElement>("[data-part-reference='present']");
+  if (partElement) {
+    partElement.oncontextmenu = (event) => {
+      event.preventDefault();
+      contextMenu = { kind: "part", x: event.clientX, y: event.clientY };
+      renderOverlay();
+    };
+  }
   root.querySelectorAll<HTMLInputElement>("[data-flag]").forEach((box) => {
     box.onchange = () => send("set_visibility", { flags: { [box.dataset.flag!]: box.checked } });
   });
@@ -257,6 +340,39 @@ ${treeHtml(treeState, setups, selected)}
     showSimulationFrame(simulation.frameIndex);
     render();
   });
+  root.querySelectorAll<HTMLButtonElement>("[data-drag-handle]").forEach((handle) => {
+    handle.onclick = (event) => event.stopPropagation();
+    handle.ondragstart = (event) => {
+      draggingOperationId = handle.dataset.dragHandle;
+      if (!draggingOperationId) return;
+      event.dataTransfer?.setData("text/plain", draggingOperationId);
+      if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
+      handle.closest<HTMLElement>("[data-operation-row]")?.classList.add("dragging");
+    };
+    handle.ondragend = () => clearOperationDragState();
+  });
+  root.querySelectorAll<HTMLElement>("[data-operation-row]").forEach((row) => {
+    row.ondragover = (event) => {
+      if (!draggingOperationId || draggingOperationId === row.dataset.operationRow) return;
+      event.preventDefault();
+      if (event.dataTransfer) event.dataTransfer.dropEffect = "move";
+      row.dataset.dropPosition = event.clientY < row.getBoundingClientRect().top + row.offsetHeight / 2
+        ? "before"
+        : "after";
+    };
+    row.ondragleave = (event) => {
+      if (!row.contains(event.relatedTarget as Node | null)) delete row.dataset.dropPosition;
+    };
+    row.ondrop = (event) => {
+      event.preventDefault();
+      const sourceId = draggingOperationId ?? event.dataTransfer?.getData("text/plain");
+      const targetId = row.dataset.operationRow;
+      const setupId = row.dataset.setupId;
+      const before = row.dataset.dropPosition === "before";
+      clearOperationDragState();
+      if (sourceId && targetId && setupId) reorderOperations(setupId, sourceId, targetId, before);
+    };
+  });
   root.querySelectorAll<HTMLElement>("[data-op]").forEach((element) => {
     element.onclick = () => {
       contextMenu = undefined;
@@ -264,7 +380,7 @@ ${treeHtml(treeState, setups, selected)}
     };
     element.oncontextmenu = (event) => {
       event.preventDefault();
-      contextMenu = { operationId: element.dataset.op!, x: event.clientX, y: event.clientY };
+      contextMenu = { kind: "operation", operationId: element.dataset.op!, x: event.clientX, y: event.clientY };
       send("select_operation", { operation_id: element.dataset.op });
       renderOverlay();
     };
@@ -286,15 +402,66 @@ function renderOverlay() {
   root.querySelector("[data-slot='context-menu-content']")?.remove();
   if (!contextMenu) return;
   const value = contextMenu;
+  if (value.kind === "part") {
+    const menu = createContextMenu({
+      x: value.x,
+      y: value.y,
+      items: [{
+        label: "Remove reference",
+        destructive: true,
+        onSelect: () => {
+          contextMenu = undefined;
+          send("remove_part");
+          renderOverlay();
+        },
+      }],
+    });
+    menu.style.width = "9rem";
+    menu.style.minWidth = "9rem";
+    menu.style.boxSizing = "border-box";
+    root.append(menu);
+    return;
+  }
   const summaries = latest?.state.results?.toolpath_summaries as Record<string, unknown> | undefined;
+  if (value.kind === "setup") {
+    const setup = latest?.state.setups.find((candidate) => candidate.id === value.setupId);
+    const hasOperations = Boolean(setup?.operations.length);
+    const allOperationsGenerated = Boolean(
+      setup?.operations.length
+      && setup.operations.every((operation) => summaries?.[operation.id]),
+    );
+    const busy = generation !== undefined || setupRegeneration !== undefined;
+    const menu = createContextMenu({
+      x: value.x,
+      y: value.y,
+      items: [
+        { label: "Regenerate", disabled: !hasOperations || busy, onSelect: () => {
+          contextMenu = undefined;
+          startSetupRegeneration(value.setupId);
+          renderOverlay();
+        } },
+        { label: "Post Process", disabled: !allOperationsGenerated || busy, onSelect: () => {
+          contextMenu = undefined;
+          send("post_process_setup", { setup_id: value.setupId });
+          renderOverlay();
+        } },
+      ],
+    });
+    menu.style.width = "8rem";
+    menu.style.minWidth = "8rem";
+    menu.style.boxSizing = "border-box";
+    root.append(menu);
+    return;
+  }
   const generated = Boolean(summaries?.[value.operationId]);
-  const busy = generation !== undefined;
-  const select = (action: "edit" | "simulate" | "post_process" | "regenerate" | "delete") => () => {
+  const busy = generation !== undefined || setupRegeneration !== undefined;
+  const select = (action: "edit" | "simulate" | "post_process" | "regenerate" | "duplicate" | "delete") => () => {
     contextMenu = undefined;
     if (action === "edit") send("open_operation_dialog", { operation_id: value.operationId });
     else if (action === "simulate") startSimulation(value.operationId);
     else if (action === "post_process") send("post_process", { operation_id: value.operationId });
     else if (action === "regenerate") startRegeneration(value.operationId);
+    else if (action === "duplicate") send("duplicate_operation", { operation_id: value.operationId });
     else send("delete_operation", { operation_id: value.operationId });
     renderOverlay();
   };
@@ -306,7 +473,8 @@ function renderOverlay() {
       { label: "Post Process", disabled: !generated || busy, onSelect: select("post_process") },
       { label: "Edit operation", disabled: busy, onSelect: select("edit") },
       { label: "Regenerate", disabled: busy, onSelect: select("regenerate") },
-      { label: "Delete operation", disabled: busy, destructive: true, onSelect: select("delete") },
+      { label: "Duplicate", disabled: busy, onSelect: select("duplicate") },
+      { label: "Delete", disabled: busy, destructive: true, onSelect: select("delete") },
     ],
   });
   menu.style.width = "8rem";
@@ -318,9 +486,12 @@ function receive(value: string) {
   const event = JSON.parse(value) as PanelEvent;
   latest = event;
   const currentGeneration = generation;
+  let advanceSetupRegeneration = false;
   if (currentGeneration?.startRequestId === event.request_id && !event.generation_status) {
     stopGenerationPolling();
     generation = undefined;
+    if (setupRegeneration?.currentOperationId === currentGeneration.operationId)
+      advanceSetupRegeneration = true;
   }
   if (event.generation_status === "running" && event.generation_operation_id) {
     closeSimulationView(false);
@@ -329,6 +500,15 @@ function receive(value: string) {
   } else if (event.generation_status === "completed" || event.generation_status === "error") {
     stopGenerationPolling();
     generation = undefined;
+    const activeSetupRegeneration = setupRegeneration;
+    if (activeSetupRegeneration && activeSetupRegeneration.currentOperationId === event.generation_operation_id) {
+      const simulationStarted = event.generation_status === "completed"
+        && event.simulation_operation_id === event.generation_operation_id
+        && event.simulation_status != null
+        && !["completed", "cancelled", "error"].includes(event.simulation_status);
+      activeSetupRegeneration.waitingForSimulation = simulationStarted;
+      advanceSetupRegeneration = !simulationStarted;
+    }
   }
   const currentSimulation = simulation;
   let updateRunningControlsOnly = false;
@@ -361,6 +541,15 @@ function receive(value: string) {
       updateRunningControlsOnly = currentSimulation.playing;
     }
   }
+  if (
+    setupRegeneration?.waitingForSimulation
+    && event.simulation_operation_id === setupRegeneration.currentOperationId
+    && event.simulation_status != null
+    && ["completed", "cancelled", "error"].includes(event.simulation_status)
+  ) {
+    advanceSetupRegeneration = true;
+  }
+  if (advanceSetupRegeneration) finishSetupRegenerationOperation();
   if (updateRunningControlsOnly) updateRunningSimulationControls();
   else render();
 }
@@ -390,5 +579,4 @@ host.chrome?.webview?.addEventListener("message", (event) => receive(event.data)
 document.addEventListener("pointerdown", dismissContextMenuOnPanelPointer, true);
 window.addEventListener("blur", closeContextMenu);
 render();
-send("get_state");
 })();

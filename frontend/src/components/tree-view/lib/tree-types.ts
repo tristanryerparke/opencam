@@ -89,4 +89,5 @@ export interface TreeNodeRenderProps<T extends TreeNodeData = TreeNodeData> {
   selectionMode: "none" | "single" | "multiple";
   toggle: () => void;
   select: (event?: React.MouseEvent) => void;
+  dragHandleRef: (element: Element | null) => void;
 }

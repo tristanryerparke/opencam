@@ -4,6 +4,43 @@
 
 - User authorizes replacement of development `OpenCamRhinoBridge.rhp` whenever required by OpenCAM changes; rebuild/install without asking. State when Rhino restart is required.
 
+## Frontend setup operation reordering
+
+- [x] Add a drag handle to reorder operations within a setup.
+- [x] Validate the frontend build.
+
+Setup operation rows now have a grip handle. Dragging a grip reorders only sibling operations in `Setup 1`; the resulting sequence is persisted in frontend state and is used by setup regeneration and post-processing. `cd frontend && bun run build` and `git diff --check` pass.
+
+## CAM tree guide-line cleanup
+
+- [x] Remove the guide line that overlaps operation drag handles.
+- [x] Validate the frontend build.
+
+The CAM tree now suppresses generic parent guide lines, leaving the operation drag grips unobstructed. `cd frontend && bun run build` and `git diff --check` pass.
+
+## CAM tree operation indentation
+
+- [x] Reduce operation-row indentation from 16 px to 8 px.
+- [x] Validate the frontend build.
+
+Operation rows now indent by 8 px per tree depth. `cd frontend && bun run build` and `git diff --check` pass.
+
+## Rhino panel setup operation reordering
+
+- [x] Add 8 px-indented drag handles to reorder operations within the setup.
+- [x] Persist the reordered operation sequence in Rhino document state.
+- [x] Validate the Rhino WebView build and focused plug-in checks.
+
+The Rhino panel now uses native drag-and-drop from a six-dot grip beside each operation. Drops reorder only within the target setup; the bridge validates that every operation ID appears exactly once, then persists `setup.operations`, which already controls regeneration and post-processing order. Validation: `cd rhino_plugin/web && bun run build`, `uv run pytest rhino_plugin/tests/test_contracts.py` (4 passed), Python compile, and `git diff --check` pass. The development `OpenCamRhinoBridge.rhp` was then rebuilt and installed; its installed `web/dist/index.html` contains the grip styling, 8 px indentation, and reorder bridge action. Rhino restart is required to load the installed panel assets.
+
+## React migration for Rhino WebViews
+
+- [ ] Add minimal React/ReactDOM runtime and JSX build support to the Rhino WebView package.
+- [ ] Port the docked OpenCAM panel to React and reusable `t-components` React controls.
+- [ ] Port the blocking operation editor to React and reusable `t-components` React controls.
+- [ ] Preserve panel/operation-dialog bridge protocols and behaviors.
+- [ ] Validate, rebuild, and install the development Rhino bridge.
+
 ## 2.5D facing operation
 
 - [x] Create and switch to branch `adding-facing`.
@@ -325,3 +362,146 @@ Focused Rhino interaction tests on `CAM_Demos_duplicate2.3dm` (two operations, s
 - [ ] Run focused Rhino interaction test after approval and restart.
 
 OpenCAM now follows Tack's lifecycle shape: document restore scans object metadata once, active and recently associated objects are reconciled after every `EndCommand`, runtime serial changes invalidate owning operations, and recently removed objects remain observable for 200 commands so native Undo/Redo can restore tracking. Open WebViews receive fresh state directly through `PluginBridge.PostPanelMessage`; no page reload is needed to render invalid-operation dots. Tack-style metadata removal/restoration and serial-change smoke checks pass, along with 119 maintained tests, focused Ruff, compile, diff check, WebView build, and a clean C# build/install. Rhino restart required to load the replaced bridge assembly before interaction testing.
+
+## Rhino mesh-free simulation mode
+
+- [x] Make `include_stock_data=false` skip swept-stock Boolean and stock-mesh generation while retaining tool animation frames.
+- [x] Keep the regular frontend's default `/simulate` behavior unchanged.
+- [x] Prevent the Rhino client from requesting cached or active stock meshes in mesh-free mode.
+- [x] Validate backend and Rhino plug-in checks, then rebuild/reload the development plug-in.
+
+The Rhino client now posts `/simulate` with `include_stock_data=false` and no stock mesh. The backend takes a tool-animation-only path that samples generated CL records, maps them back to CL indices, and builds only the moving tool asset; it does not load stock, run swept-volume Booleans, simplify stock meshes, or expose cached/active/final stock URLs. Calls without the flag retain the browser's full stock simulation behavior. Rhino clears stock-simulation conduit layers and never requests empty mesh URLs. Validation: 119 maintained tests passed, focused Ruff and Python compile passed, the WebView build passed, and the development source reload was dispatched to Rhino.
+
+## Regenerate from live Rhino geometry
+
+- [x] Persist object and Brep face/edge component references for selected drive geometry.
+- [x] Re-read current part and drive geometry before every regeneration request.
+- [x] Keep operations invalid when current source geometry cannot be resolved or validated.
+- [x] Show a red X for invalid operations in the Rhino operation tree.
+- [x] Validate maintained tests/builds and reload the development plug-in.
+
+Document schema v8 stores standalone-curve references and Brep face/edge component indices with each normalized region snapshot. Explicit regeneration now remeshes the current part, recalculates stock bounds, resolves current drive subobjects, retessellates their loops, and only then posts `/cam/toolpath`; resolution failures are persisted as invalid instead of falling back to stale coordinates. Legacy standalone-curve operations are resolved from their saved object GUIDs, while legacy face/edge operations must have their drive geometry reselected once because schema v7 did not retain component indices. Invalid operations render the existing status X in red. Validation: 119 maintained tests passed, focused Ruff and Python compile passed, the WebView build passed, diff checks passed, and the development source/panel reload was dispatched to Rhino.
+
+## Optional Rhino part for 2D operations
+
+- [x] Allow adding and editing operations before selecting a part.
+- [x] Generate pocketing, profiling, and facing from live drive geometry without a part.
+- [x] Keep parallel finishing generation blocked until a part is selected.
+- [x] Allow mesh-free tool simulation without a part.
+- [x] Validate maintained tests/builds and reload the development plug-in.
+
+The Rhino panel no longer gates Add Operation on part selection. Pocketing, profiling, and facing refresh their live drive geometry and post a setup without `partMesh`; stock max Z is derived from the operation loops so relative clearance modes remain valid. Mesh-free simulation no longer checks for a part. The operation editor receives current part availability and disables Generate only for parallel finishing when no part exists, in addition to the existing drive-geometry requirement; the Python action repeats that validation server-side. The regular backend contract remains unchanged and still requires a part mesh for parallel finishing. Validation: 119 maintained tests passed, focused Ruff and Python compile passed, WebView TypeScript/build passed, and diff checks passed.
+
+## Populate operation tree on panel load
+
+- [x] Request document state only after the Eto WebView reports `DocumentLoaded`.
+- [x] Remove the premature browser-side initial state request.
+- [x] Build/install the development bridge and validate maintained checks.
+
+The C# panel now dispatches `get_state` only after setting `m_pageLoaded=true`, so its first response cannot be dropped by `PostMessage`. The TypeScript page no longer sends the request while Eto still considers the document loading. Validation: 119 maintained tests and the WebView build passed; the Debug development bridge built with zero warnings/errors and was installed. Rhino must restart once to load the replaced assembly.
+
+## Refresh Rhino Brep-compatible parts
+
+- [x] Resolve current part and drive subobjects through a Brep conversion instead of requiring `RhinoObject.Geometry` to already be a `Brep`.
+- [x] Validate maintained checks and reload the development plug-in.
+
+The failing selected part is a `Rhino.Geometry.Extrusion`, which Rhino's picker exposes as a Brep but `RhinoObject.Geometry` retains as an extrusion. Live refresh now uses `Rhino.Geometry.Brep.TryConvertBrep` for both the part and saved Brep face/edge references. A live Rhino probe confirmed conversion to a six-face Brep and successfully rebuilt the current 64-vertex/52-face part mesh and stock bounds. Validation: 119 maintained tests, focused Ruff, Python compile, and diff checks passed; development source/panel reload was dispatched.
+
+## Part reference lifecycle and invalid status color
+
+- [x] Add a Part context-menu action that removes its document reference without deleting Rhino geometry.
+- [x] Remove Part from operation source associations and invalidate affected operations/toolpaths.
+- [x] Verify selected Part is persisted, written to source-object metadata for referencing operations, and runtime-serial tracked.
+- [x] Make the invalid-operation X visibly red despite tree icon CSS specificity.
+- [x] Validate maintained checks and reload the development plug-in.
+
+Part references are stored in the document state and represented on the source object with `OpenCAM.OperationRefs`, now including a `roles: ["part"]` marker even before an operation references it. The same object is included in every operation's `source_object_ids`, so the existing runtime-serial watcher invalidates every referencing operation after its geometry changes. The new Part right-click menu has **Remove reference**; it removes only OpenCAM metadata/state, restores normal Rhino visibility, and invalidates affected generated artifacts. The status icon rule now overrides the tree icon's dim color so invalid X icons render `#ef4444`. Validation: 119 maintained tests, focused Ruff, Python compile, WebView build, and diff checks passed; development source/panel reload was dispatched.
+
+## Duplicate Rhino operation
+
+- [x] Add an operation context-menu Duplicate action.
+- [x] Persist an identical new operation with a new ID and `_Copy` name.
+- [x] Attach copied references to source metadata/tracking without generating a toolpath.
+- [x] Validate maintained checks/builds and reload the development plug-in.
+
+The operation context menu now includes **Duplicate**. It deep-copies all operation parameters and region/reference snapshots, assigns a fresh UUID, appends `_Copy` to the name, selects the duplicate, and writes the duplicate's shared part/drive object associations to `OpenCAM.OperationRefs`. It deliberately creates no toolpath, preview, or simulation artifact. Validation: 119 maintained tests, focused Ruff, Python compile, WebView build, and diff checks passed; development source/panel reload was dispatched.
+
+## Decouple 2.5D operations from Part
+
+- [x] Associate Part only with operations that require its mesh.
+- [x] Generate pocketing, profiling, and facing without `partMesh`, even when a Part is selected.
+- [x] Invalidate only Part-dependent operations when Part is selected, removed, or changed.
+- [x] Validate maintained checks/builds and reload the development plug-in.
+
+Pocketing, profiling, and facing now depend only on their drive geometry: their source IDs exclude Part, their generation hashes exclude Part, and their `/cam/toolpath` setup never includes `partMesh` even when the document has a selected Part. Their stock max Z comes from operation loops. Parallel finishing remains Part-dependent. Selecting, removing, or editing Part now invalidates only parallel-finishing operations, and metadata reconciliation treats persisted document associations as canonical so stale object metadata cannot reattach Part to 2.5D operations. Existing valid 2.5D cache hashes are migrated when possible. Validation: 119 maintained tests, focused Ruff, Python compile, WebView build, diff checks, and a part-dependency/hash smoke check passed; development source/panel reload was dispatched.
+
+## Per-operation simulation status
+
+- [x] Persist simulation status and identity by operation ID.
+- [x] Invalidate only the regenerated/edited operation's simulation status.
+- [x] Keep completed blue checks on unaffected operations.
+- [x] Validate maintained checks/builds and reload the development plug-in.
+
+`results.simulation_summaries` now stores running/completed/error state, task/simulation IDs, generation hash, and frame count under each operation ID. Regeneration, source invalidation, editing, and deletion remove only the affected operation's summary; the one active playback session remains document-scoped, but replacing it no longer erases completed status for other operations. The panel reads per-operation summaries for spinner/blue-check status, stale running entries are suppressed on panel load, mismatched generation hashes are discarded, and legacy document-wide simulation fields migrate into the map. Validation: 119 maintained tests, focused Ruff, Python compile, WebView build, and diff checks passed; development source/panel reload was dispatched.
+
+## Setup regeneration and post-processing
+
+- [x] Add Setup right-click Regenerate and Post Process actions.
+- [x] Regenerate setup operations sequentially in tree order.
+- [x] Post setup CL operations as one ordered list to the backend.
+- [x] Ensure single and multi-operation post-processing return one delineated NC program.
+- [x] Validate maintained checks/builds and reload the development plug-in.
+
+The Setup row context menu now offers **Regenerate** and **Post Process**. Regenerate queues operations in tree order and advances only after each operation's toolpath generation and automatic simulation preparation reaches a terminal state; one failure does not prevent later operations from running. Setup post-processing collects valid generated CL records in tree order and sends one JSON list to `/cam/post-process/duet3d/nc`; single-operation posting continues to send the same list shape with one element. The backend already emits one program header/footer and explicit `; Operation N`/tool comments around each operation, returning one `.nc` response for lists of any supported length. Validation: 119 maintained tests, focused Ruff, Python compile, WebView build, diff checks, and a two-operation NC delineation smoke check passed; development source/panel reload was dispatched. Setup post-processing requires every operation to have valid generated CL (panel menu and Python action both enforce this), so a partial setup cannot produce an NC file.
+
+## Climb/conventional cutting-direction audit
+
+- [x] Establish the clockwise-spindle direction convention used by each toolpath strategy.
+- [x] Audit facing, parallel finishing, pocketing, and profiling for consistent climb/conventional behavior.
+- [x] Correct reversed direction handling without changing mixed-direction behavior.
+- [x] Validate focused geometry checks and the maintained test suite.
+
+For the assumed clockwise spindle, climb cutting keeps the remaining material on the tool's right. Facing and parallel-finishing one-way rasters were reversed and now use that convention; mixed rasters are unchanged. Profiling previously ignored `cut_direction` and now orients open and closed paths from both cut side and direction. Offset and adaptive pocketing were already correct; only an inaccurate adaptive comment changed. The reported 90° facing case now travels -Y for climb and +Y for conventional while lanes advance -X. Validation: 105 maintained backend tests and 14 Rhino plug-in tests pass, focused geometry checks cover all four strategies, focused Ruff/compile/diff checks pass, and the frontend production build passes. No Rhino plug-in rebuild is required for these backend-only toolpath changes.
+
+## Push-based generation and simulation status
+
+- [x] Push generation completion from the toolpath worker instead of panel polling.
+- [x] Watch simulation tasks off-thread and push terminal status to the UI thread.
+- [x] Keep slow fallback polling for bridge builds without push support.
+- [x] Validate maintained checks, rebuild/install the bridge, and reload the plug-in.
+
+Setup regeneration drove roughly one panel dispatch per 500 ms through the synchronous UI-thread `ExecuteScript` bridge, saturating Rhino's main thread and producing a sustained beachball. Live timing showed the Python actions themselves are fast (polls 11-19 ms, completions up to 600 ms), so dispatch volume is the cost. The generation worker and a new simulation watcher now push one completion event each through a C# `AsyncInvoke` hop; the panel keeps only 2 s fallback polls for older bridges.
+
+## Dual-React invalid hook call in frontend
+
+- [x] Diagnose `Invalid hook call` from `t-components` Dialog: bun's `file:../../t-components` install copied the package's own `node_modules/react`, shadowing the app's React for all imports from `t-components/dist`.
+- [x] Add `resolve.dedupe: ["react", "react-dom"]` to `frontend/vite.config.ts` so Vite always resolves React from the frontend root, surviving future `bun install` re-copies.
+- [x] Delete stale nested `react`/`react-dom` from `frontend/node_modules/t-components/node_modules` and clear `node_modules/.vite` so the dev server pre-bundles one React.
+
+- [x] Fix `geometries.map is not a function` crash (`App.tsx` `operationToMeshFaceSelections`): legacy `localStorage` sidebar payload carried `driveGeometry` as a single object instead of an array. Guard now normalizes to an array (wrapping a lone object), matching the existing `draftToMeshFaceSelections` defensive pattern; frontend `tsc -b` passes.
+
+## Python-side UI-thread push (replace C# SchedulePanelDispatch)
+
+- [x] Probe `Eto.Forms.Application.Instance.AsyncInvoke` from a worker thread with a persistent module callback.
+- [x] Probe full push: `handle_panel_message` + `PostPanelMessage` inside the UI-thread callback.
+- [x] Rewrite `runtime.push_panel_request` to use Eto `AsyncInvoke`; revert the C# method.
+- [x] Validate checks, reload Python, and reinstall the bridge source.
+
+The RhinoCode async guide documents `Eto.Forms.Application.Instance.Invoke/AsyncInvoke` with plain Python callables as the supported UI-thread hop; `RhinoApp.InvokeOnUiThread(Delegate, args)` takes a base `Delegate` and crashed Rhino when handed a raw callable, so it is off the table.
+
+The RhinoCode async guide documents `Eto.Forms.Application.Instance.Invoke/AsyncInvoke` with plain Python callables as the supported UI-thread hop; `RhinoApp.InvokeOnUiThread(Delegate, args)` takes a base `Delegate` and crashed Rhino when handed a raw callable, so it is off the table. Live probes confirmed a worker-thread `AsyncInvoke` callback runs on the UI thread, reads the active document, and delivers a full `handle_panel_message` response to the open panel (`posted: 1`) without a crash. `runtime.push_panel_request` now builds the request JSON, marshals through Eto `AsyncInvoke`, runs `entry.handle_panel_message` and posts via `PluginBridge.PostPanelMessage` entirely in Python with a guarded callback; the C# `SchedulePanelDispatch` shim was reverted. The whole push path is now reloadable via `reload-development-mac.sh` without a bridge rebuild or Rhino restart. Validation: 119 maintained tests, focused Ruff, compile, and diff checks passed; development Python reloaded into running Rhino; the reverted bridge was rebuilt and installed for the next restart.
+
+## Arbitrary-polyline facing
+
+- [x] Accept one valid closed face-boundary polyline rather than only four-corner rectangles.
+- [x] Retain raster slicing of concave and tessellated boundaries, and update user-facing geometry labels/messages.
+- [x] Validate the reported tessellated rectangle and a non-rectangular boundary.
+- [x] Collapse every operation input polyline at 0.001 mm before Shapely-based processing.
+
+Facing now accepts any valid, single closed polygon. A mixed-direction raster only links adjacent slices when their connector stays inside the buffered face boundary; disconnected concave slices retract safely. The reported 33-vertex rectangle collapses to its five-point closed boundary, and open/closed polylines are simplified at 0.001 mm before every engine uses them. Validation: 119 backend/Rhino tests, frontend production build, Python compile, focused direct tessellated/concave-facing checks, and `git diff --check` pass.
+
+## Ruff tooling
+
+- [x] Install Ruff with uv and run it against the changed Python files.
+
+`uv tool install ruff` installed Ruff 0.17.2. Ruff and `git diff --check` pass for the changed Python files.

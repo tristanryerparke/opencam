@@ -9,7 +9,9 @@ from shapely.geometry.base import BaseGeometry
 from opencam.engine.closed_polyline.offset import offset, quad_segs_for_tolerance
 from opencam.engine.closed_polyline.seam_shift import seam_shift
 from opencam.engine.closed_polyline.validation import validate_closed_polyline
-from opencam.engine.pocketing.seams import longest_straight_edge_midpoint_length_near_initial_seam
+from opencam.engine.pocketing.seams import (
+    longest_straight_edge_midpoint_length_near_initial_seam,
+)
 from opencam.schemas.geometry_2_5d import ClosedPolyline25D, Polyline25D
 
 
@@ -19,6 +21,7 @@ def build_profile_layers(
     tool_diameter: float,
     stock_to_leave: float,
     side: Literal["outside", "inside"],
+    cut_direction: Literal["climb", "conventional"],
     chord_tolerance: float,
 ) -> list[np.ndarray]:
     offset_distance = tool_diameter / 2 + stock_to_leave
@@ -26,17 +29,37 @@ def build_profile_layers(
         offset_distance = -offset_distance
 
     if isinstance(geometry, ClosedPolyline25D):
-        return build_closed_profile_layers(
+        layers = build_closed_profile_layers(
             geometry.to_numpy(),
             offset_distance=offset_distance,
             chord_tolerance=chord_tolerance,
         )
+        counterclockwise = (side == "inside") == (cut_direction == "climb")
+        return [
+            _orient_closed_profile(layer, counterclockwise=counterclockwise)
+            for layer in layers
+        ]
 
-    return build_open_profile_layers(
+    layers = build_open_profile_layers(
         geometry.to_numpy(),
         offset_distance=offset_distance,
         chord_tolerance=chord_tolerance,
     )
+    reverse = (side == "inside") == (cut_direction == "climb")
+    if reverse:
+        return [np.ascontiguousarray(layer[::-1]) for layer in layers]
+    return layers
+
+
+def _orient_closed_profile(
+    polyline: np.ndarray, *, counterclockwise: bool
+) -> np.ndarray:
+    signed_area = float(
+        np.sum(polyline[:-1, 0] * polyline[1:, 1] - polyline[1:, 0] * polyline[:-1, 1])
+    )
+    if (signed_area > 0) == counterclockwise:
+        return polyline
+    return np.ascontiguousarray(polyline[::-1])
 
 
 def build_closed_profile_layers(

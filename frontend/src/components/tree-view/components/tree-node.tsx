@@ -79,7 +79,7 @@ export function TreeNodeRow<T extends TreeNodeData = TreeNodeData>({
     (n) => n.parentId === node.parentId,
   ).length;
 
-  const { ref, isDragSource } = useSortable({
+  const { ref, handleRef, isDragSource } = useSortable({
     id: node.id,
     index: sortableIndex,
     group: dndGroup,
@@ -187,6 +187,7 @@ export function TreeNodeRow<T extends TreeNodeData = TreeNodeData>({
         selectionMode,
         toggle: () => toggleExpand(node.id),
         select: handleSelect,
+        dragHandleRef: handleRef,
       })}
       {isDropTargetNode && currentDropPosition === "after" && (
         <TreeDropIndicator

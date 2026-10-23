@@ -377,7 +377,11 @@ def _simulation_chunk_mappings(
         if current_chunk_index is not None and frame.chunk_index != current_chunk_index:
             chunks.append(
                 SimulationChunkMapping(
-                    cached_mesh_url=_chunk_cached_mesh_url(simulation_id, current_chunk_index),
+                    cached_mesh_url=(
+                        _chunk_cached_mesh_url(simulation_id, current_chunk_index)
+                        if simulation.include_stock_data
+                        else ""
+                    ),
                     frames=current_frames,
                 )
             )
@@ -386,14 +390,24 @@ def _simulation_chunk_mappings(
         current_frames.append(
             SimulationFrameMapping(
                 tool_position=frame.tool_position,
-                active_mesh_index=frame.active_mesh_index if frame.active_mesh_index is not None else frame.point_index,
+                active_mesh_index=(
+                    frame.active_mesh_index
+                    if simulation.include_stock_data and frame.active_mesh_index is not None
+                    else frame.point_index
+                    if simulation.include_stock_data
+                    else -1
+                ),
                 cl_record_index=frame.cl_record_index,
             )
         )
     if current_chunk_index is not None:
         chunks.append(
             SimulationChunkMapping(
-                cached_mesh_url=_chunk_cached_mesh_url(simulation_id, current_chunk_index),
+                cached_mesh_url=(
+                    _chunk_cached_mesh_url(simulation_id, current_chunk_index)
+                    if simulation.include_stock_data
+                    else ""
+                ),
                 frames=current_frames,
             )
         )
@@ -531,6 +545,58 @@ def _build_animation_frames(
     return animation_frames
 
 
+def _build_tool_only_simulation(
+    operation: OperationRecord3D,
+    *,
+    frame_step_distance: float,
+    rapid_frame_step_scale: float,
+) -> BufferedSimulationResult:
+    sampled_points = sample_operation_points_with_progress(
+        operation,
+        frame_step_distance,
+        rapid_frame_step_scale=rapid_frame_step_scale,
+    )
+    if not sampled_points:
+        raise RuntimeError("Simulation produced no tool animation frames.")
+
+    cl_indices = map_progress_to_cl_record_indices(
+        operation,
+        [progress for progress, _position in sampled_points],
+    )
+    frames = [
+        PreparedSimulationFrame(
+            chunk_index=0,
+            point_index=index,
+            tool_position=position,
+            chunk_step_count=len(sampled_points),
+            active_mesh_index=-1,
+            cl_record_index=cl_record_index,
+        )
+        for index, ((_progress, position), cl_record_index) in enumerate(
+            zip(sampled_points, cl_indices)
+        )
+    ]
+    return BufferedSimulationResult(
+        tool_mesh_bytes=maybe_compress_glb(
+            build_tool_mesh_glb_from_tool(operation.tool),
+            context="tool mesh",
+        ),
+        chunks=[
+            SimulatedChunk(
+                cached_mesh_bytes=b"",
+                frame_start_index=0,
+                frame_end_index=len(frames) - 1,
+            )
+        ],
+        prepared_chunks=[],
+        operation=operation,
+        frames=frames,
+        frame_step_distance=frame_step_distance,
+        rapid_frame_step_scale=rapid_frame_step_scale,
+        include_stock_data=False,
+    )
+
+
 def _build_buffered_simulation(
     mesh_bytes: bytes,
     operation: OperationRecord3D,
@@ -549,6 +615,14 @@ def _build_buffered_simulation(
 
     frame_step_distance = chunk_step_distance
     rapid_frame_step_scale = DEFAULT_RAPID_FRAME_STEP_SCALE
+    if not include_stock_data:
+        if progress_callback:
+            progress_callback(99, "Preparing tool animation frames.")
+        return _build_tool_only_simulation(
+            operation,
+            frame_step_distance=frame_step_distance,
+            rapid_frame_step_scale=rapid_frame_step_scale,
+        )
 
     prepared_chunks, final_stock_manifold = prepare_simulation_chunks(
         mesh_bytes,
@@ -775,9 +849,6 @@ def _run_swept_simulation_task(
         if simulation.include_stock_data:
             Thread(target=_run_comparison_mesh_build, args=(simulation,), daemon=True).start()
 
-        final_frame_index = len(simulation.frames) - 1
-        final_frame = simulation.frames[final_frame_index]
-        final_chunk = simulation.prepared_chunks[final_frame.chunk_index]
         result = _simulation_response(simulation_id, simulation)
         _update_simulation_task(
             task_id,
@@ -826,13 +897,16 @@ async def simulate_swept(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     mesh_bytes = await mesh.read() if mesh is not None else None
-    if mesh is not None and not mesh_bytes:
-        raise HTTPException(status_code=400, detail="Mesh upload is empty.")
-    if mesh_bytes is None:
-        cached_mesh = get_mesh_cache().get_mesh()
-        if cached_mesh is None:
-            raise HTTPException(status_code=400, detail="Upload a STEP file before running simulation.")
-        mesh_bytes = cached_mesh.mesh_bytes
+    if include_stock_data:
+        if mesh is not None and not mesh_bytes:
+            raise HTTPException(status_code=400, detail="Mesh upload is empty.")
+        if mesh_bytes is None:
+            cached_mesh = get_mesh_cache().get_mesh()
+            if cached_mesh is None:
+                raise HTTPException(status_code=400, detail="Upload a STEP file before running simulation.")
+            mesh_bytes = cached_mesh.mesh_bytes
+    else:
+        mesh_bytes = b""
 
     if any(not np.isfinite(padding) or padding < 0 for padding in (chunk_padding_x, chunk_padding_y, chunk_padding_z)):
         raise HTTPException(status_code=400, detail="Chunk padding values must be non-negative.")

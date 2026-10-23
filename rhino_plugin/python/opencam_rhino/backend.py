@@ -66,12 +66,12 @@ def request_bytes(base_url: str, path: str, timeout: float = 300.0) -> bytes:
 
 def start_swept_simulation(
     base_url: str,
-    stock_stl: bytes,
+    stock_stl: bytes | None,
     operation_json: str,
     timeout: float = 120.0,
     include_stock_data: bool = True,
 ) -> str:
-    """POST /simulate with a stock STL and generated CL data; returns a task id."""
+    """POST generated CL data and optional stock STL to /simulate; return a task id."""
     boundary = "----OpenCAMRhino" + uuid.uuid4().hex
     body = bytearray()
 
@@ -85,13 +85,15 @@ def start_swept_simulation(
 
     field("operation", operation_json)
     field("include_stock_data", "true" if include_stock_data else "false")
-    body.extend(
-        ("--{}\r\n".format(boundary)
-         + 'Content-Disposition: form-data; name="mesh"; filename="stock.stl"\r\n'
-         + "Content-Type: model/stl\r\n\r\n").encode("utf-8")
-    )
-    body.extend(stock_stl)
-    body.extend(("\r\n--{}--\r\n".format(boundary)).encode("utf-8"))
+    if stock_stl is not None:
+        body.extend(
+            ("--{}\r\n".format(boundary)
+             + 'Content-Disposition: form-data; name="mesh"; filename="stock.stl"\r\n'
+             + "Content-Type: model/stl\r\n\r\n").encode("utf-8")
+        )
+        body.extend(stock_stl)
+        body.extend(b"\r\n")
+    body.extend(("--{}--\r\n".format(boundary)).encode("utf-8"))
 
     request = Request(
         base_url.rstrip("/") + "/simulate",

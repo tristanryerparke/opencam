@@ -2,9 +2,12 @@ from typing import Literal
 
 import numpy as np
 from pydantic import field_validator
-from shapely.geometry import LinearRing
+from shapely.geometry import LinearRing, LineString
 
+from opencam.engine.closed_polyline.cleanup import dedup, simplify
 from opencam.schemas.base import CamelBaseModel
+
+POLYLINE_SIMPLIFICATION_TOLERANCE = 0.001
 
 
 class Point2D(CamelBaseModel):
@@ -16,7 +19,7 @@ class Polyline2D(CamelBaseModel):
     kind: Literal["polyline"] = "polyline"
     vertices: list[Point2D]
 
-    def to_numpy(self):
+    def _raw_numpy(self) -> np.ndarray:
         vertices = np.array(
             [(vertex.x, vertex.y) for vertex in self.vertices],
             dtype=np.float64,
@@ -24,6 +27,16 @@ class Polyline2D(CamelBaseModel):
         if vertices.size == 0:
             return vertices.reshape((0, 2))
         return np.ascontiguousarray(vertices)
+
+    def to_numpy(self) -> np.ndarray:
+        vertices = self._raw_numpy()
+        if len(vertices) < 3:
+            return vertices
+        simplified = LineString(vertices).simplify(
+            POLYLINE_SIMPLIFICATION_TOLERANCE,
+            preserve_topology=True,
+        )
+        return np.ascontiguousarray(simplified.coords, dtype=np.float64)
 
     def to_shapely(self):
         return LinearRing([(vertex.x, vertex.y) for vertex in self.vertices])
@@ -38,3 +51,10 @@ class ClosedPolyline2D(Polyline2D):
         if vertices and vertices[0] != vertices[-1]:
             raise ValueError("Expected a closed polyline where the first and last vertices are equal.")
         return vertices
+
+    def to_numpy(self) -> np.ndarray:
+        vertices = self._raw_numpy()
+        return simplify(
+            dedup(vertices, tolerance=POLYLINE_SIMPLIFICATION_TOLERANCE),
+            tolerance=POLYLINE_SIMPLIFICATION_TOLERANCE,
+        )

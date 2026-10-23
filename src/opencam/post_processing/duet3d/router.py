@@ -33,7 +33,7 @@ def post_process_duet3d(
 
 @router.post("/nc", response_class=PlainTextResponse)
 def post_process_duet3d_nc(operations: list[OperationRecord3D]):
-    """Post-process stored cutter-location records into an `.nc` download."""
+    """Post-process one or more ordered CL operations into one `.nc` program."""
     try:
         post_processor = Duet3DPostProcessor(build_default_duet3d_machine(), None)
         gcode = post_processor.post_process(operations)

@@ -34,14 +34,17 @@ def _object_serial(obj):
 
 
 def operation_source_object_ids(document_state, operation) -> list[str]:
-    """Return unique part and drive-geometry object GUIDs in stable order."""
+    """Return unique geometry GUIDs used by this operation in stable order."""
     result = []
     seen = set()
     candidates = []
-    if document_state.part is not None:
+    if document_state.part is not None and operation.type == "parallel_finishing":
         candidates.append(document_state.part.object_id)
     for region in operation.regions:
         candidates.extend(region.source_object_ids)
+        candidates.extend(
+            reference.object_id for reference in region.source_references
+        )
     for object_id in candidates:
         value = str(object_id)
         key = _object_key(value)
@@ -63,14 +66,37 @@ def refresh_all_source_object_ids(document_state) -> None:
 
 def _associations(document_state) -> dict[str, dict]:
     associations = {}
+    if document_state.part is not None:
+        object_id = str(document_state.part.object_id)
+        associations[_object_key(object_id)] = {
+            "object_id": object_id,
+            "operation_ids": set(),
+            "roles": {"part"},
+        }
     for _, operation in document_state.all_operations():
         for object_id in operation.source_object_ids:
             key = _object_key(object_id)
             entry = associations.setdefault(
                 key,
-                {"object_id": str(object_id), "operation_ids": set()},
+                {
+                    "object_id": str(object_id),
+                    "operation_ids": set(),
+                    "roles": set(),
+                },
             )
             entry["operation_ids"].add(str(operation.id))
+        for region in operation.regions:
+            for object_id in region.source_object_ids:
+                key = _object_key(object_id)
+                entry = associations.setdefault(
+                    key,
+                    {
+                        "object_id": str(object_id),
+                        "operation_ids": set(),
+                        "roles": set(),
+                    },
+                )
+                entry["roles"].add("drive_geometry")
     return associations
 
 
@@ -105,14 +131,27 @@ def _has_metadata(obj) -> bool:
     )
 
 
-def _metadata_operation_ids(obj) -> set[str]:
+def _metadata_payload(obj) -> dict:
     if not _has_metadata(obj):
-        return set()
+        return {}
     try:
         payload = json.loads(str(obj.Attributes.UserDictionary[METADATA_KEY]))
     except (TypeError, ValueError, json.JSONDecodeError):
+        return {}
+    if isinstance(payload, dict):
+        return payload
+    return {"operation_ids": payload} if isinstance(payload, list) else {}
+
+
+def _metadata_operation_ids(obj) -> set[str]:
+    values = _metadata_payload(obj).get("operation_ids", [])
+    if not isinstance(values, list):
         return set()
-    values = payload.get("operation_ids", []) if isinstance(payload, dict) else payload
+    return {str(value) for value in values if value}
+
+
+def _metadata_roles(obj) -> set[str]:
+    values = _metadata_payload(obj).get("roles", [])
     if not isinstance(values, list):
         return set()
     return {str(value) for value in values if value}
@@ -124,11 +163,13 @@ def _metadata_associations(objects, existing_operation_ids) -> dict[str, dict]:
         if obj is None or obj.IsDeleted or not _has_metadata(obj):
             continue
         operation_ids = _metadata_operation_ids(obj) & existing_operation_ids
-        if not operation_ids:
+        roles = _metadata_roles(obj)
+        if not operation_ids and not roles:
             continue
         associations[_object_key(obj.Id)] = {
             "object_id": str(obj.Id),
             "operation_ids": operation_ids,
+            "roles": roles,
         }
     return associations
 
@@ -140,6 +181,7 @@ def _new_record(doc, association, *, metadata_present=None) -> dict:
     return {
         "object_id": association["object_id"],
         "operation_ids": set(association["operation_ids"]),
+        "roles": set(association.get("roles", set())),
         "runtime_serial": _object_serial(obj),
         "metadata_required": bool(metadata_present),
     }
@@ -156,11 +198,13 @@ def rebuild(doc, document_state, *, scan_metadata=False) -> None:
             doc.Objects,
             existing_operation_ids,
         ).items():
-            association = associations.setdefault(
-                key,
-                {"object_id": saved["object_id"], "operation_ids": set()},
-            )
-            association["operation_ids"].update(saved["operation_ids"])
+            if key in associations:
+                continue
+            associations[key] = {
+                "object_id": saved["object_id"],
+                "operation_ids": set(saved["operation_ids"]),
+                "roles": set(saved["roles"]),
+            }
 
     tracking = _document_tracking(doc)
     old_records = tracking["records"]
@@ -237,26 +281,30 @@ def sync_metadata(
         for object_id in sorted(touched, key=str.casefold):
             association = associations.get(_object_key(object_id))
             desired = set() if association is None else association["operation_ids"]
+            desired_roles = set() if association is None else association.get("roles", set())
             obj = _find_object(doc, object_id)
             if obj is None:
-                if desired:
+                if desired or desired_roles:
                     missing.append(object_id)
                 continue
             existing = _metadata_operation_ids(obj)
+            existing_roles = _metadata_roles(obj)
             has_metadata = _has_metadata(obj)
             if (
                 existing == desired
-                and not (force and desired)
-                and (desired or not has_metadata)
+                and existing_roles == desired_roles
+                and not (force and (desired or desired_roles))
+                and (desired or desired_roles or not has_metadata)
             ):
                 continue
             attributes = obj.Attributes.Duplicate()
-            if desired:
+            if desired or desired_roles:
                 attributes.UserDictionary.Set(
                     METADATA_KEY,
                     json.dumps(
                         {
                             "operation_ids": sorted(desired),
+                            "roles": sorted(desired_roles),
                             "revision": str(uuid.uuid4()),
                         },
                         separators=(",", ":"),
@@ -317,10 +365,11 @@ def _reconcile(doc, document_state) -> set[str]:
 
         has_metadata = _has_metadata(obj)
         saved_operation_ids = _metadata_operation_ids(obj) & existing_operation_ids
+        saved_roles = _metadata_roles(obj)
         if has_metadata:
             if saved_operation_ids != old_operation_ids:
                 affected.update(old_operation_ids | saved_operation_ids)
-            if not saved_operation_ids:
+            if not saved_operation_ids and not saved_roles:
                 records.pop(key, None)
                 recent[key] = {
                     **record,
@@ -329,6 +378,7 @@ def _reconcile(doc, document_state) -> set[str]:
                 }
                 continue
             record["operation_ids"] = saved_operation_ids
+            record["roles"] = saved_roles
             record["metadata_required"] = True
         elif record["metadata_required"]:
             affected.update(old_operation_ids)
@@ -346,13 +396,16 @@ def _reconcile(doc, document_state) -> set[str]:
         if obj is None:
             continue
         saved_operation_ids = _metadata_operation_ids(obj) & existing_operation_ids
+        saved_roles = _metadata_roles(obj)
         if _has_metadata(obj):
-            if not saved_operation_ids:
+            if not saved_operation_ids and not saved_roles:
                 continue
             operation_ids = saved_operation_ids
+            roles = saved_roles
         elif not record["metadata_required"]:
             operation_ids = set(record["operation_ids"]) & existing_operation_ids
-            if not operation_ids:
+            roles = set(record.get("roles", set()))
+            if not operation_ids and not roles:
                 continue
         else:
             continue
@@ -360,6 +413,7 @@ def _reconcile(doc, document_state) -> set[str]:
         records[key] = {
             "object_id": str(obj.Id),
             "operation_ids": operation_ids,
+            "roles": roles,
             "runtime_serial": _object_serial(obj),
             "metadata_required": _has_metadata(obj),
         }

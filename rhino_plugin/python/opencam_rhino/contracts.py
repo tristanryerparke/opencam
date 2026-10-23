@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
 PROTOCOL_VERSION = 1
-DOCUMENT_SCHEMA_VERSION = 7
+DOCUMENT_SCHEMA_VERSION = 8
 
 DEFAULT_VISIBILITY = {"stock": True, "part": True, "toolpath": True, "tool": True}
 
@@ -26,12 +26,28 @@ class PartSelection:
 
 
 @dataclass
+class SourceGeometryReference:
+    object_id: str
+    component_type: Literal["curve", "brep_face", "brep_edge"]
+    component_index: int | None = None
+
+
+@dataclass
 class PlanarRegion:
     source_object_ids: list[str]
     plane: dict[str, list[float]]
     outer_loop: list[list[float]]
     inner_loops: list[list[list[float]]] = field(default_factory=list)
     source_object_names: list[str] = field(default_factory=list)
+    source_references: list[SourceGeometryReference] = field(default_factory=list)
+
+    def __post_init__(self):
+        self.source_references = [
+            reference
+            if isinstance(reference, SourceGeometryReference)
+            else SourceGeometryReference(**reference)
+            for reference in self.source_references
+        ]
 
 
 @dataclass
@@ -87,9 +103,9 @@ class PanelRequest:
     action: Literal[
         "get_state", "select_part", "select_region", "generate", "generate_operation",
         "generate_status", "open_operation_dialog", "add_operation", "update_operation",
-        "delete_operation",
-        "select_operation", "set_visibility", "set_backend_url",
-        "simulate", "simulate_status", "show_frame", "exit_simulation", "clear_preview", "post_process",
+        "delete_operation", "duplicate_operation", "reorder_operations",
+        "select_operation", "set_visibility", "set_backend_url", "remove_part",
+        "simulate", "simulate_status", "show_frame", "exit_simulation", "clear_preview", "post_process", "post_process_setup",
     ]
     request_id: str = ""
     payload: dict[str, Any] = field(default_factory=dict)

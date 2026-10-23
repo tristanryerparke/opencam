@@ -40,7 +40,7 @@ class Facing2dOp(BaseCAMOperation):
     drive_geometry: list[ClosedPolyline25D] = Field(
         min_length=1,
         max_length=1,
-        title="Rectangular face boundary",
+        title="Face boundary",
     )
     cut_parameters: FacingCutSettings = Field(
         default_factory=FacingCutSettings, title="Cut parameters"

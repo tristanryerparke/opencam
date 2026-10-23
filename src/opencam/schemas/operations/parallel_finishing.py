@@ -20,7 +20,7 @@ class ParallelFinishingCutSettings(CamelBaseModel):
         ge=0.0,
         lt=180.0,
         title="Slice Direction",
-        description="Lane travel direction in degrees from +X. Stepover advances 90 degrees CCW.",
+        description="Pass orientation in degrees from +X. Stepover advances 90 degrees CCW.",
         json_schema_extra=ui_metadata(unit="degrees"),
     )
     stepover: StepoverMode = Field(default_factory=StepoverMode, title="Stepover")

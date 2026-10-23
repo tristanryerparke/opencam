@@ -33,6 +33,7 @@ def build_profiling_records(
             tool_diameter=operation.tool.diameter,
             stock_to_leave=operation.cut_parameters.stock_to_leave,
             side=operation.cut_parameters.side,
+            cut_direction=operation.cut_parameters.cut_direction,
             chord_tolerance=operation.advanced.chordal_tolerance,
         )
         if not layers:

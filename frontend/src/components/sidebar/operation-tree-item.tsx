@@ -1,4 +1,4 @@
-import { Check, ChevronDown, ChevronRight, LoaderCircle, X } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, GripVertical, LoaderCircle, X } from "lucide-react";
 
 import { SidebarMenuButton } from "t-components/sidebar";
 import {
@@ -63,6 +63,7 @@ export function OperationTreeItem({
   hasChildren,
   toggle,
   select,
+  dragHandleRef,
   onEdit,
   onRegenerate,
   onDelete,
@@ -78,18 +79,29 @@ export function OperationTreeItem({
   const operationId = node.data.operationId;
   const content = (
     <div
-      className="w-full"
-      style={{ paddingLeft: depth * 16 }}
+      className="flex w-full items-center gap-1"
+      style={{ paddingLeft: depth * 8 }}
       onClick={(event) => {
         event.stopPropagation();
         select(event);
       }}
     >
+      {operationId ? (
+        <button
+          ref={dragHandleRef}
+          type="button"
+          aria-label={`Reorder ${node.data.label}`}
+          className="flex h-7 w-4 shrink-0 cursor-grab items-center justify-center text-sidebar-foreground/65 hover:text-sidebar-foreground active:cursor-grabbing"
+          onClick={(event) => event.stopPropagation()}
+        >
+          <GripVertical className="h-4 w-4" />
+        </button>
+      ) : null}
       <SidebarMenuButton
         type="button"
         isActive={isSelected}
         className={cn(
-          "h-7 items-center gap-1.5 border-border bg-background py-1 shadow",
+          "h-7 min-w-0 flex-1 items-center gap-1.5 border-border bg-background py-1 shadow",
           "data-[active=true]:bg-background data-[active=true]:!border-blue-500",
         )}
         onClick={(event) => {

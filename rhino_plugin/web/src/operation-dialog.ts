@@ -9,7 +9,7 @@ type Page = "geometry" | "cut" | "tool" | "feeds" | "levels" | "clearance" | "ad
 type OperationHostWindow = Window & {
   eto?: { postMessage(value: string): void };
   chrome?: { webview?: { postMessage(value: string): void } };
-  opencamOperation?: { initialize(value: { draft?: Draft; backend_url?: string }): void; theme(value: Theme): void };
+  opencamOperation?: { initialize(value: { draft?: Draft; backend_url?: string; has_part?: boolean }): void; theme(value: Theme): void };
 };
 
 const root = document.querySelector<HTMLElement>("#app")!;
@@ -29,6 +29,7 @@ const pages: { id: Page; label: string }[] = [
 let draft: Draft | undefined;
 let page: Page = "geometry";
 let backendUrl = "";
+let hasPart = false;
 let tools: Tool[] = [];
 let toolsLoading = false;
 
@@ -401,8 +402,10 @@ function render() {
   navigation.element.style.background = "color-mix(in oklab, var(--muted) 30%, transparent)";
   body.append(navigation.element, pageContent(draft));
   const footer = dialogFooter();
-  const generate = button({ text: "Generate", variant: "default", size: "xs", onClick: () => { if (draft?.regions.length) send({ action: "generate", draft }); } });
-  generate.disabled = !draft.regions.length;
+  const parallelNeedsPart = draft.type === "parallel_finishing" && !hasPart;
+  const generate = button({ text: "Generate", variant: "default", size: "xs", onClick: () => { if (draft?.regions.length && !parallelNeedsPart) send({ action: "generate", draft }); } });
+  generate.disabled = !draft.regions.length || parallelNeedsPart;
+  if (parallelNeedsPart) generate.title = "Select a part before generating a 3D parallel finishing toolpath.";
   footer.append(
     button({ text: "Cancel", variant: "outline", size: "xs", onClick: () => send({ action: "cancel" }) }),
     generate,
@@ -420,6 +423,7 @@ host.opencamOperation = {
       regions: value.draft.regions ?? [],
     } : undefined;
     backendUrl = value.backend_url ?? "";
+    hasPart = value.has_part ?? false;
     tools = [];
     page = "geometry";
     render();

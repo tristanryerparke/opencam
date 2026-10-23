@@ -383,6 +383,7 @@ export function TreeView<T extends TreeNodeData = TreeNodeData>({
           selectionMode,
           toggle: () => {},
           select: () => {},
+          dragHandleRef: () => {},
         })}
       </DragOverlay>
     ) : null;

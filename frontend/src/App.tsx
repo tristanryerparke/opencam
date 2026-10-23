@@ -439,7 +439,12 @@ function operationToMeshFaceSelections(operation: Operation | null, fallbackZ: n
   if (!operation) {
     return [];
   }
-  const geometries = operation.driveGeometry as unknown as ClosedPolyline[];
+  const driveGeometry: unknown = operation.driveGeometry;
+  const geometries: ClosedPolyline[] = Array.isArray(driveGeometry)
+    ? driveGeometry
+    : driveGeometry && typeof driveGeometry === "object"
+      ? [driveGeometry as ClosedPolyline]
+      : [];
   return geometries.map((geometry, index) =>
     geometryToMeshFaceSelection(geometry, index, fallbackZ),
   );
@@ -1501,6 +1506,17 @@ function App() {
     void handleGenerateOperation(operation);
   }
 
+  function handleReorderOperations(operationIds: string[]) {
+    setOperations((current) => {
+      const operationsById = new Map(current.map((operation) => [operation.id, operation]));
+      const reordered = operationIds.flatMap((operationId) => {
+        const operation = operationsById.get(operationId);
+        return operation ? [operation] : [];
+      });
+      return reordered.length === current.length ? reordered : current;
+    });
+  }
+
   function handleDeleteOperation(operationId: string) {
     setOperations((current) => current.filter((operation) => operation.id !== operationId));
     setGeneratedOperationsById((current) => {
@@ -2246,6 +2262,7 @@ function App() {
           onEditOperation={handleEditOperation}
           onRegenerateOperation={handleRegenerateOperation}
           onDeleteOperation={handleDeleteOperation}
+          onReorderOperations={handleReorderOperations}
           onSimulateOperation={handleSimulateOperation}
           onCompareOperation={handleCompareOperation}
           onDownloadOperationClData={handleDownloadOperationClData}

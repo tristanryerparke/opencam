@@ -52,7 +52,7 @@ def default_params(operation_type: str) -> dict:
         "parallel_finishing": {"direction_degrees": 0.0},
     }
     if operation_type not in per_type:
-        raise ValueError("Unknown operation type: {}".format(operation_type))
+        raise ValueError(f"Unknown operation type: {operation_type}")
     return dict(common, **per_type[operation_type])
 
 
@@ -183,7 +183,7 @@ def _drive_geometry_25d(values) -> list[dict]:
 def _facing_drive_geometry(values) -> list[dict]:
     regions = _regions(values)
     if len(regions) != 1 or regions[0]["inner_loops"]:
-        raise ValueError("Facing requires one rectangular region without inner loops.")
+        raise ValueError("Facing requires one region without inner loops.")
     region = regions[0]
     return [{
         "z": float(region["plane"]["origin"][2]),

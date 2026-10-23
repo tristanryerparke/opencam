@@ -122,7 +122,7 @@ def test_simulate_contract_end_to_end():
 
 @pytest.mark.skipif(bool(os.environ.get("OPENCA_RHINO_SKIP_INTEGRATION")), reason="explicit skip")
 def test_simulate_contract_without_stock_data():
-    """include_stock_data=false keeps TS-identical chunk/tool data but drops final stock."""
+    """include_stock_data=false returns tool animation without generating stock meshes."""
     from fastapi.testclient import TestClient
     from opencam.schemas.cam import GenerateToolpathRequest
     from opencam.schemas.geometry_2_5d import ClosedPolyline25D
@@ -152,7 +152,6 @@ def test_simulate_contract_without_stock_data():
 
     start = client.post(
         "/simulate",
-        files={"mesh": ("stock.stl", box_stl_bytes((0.0, 0.0, 0.0), (18.0, 18.0, 10.0)))},
         data={
             "operation": json.dumps(toolpath),
             "chunk_step_distance": "2.0",
@@ -175,13 +174,10 @@ def test_simulate_contract_without_stock_data():
     assert result["frameCount"] > 0
     assert result["finalMeshUrl"] == ""
     chunk = result["chunks"][0]
-    assert chunk["cachedMeshUrl"]
+    assert chunk["cachedMeshUrl"] == ""
+    assert chunk["frames"][0]["activeMeshIndex"] == -1
     assert chunk["frames"][0]["toolPosition"]
 
     tool_mesh = client.get(result["toolMeshUrl"])
     assert tool_mesh.status_code == 200
     assert parse_glb(tool_mesh.content), "tool mesh GLB did not parse"
-
-    cached = client.get(chunk["cachedMeshUrl"])
-    assert cached.status_code == 200
-    assert parse_glb(cached.content), "chunk cached mesh GLB did not parse"

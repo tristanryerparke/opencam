@@ -406,7 +406,7 @@ export const camSchemaBundle = {
             },
             "maxItems": 1,
             "minItems": 1,
-            "title": "Rectangular face boundary",
+            "title": "Face boundary",
             "type": "array"
           },
           "cutParameters": {
@@ -607,7 +607,7 @@ export const camSchemaBundle = {
           },
           "directionDegrees": {
             "default": 0,
-            "description": "Lane travel direction in degrees from +X. Stepover advances 90 degrees CCW.",
+            "description": "Pass orientation in degrees from +X. Stepover advances 90 degrees CCW.",
             "exclusiveMaximum": 180,
             "minimum": 0,
             "title": "Slice Direction",
@@ -2944,7 +2944,7 @@ export const camSchemaBundle = {
         },
         "maxItems": 1,
         "minItems": 1,
-        "title": "Rectangular face boundary",
+        "title": "Face boundary",
         "type": "array"
       },
       "cutParameters": {
@@ -3249,7 +3249,7 @@ export const camSchemaBundle = {
           },
           "directionDegrees": {
             "default": 0,
-            "description": "Lane travel direction in degrees from +X. Stepover advances 90 degrees CCW.",
+            "description": "Pass orientation in degrees from +X. Stepover advances 90 degrees CCW.",
             "exclusiveMaximum": 180,
             "minimum": 0,
             "title": "Slice Direction",

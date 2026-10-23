@@ -257,7 +257,9 @@ def build_parallel_finishing_area_layers(
         # shape puts genuinely-adjacent lanes farther apart, raise this factor.
         polylines = _link_segments_zigzag(xy_segments, link_distance=1.5 * stepover + 1e-9)
     elif cut_direction in {"climb", "conventional"}:
-        if cut_direction == "conventional":
+        # Sorted lanes advance to the left of +U travel. Reverse climb lanes so
+        # their uncut material is on the right for a clockwise spindle.
+        if cut_direction == "climb":
             xy_segments = [(end, start) for start, end in xy_segments]
         polylines = [[start, end] for start, end in xy_segments]
     else:

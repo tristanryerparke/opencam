@@ -187,7 +187,7 @@ def _boundary_cleanup_paths(
 ) -> list[np.ndarray]:
     # shapely orient(sign=1.0) yields an exterior ring wound CCW and interior
     # rings (island holes) wound CW, which keeps the pocket material on the
-    # tool's left side everywhere: climb milling for a clockwise spindle.
+    # tool's right side everywhere: climb milling for a clockwise spindle.
     # Conventional milling mirrors every ring.
     sign = 1.0 if cut_direction == "climb" else -1.0
     oriented = orient(component, sign=sign)

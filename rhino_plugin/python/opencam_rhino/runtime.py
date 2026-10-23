@@ -72,8 +72,18 @@ class SimulationSession:
 
         conduit = ensure_conduit()
         serial = int(doc.RuntimeSerialNumber)
-        conduit.set_mesh_layer(serial, "simulation_cached", self._meshes(frame["cached_mesh_url"]))
-        conduit.set_mesh_layer(serial, "simulation_active", self._meshes(frame["active_mesh_url"]))
+        cached_mesh_url = frame.get("cached_mesh_url")
+        active_mesh_url = frame.get("active_mesh_url")
+        conduit.set_mesh_layer(
+            serial,
+            "simulation_cached",
+            self._meshes(cached_mesh_url) if cached_mesh_url else [],
+        )
+        conduit.set_mesh_layer(
+            serial,
+            "simulation_active",
+            self._meshes(active_mesh_url) if active_mesh_url else [],
+        )
         conduit.set_mesh_layer(serial, "tool", tool_meshes)
         self.current_frame = index
         doc.Views.Redraw()
@@ -120,6 +130,48 @@ def _generation_tasks() -> dict:
     return tasks
 
 
+def push_panel_request(document_serial, action, payload=None) -> bool:
+    """Schedule one panel dispatch on Rhino's UI thread from a worker thread.
+
+    Uses Eto's ``AsyncInvoke`` with a plain callable, the pattern documented in
+    RhinoCode's async scripting guide; ``RhinoApp.InvokeOnUiThread`` takes a
+    base ``Delegate`` and crashes Rhino when handed raw Python callables.
+    """
+    import json
+
+    from Eto.Forms import Application
+
+    app = Application.Instance
+    if app is None:
+        return False
+    serial = int(document_serial)
+    request_json = json.dumps(
+        {
+            "protocol_version": 1,
+            "action": action,
+            "payload": payload or {},
+            "request_id": "push-{}".format(action),
+        },
+        separators=(",", ":"),
+    )
+
+    def dispatch():
+        try:
+            from OpenCamRhinoBridge import PluginBridge
+
+            from . import entry
+
+            response = entry.handle_panel_message(serial, request_json)
+            PluginBridge.PostPanelMessage(serial, response)
+        except Exception as error:  # noqa: BLE001 - UI-thread callback must not raise
+            import Rhino
+
+            Rhino.RhinoApp.WriteLine("OpenCAM push dispatch failed: {}".format(error))
+
+    app.AsyncInvoke(dispatch)
+    return True
+
+
 def start_generation(
     doc,
     operation_id: str,
@@ -146,6 +198,7 @@ def start_generation(
         except Exception as error:  # noqa: BLE001 - transferred to Rhino UI thread
             task.error = str(error)
             task.status = "error"
+        push_panel_request(serial, "generate_status")
 
     Thread(target=run_worker, name="OpenCAM toolpath generation", daemon=True).start()
     return task
@@ -255,6 +308,8 @@ def complete_session(simulation: SimulationSession, result: dict, fetcher) -> Si
                     "active_mesh_url": (
                         f"/simulate/{simulation.simulation_id}/chunks/{chunk_index}"
                         f"/active-meshes/{active_mesh_index}.glb"
+                        if cached_mesh_url
+                        else ""
                     ),
                 }
             )

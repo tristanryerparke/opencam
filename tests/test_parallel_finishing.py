@@ -165,7 +165,7 @@ def test_parallel_finishing_emits_following_path_on_flat_plane():
 
 @pytest.mark.parametrize(
     ("cut_direction", "expected_dx"),
-    [("climb", 1.0), ("conventional", -1.0)],
+    [("climb", -1.0), ("conventional", 1.0)],
 )
 def test_parallel_finishing_one_way_directions_retract_between_lanes(cut_direction: str, expected_dx: float):
     records = build_parallel_finishing_records(

@@ -17,7 +17,7 @@ export interface Point2D {
 export interface ParallelFinishingCutSettings {
   cutDirection?: "climb" | "conventional" | "mixed";
   /**
-   * Lane travel direction in degrees from +X. Stepover advances 90 degrees CCW.
+   * Pass orientation in degrees from +X. Stepover advances 90 degrees CCW.
    */
   directionDegrees?: number;
   stepover?: StepoverMode;

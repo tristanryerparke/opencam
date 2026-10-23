@@ -93,7 +93,13 @@ def load(doc) -> DocumentState:
     )
     from .object_tracking import refresh_all_source_object_ids
 
+    legacy_hashes = {
+        operation.id: _generation_hash(result, operation, include_part=True)
+        for _, operation in result.all_operations()
+        if operation.type != "parallel_finishing"
+    }
     refresh_all_source_object_ids(result)
+    _migrate_part_independent_hashes(result, legacy_hashes)
     return result
 
 
@@ -121,10 +127,15 @@ def clear_operation_invalid(value: DocumentState, operation_id: str) -> None:
         value.results.pop("invalid_operation_ids", None)
 
 
-def operation_generation_hash(value: DocumentState, operation: OperationSpec) -> str:
+def _generation_hash(
+    value: DocumentState,
+    operation: OperationSpec,
+    *,
+    include_part: bool,
+) -> str:
     generation_inputs = {
         "schema_version": DOCUMENT_SCHEMA_VERSION,
-        "part": None if value.part is None else asdict(value.part),
+        "part": asdict(value.part) if include_part and value.part is not None else None,
         "operation": asdict(operation),
     }
     encoded = json.dumps(
@@ -133,6 +144,29 @@ def operation_generation_hash(value: DocumentState, operation: OperationSpec) ->
         sort_keys=True,
     ).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def operation_generation_hash(value: DocumentState, operation: OperationSpec) -> str:
+    return _generation_hash(
+        value,
+        operation,
+        include_part=operation.type == "parallel_finishing",
+    )
+
+
+def _migrate_part_independent_hashes(
+    value: DocumentState,
+    legacy_hashes: dict[str, str],
+) -> None:
+    for _, operation in value.all_operations():
+        legacy_hash = legacy_hashes.get(operation.id)
+        if legacy_hash is None:
+            continue
+        current_hash = operation_generation_hash(value, operation)
+        for entries in (value.toolpaths, value.toolpath_previews):
+            entry = entries.get(operation.id)
+            if isinstance(entry, dict) and entry.get("generation_hash") == legacy_hash:
+                entry["generation_hash"] = current_hash
 
 
 def store_toolpath(

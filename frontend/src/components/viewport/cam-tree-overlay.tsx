@@ -22,6 +22,7 @@ type CamTreeOverlayProps = {
   onEditOperation: (operationId: string) => void;
   onRegenerateOperation: (operationId: string) => void;
   onDeleteOperation: (operationId: string) => void;
+  onReorderOperations: (operationIds: string[]) => void;
   onSimulateOperation: (operationId: string) => void;
   onCompareOperation: (operationId: string) => void;
   onDownloadOperationClData: (operationId: string) => void;
@@ -45,6 +46,7 @@ export function CamTreeOverlay({
   onEditOperation,
   onRegenerateOperation,
   onDeleteOperation,
+  onReorderOperations,
   onSimulateOperation,
   onCompareOperation,
   onDownloadOperationClData,
@@ -124,6 +126,24 @@ export function CamTreeOverlay({
         <TreeView<OperationTreeItemData>
           items={treeItems}
           defaultExpandedIds={["setup-1"]}
+          draggable={canManageOperations}
+          droppable={canManageOperations}
+          showGuideLines={false}
+          canDrag={(node) => node.parentId === "setup-1"}
+          canDrop={(event) =>
+            event.source.parentId === "setup-1" &&
+            event.target.parentId === "setup-1" &&
+            event.projectedDepth === 1
+          }
+          onItemsChange={(items) => {
+            const reorderedIds = items
+              .find((item) => item.id === "setup-1")
+              ?.children?.map((item) => item.data.operationId)
+              .filter((operationId): operationId is string => Boolean(operationId));
+            if (reorderedIds && reorderedIds.length === operations.length) {
+              onReorderOperations(reorderedIds);
+            }
+          }}
           selectedIds={[selectedNodeId]}
           onSelectedIdsChange={(ids) => selectTreeNode(ids.at(-1) ?? "setup-1")}
           renderNode={(props) => {

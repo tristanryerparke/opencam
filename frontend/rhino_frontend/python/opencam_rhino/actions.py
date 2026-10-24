@@ -91,7 +91,7 @@ def _edit_operation_dialog(doc, operation, backend_url, has_part):
     import json
     from dataclasses import asdict
 
-    from OpenCamRhinoBridge import PluginBridge
+    from OpenCam import PluginBridge
 
     draft = None if operation is None else asdict(operation)
     while True:

@@ -25,7 +25,7 @@ def _bridge():
     global _BRIDGE
     if _BRIDGE is None:
         # Imported only in Rhino; keeping this module importable enables pure tests.
-        from OpenCamRhinoBridge import PluginBridge
+        from OpenCam import PluginBridge
 
         _BRIDGE = PluginBridge
     return _BRIDGE

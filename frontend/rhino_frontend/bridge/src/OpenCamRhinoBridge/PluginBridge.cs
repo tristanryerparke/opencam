@@ -1,4 +1,4 @@
-namespace OpenCamRhinoBridge
+namespace OpenCam
 {
   /// <summary>Python-visible services owned by the minimal C# shim.</summary>
   public static class PluginBridge

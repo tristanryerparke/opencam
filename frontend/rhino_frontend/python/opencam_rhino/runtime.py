@@ -157,7 +157,7 @@ def push_panel_request(document_serial, action, payload=None) -> bool:
 
     def dispatch():
         try:
-            from OpenCamRhinoBridge import PluginBridge
+            from OpenCam import PluginBridge
 
             from . import entry
 

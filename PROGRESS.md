@@ -1,5 +1,15 @@
 # Progress
 
+## Rhino Yak distribution
+
+- [x] Audit proven Tristan Rhino Utilities Yak workflow and OpenCAM bridge packaging requirements.
+- [x] Add reproducible OpenCAM Rhino production Yak build script and package metadata.
+- [x] Build and validate distributable `.yak` artifact without replacing development install.
+- [x] Rename release plug-in and Yak identity from `OpenCamRhinoBridge` to `OpenCam`.
+- [x] Remove generated `OpenCamBridgeHost` command from packaged plug-in.
+
+`frontend/rhino_frontend/bridge/scripts/build-yak-mac.sh` builds the RhinoCode Yak skeleton, replaces its generated plug-in with OpenCAM's compiled bridge, and adds WebView assets, Rhino Python, and bundled contracts. Artifact: `frontend/rhino_frontend/bridge/dist/rh8-mac/opencam-0.1.0+0-rh8-mac.yak`; manifest and plug-in are both `OpenCam`. Archive integrity, payload imports under CPython 3.9, bridge tests (14 passed), and `git diff --check` pass. The Yak is Rhino 8/macOS; it bundles macOS Python native dependency `pydantic-core`. Development plug-in was not changed.
+
 ## Development workflow
 
 - User authorizes replacement of development `OpenCamRhinoBridge.rhp` whenever required by OpenCAM changes; rebuild/install without asking. State when Rhino restart is required.

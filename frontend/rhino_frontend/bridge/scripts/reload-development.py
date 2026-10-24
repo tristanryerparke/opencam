@@ -5,7 +5,7 @@ import importlib
 import sys
 
 import Rhino
-from OpenCamRhinoBridge import PluginBridge
+from OpenCam import PluginBridge
 from run_in_rhino.rhino_env.client import SocketConnection
 from run_in_rhino.rhino_env.parasite import OutputParasite
 

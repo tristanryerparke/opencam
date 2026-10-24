@@ -8,7 +8,7 @@ PROJECT_ROOT="$(cd "$INTEGRATION_ROOT/../.." && pwd)"
 CONTRACTS_ROOT="$PROJECT_ROOT/contracts"
 PYTHON_ROOT="$INTEGRATION_ROOT/python"
 WEB_ROOT="$INTEGRATION_ROOT"
-INSTALL_DIR="${RHINO_MAC_PLUGINS_DIR:-$HOME/Library/Application Support/McNeel/Rhinoceros/8.0/MacPlugIns}/OpenCamRhinoBridge.rhp"
+INSTALL_DIR="${RHINO_MAC_PLUGINS_DIR:-$HOME/Library/Application Support/McNeel/Rhinoceros/8.0/MacPlugIns}/OpenCam.rhp"
 
 [[ -f "$INSTALL_DIR/development-python-root.txt" ]] || {
   echo "OpenCAM development bundle is not installed: $INSTALL_DIR" >&2

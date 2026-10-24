@@ -1,10 +1,6 @@
 #! python 3
-"""RhinoCode build anchor.
+"""RhinoCode project-generation anchor.
 
-OpenCAM's public command is native `OpenCam`; C# owns panel registration.
-RhinoCode requires one script code entry to generate its plug-in host.
+RhinoCode requires one script entry to generate its plug-in project. OpenCAM's
+build removes generated script-command wrappers before compiling final assembly.
 """
-
-from Rhino import RhinoApp
-
-RhinoApp.WriteLine("OpenCAM bridge host is loaded. Run OpenCam.")

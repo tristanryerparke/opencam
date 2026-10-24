@@ -429,7 +429,7 @@ def _reconcile(doc, document_state) -> set[str]:
 
 
 def _push_panel_state(doc, document_state, *, simulation_cancelled=False) -> int:
-    from OpenCamRhinoBridge import PluginBridge
+    from OpenCam import PluginBridge
 
     from .contracts import PanelRequest, panel_event
 

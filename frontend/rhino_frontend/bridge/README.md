@@ -1,4 +1,4 @@
-# OpenCamRhinoBridge
+# OpenCam
 
 Installable Rhino 8/macOS host for OpenCAM panel. C# remains transport only:
 
@@ -20,12 +20,12 @@ cd frontend/rhino_frontend/bridge
 scripts/build-install-mac.sh --mode development
 ```
 
-Build uses RhinoCode's generated project as host, merges source from
-`src/OpenCamRhinoBridge/`, compiles the parent `rhino_frontend` package, and installs:
+Build uses RhinoCode's generated project as host, merges OpenCAM's C# source,
+compiles the parent `rhino_frontend` package, and installs:
 
 ```text
 ~/Library/Application Support/McNeel/Rhinoceros/8.0/MacPlugIns/
-  OpenCamRhinoBridge.rhp/
+  OpenCam.rhp/
 ```
 
 Restart Rhino after installation, then run `OpenCam`.
@@ -47,11 +47,24 @@ Production install snapshots `opencam_rhino/` into bundle `Python/`:
 scripts/build-install-mac.sh --mode production
 ```
 
+## Shareable Yak package
+
+Build a self-contained Rhino 8/macOS package without replacing development install:
+
+```bash
+scripts/build-yak-mac.sh --version 0.1.0+0
+```
+
+Artifact: `dist/rh8-mac/opencam-<version>-rh8-mac.yak`.
+It contains compiled bridge, WebView assets, Rhino Python, and contracts.
+Recipient installs by opening `.yak` with Rhino 8. Backend remains separate;
+set its URL in OpenCAM panel after installation.
+
 ## Generated build anchor
 
 RhinoCode only generates a `.rhp` when project contains code. `commands/bridge_host.py`
-is inert generated-host anchor; public OpenCAM command remains native `OpenCam`.
-Do not put application logic in bridge anchor.
+is a build anchor; final build removes RhinoCode's generated script command.
+Public OpenCAM command is native `OpenCam`. Do not put application logic in anchor.
 
 ## Requirements
 

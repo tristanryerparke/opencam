@@ -4,7 +4,7 @@ using System.Reflection;
 
 using Eto.Forms;
 
-using OpenCamRhinoBridge;
+using OpenCam;
 
 using Rhino;
 using Rhino.FileIO;
@@ -125,7 +125,7 @@ namespace RhinoCodePlatform.Rhino3D.Projects.Plugin
       string failurePrefix)
     {
       PanelResponseSink.Clear();
-      var setResult = "from OpenCamRhinoBridge import PanelResponseSink\n"
+      var setResult = "from OpenCam import PanelResponseSink\n"
         + "PanelResponseSink.Set(str(" + resultVariable + "))\n";
       if (!RunPython(body + setResult, failurePrefix))
         return "{\"ok\":false,\"error\":\"OpenCAM Python dispatch failed.\"}";

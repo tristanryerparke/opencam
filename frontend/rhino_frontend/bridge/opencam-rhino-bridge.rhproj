@@ -7,7 +7,7 @@
   },
   "id": "6c6d73ff-d448-4408-890a-2a96fc9f7337",
   "identity": {
-    "name": "OpenCamRhinoBridge",
+    "name": "OpenCam",
     "version": "0.1.0",
     "publisher": {
       "email": "tristanryerparke@gmail.com",
@@ -30,7 +30,7 @@
         "id": "*.*.python",
         "version": "*.*.*"
       },
-      "title": "OpenCamBridgeHost",
+      "title": "OpenCamBuildAnchor",
       "uri": "commands/bridge_host.py"
     }
   ],

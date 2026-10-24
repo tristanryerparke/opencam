@@ -5,7 +5,7 @@ import { createRoot } from "react-dom/client";
 import { mountRhinoAddOperationButton, mountRhinoContextMenu, mountRhinoOperationTree, mountRhinoVisibilityPicker } from "./rhino-panel-components";
 
 function mountPanelDom(root: HTMLElement) {
-type Action = "get_state" | "select_part" | "remove_part" | "open_operation_dialog" | "generate_operation" | "generate_status" | "delete_operation" | "duplicate_operation" | "reorder_operations" | "select_operation" | "set_visibility" | "simulate" | "simulate_status" | "show_frame" | "exit_simulation" | "post_process" | "post_process_setup";
+type Action = "get_state" | "select_part" | "remove_part" | "open_operation_dialog" | "import_operations" | "generate_operation" | "generate_status" | "delete_operation" | "duplicate_operation" | "reorder_operations" | "select_operation" | "set_visibility" | "simulate" | "simulate_status" | "show_frame" | "exit_simulation" | "post_process" | "post_process_setup";
 type OperationSpec = { id: string; name: string; type: string };
 type SetupSpec = { id: string; name: string; operations: OperationSpec[] };
 type PanelEvent = {
@@ -244,7 +244,7 @@ function render() {
   root.innerHTML = simulation
     ? `<main class="simulation-page"><div class="simulation-header"><strong>Simulation</strong><span class="meta">${escapeHtml(simulation.status)}</span></div>${visibilityHtml(visibility)}${simulationControlsHtml()}</main>`
     : `<main>${visibilityHtml(visibility)}
-<div class="row"><div id="rhino-react-add-operation-button"></div></div>
+<div class="row"><div id="rhino-react-add-operation-button"></div><button type="button" id="import-operations-button">Import Operations</button></div>
 ${treeHtml(treeState)}
 </main>`;
   const operationTreeElement = root.querySelector<HTMLElement>("#rhino-react-operation-tree");
@@ -271,8 +271,14 @@ ${treeHtml(treeState)}
   }
   const visibilityPickerElement = root.querySelector<HTMLElement>("#rhino-react-visibility-picker");
   const addOperationButtonElement = root.querySelector<HTMLElement>("#rhino-react-add-operation-button");
+  const importOperationsButton = root.querySelector<HTMLButtonElement>("#import-operations-button");
+  const busy = Boolean(generation || setupRegeneration);
   if (visibilityPickerElement) mountRhinoVisibilityPicker(visibilityPickerElement, visibility, simulation !== undefined, (flag, value) => send("set_visibility", { flags: { [flag]: value } }));
-  if (addOperationButtonElement) mountRhinoAddOperationButton(addOperationButtonElement, Boolean(generation || setupRegeneration), () => send("open_operation_dialog"));
+  if (addOperationButtonElement) mountRhinoAddOperationButton(addOperationButtonElement, busy, () => send("open_operation_dialog"));
+  if (importOperationsButton) {
+    importOperationsButton.disabled = busy;
+    importOperationsButton.onclick = () => send("import_operations");
+  }
   root.querySelectorAll<HTMLButtonElement>("[data-action]").forEach((button) => {
     button.onclick = () => send(button.dataset.action as Action);
   });
@@ -331,14 +337,16 @@ function renderOverlay() {
   }
   const value = contextMenu;
   const summaries = latest?.state.results?.toolpath_summaries as Record<string, unknown> | undefined;
+  const invalidOperationIds = latest?.state.results?.invalid_operation_ids;
+  const isInvalid = (operationId: string) => Array.isArray(invalidOperationIds) && invalidOperationIds.includes(operationId);
   const setup = value?.kind === "setup" ? latest?.state.setups.find((candidate) => candidate.id === value.setupId) : undefined;
   const operationId = value?.kind === "operation" ? value.operationId : "";
   const busy = generation !== undefined || setupRegeneration !== undefined;
   mountRhinoContextMenu(element, value, {
     close: closeContextMenu,
-    operationGenerated: Boolean(operationId && summaries?.[operationId]),
+    operationGenerated: Boolean(operationId && summaries?.[operationId] && !isInvalid(operationId)),
     setupHasOperations: Boolean(setup?.operations.length),
-    setupGenerated: Boolean(setup?.operations.length && setup.operations.every((operation) => summaries?.[operation.id])),
+    setupGenerated: Boolean(setup?.operations.length && setup.operations.every((operation) => summaries?.[operation.id] && !isInvalid(operation.id))),
     busy,
     simulate: () => startSimulation(operationId),
     postProcess: () => send("post_process", { operation_id: operationId }),
@@ -354,6 +362,7 @@ function renderOverlay() {
 function receive(value: string) {
   const event = JSON.parse(value) as PanelEvent;
   latest = event;
+  if (event.ok === false && event.error) window.alert(event.error);
   const currentGeneration = generation;
   let advanceSetupRegeneration = false;
   if (currentGeneration?.startRequestId === event.request_id && !event.generation_status) {

@@ -102,7 +102,7 @@ class DocumentState:
 class PanelRequest:
     action: Literal[
         "get_state", "select_part", "select_region", "generate", "generate_operation",
-        "generate_status", "open_operation_dialog", "add_operation", "update_operation",
+        "generate_status", "open_operation_dialog", "add_operation", "import_operations", "update_operation",
         "delete_operation", "duplicate_operation", "reorder_operations",
         "select_operation", "set_visibility", "set_backend_url", "remove_part",
         "simulate", "simulate_status", "show_frame", "exit_simulation", "clear_preview", "post_process", "post_process_setup",

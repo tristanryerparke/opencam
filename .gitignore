@@ -41,6 +41,7 @@ htmlcov/
 /frontend/**/*.local
 
 # C# / Rhino plugin
+/rhino_plugin/web/node_modules/
 *.rhl
 /frontend/rhino_frontend/python/site-packages/
 /csharp/**/bin/

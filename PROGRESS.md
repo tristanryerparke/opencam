@@ -659,3 +659,20 @@ The web operation editor is wider (`max-w-6xl`) and shorter (`70vh`); both picke
 - [ ] Install the rebuilt Rhino bridge.
 
 The web operation editor now uses an explicit `104rem` maximum width, equivalent to the requested `max-w-10xl` custom size, and a `50vh` height. Browser and Rhino bridge builds pass.
+
+## Imported Rhino operations and invalid-operation safeguards
+
+- [x] Trace Rhino document persistence, panel bridge, operation validity, and post-processing paths.
+- [x] Add panel import control and Rhino-file operation import without geometry.
+- [x] Alert for imported files with no OpenCAM operations and generation attempted without geometry.
+- [x] Disable post-processing for invalid operations.
+- [x] Validate frontend, bridge contracts, and focused tests; rebuild/install plug-in.
+
+`Import Operations` opens a `.3dm`, reads only this plug-in's archive data, and appends copied operation names/types/parameters to current setup. New UUIDs, empty geometry/reference lists, cleared generated artifacts, and invalid state prevent source geometry or source toolpaths from crossing documents. A no-operation file and regeneration without drive geometry now return panel errors shown as alerts. Invalid operations disable post-processing in menus and are rejected server-side. Add/edit dialog blocks generation until drive geometry is selected. Development `OpenCamRhinoBridge.rhp` rebuilt and installed; Rhino restart required.
+
+## Imported-operation geometry selection fix
+
+- [x] Allow geometry-selection bridge message from incomplete imported drafts.
+- [x] Rebuild/install Rhino bridge and validate.
+
+Cause: `Add XY-planar edge loop` serialized its draft with schema validation before sending `select_region`; imported operations intentionally have empty drive geometry, so validation threw inside click handler and no Rhino selection message was sent. Geometry-selection now serializes incomplete drafts without validation; final Generate still validates. Bridge rebuilt and installed; Rhino restart required.

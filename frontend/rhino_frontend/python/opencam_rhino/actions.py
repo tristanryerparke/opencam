@@ -228,6 +228,10 @@ def _operation_max_z(operation: OperationSpec) -> float:
 
 def _start_generation(document_state: DocumentState, operation: OperationSpec, doc):
     uses_part = operation.type == "parallel_finishing"
+    if not uses_part and not operation.regions:
+        raise ValueError(
+            "Operation has no geometry. Edit operation and select geometry before regenerating."
+        )
     if uses_part:
         _require(
             document_state.part,
@@ -584,6 +588,57 @@ def run(request_data, doc):
                 generation_status="running",
                 generation_operation_id=generation.operation_id,
             )
+        elif action == "import_operations":
+            import json
+
+            from OpenCam import PluginBridge
+
+            raw = PluginBridge.ChooseOpenCamOperationsJson()
+            if raw is None:
+                return panel_event(request, document_state, cancelled=True)
+            try:
+                imported_document = json.loads(raw)
+            except (TypeError, json.JSONDecodeError) as error:
+                raise ValueError("Selected Rhino file has invalid OpenCAM data.") from error
+            if not isinstance(imported_document, dict):
+                raise ValueError("Selected Rhino file has invalid OpenCAM data.")
+
+            imported = []
+            for source_setup in imported_document.get("setups", []):
+                if not isinstance(source_setup, dict):
+                    continue
+                for source_operation in source_setup.get("operations", []):
+                    if not isinstance(source_operation, dict):
+                        continue
+                    operation_type = str(source_operation.get("type", ""))
+                    if operation_type not in operations.OPERATION_TYPES:
+                        continue
+                    params = source_operation.get("params", {})
+                    if not isinstance(params, dict):
+                        continue
+                    imported.append(OperationSpec(
+                        id=_uuid(),
+                        name=str(source_operation.get("name") or operation_type),
+                        type=operation_type,
+                        params=deepcopy(params),
+                    ))
+            if not imported:
+                raise ValueError("Selected Rhino file contains no OpenCAM operations.")
+
+            setup = document_state.setups[0]
+            setup.operations.extend(imported)
+            state.mark_operations_invalid(
+                document_state, [operation.id for operation in imported]
+            )
+            document_state.selected_operation_id = imported[-1].id
+            runtime.sync_selected_toolpath(doc, document_state)
+            state.save(doc, document_state)
+            return panel_event(
+                request,
+                document_state,
+                ok=True,
+                selected_operation_id=document_state.selected_operation_id,
+            )
         elif action == "add_operation":
             setup_id = request.payload.get("setup_id")
             setup = next((item for item in document_state.setups if item.id == setup_id), None)
@@ -910,6 +965,16 @@ def run(request_data, doc):
                 None,
             )
             _require(setup, "Selected setup no longer exists.")
+            invalid_ids = state.invalid_operation_ids(document_state)
+            invalid_names = [
+                operation.name for operation in setup.operations
+                if operation.id in invalid_ids
+            ]
+            _require(
+                not invalid_names,
+                "Edit and regenerate every invalid setup operation before post-processing: "
+                + ", ".join(invalid_names),
+            )
             generated_operations = []
             missing_operation_names = []
             for operation_spec in setup.operations:
@@ -949,6 +1014,10 @@ def run(request_data, doc):
         elif action == "post_process":
             _, selected_operation = _target_operation(document_state, request)
             _require(selected_operation, "Select an operation before post-processing.")
+            _require(
+                selected_operation.id not in state.invalid_operation_ids(document_state),
+                "Edit and regenerate this invalid operation before post-processing.",
+            )
             operation = runtime.last_toolpath(doc, selected_operation.id)
             if operation is None:
                 operation = state.cached_toolpath(document_state, selected_operation.id)
@@ -982,7 +1051,7 @@ def run(request_data, doc):
             persisted_state = state.load(doc)
         except Exception:  # noqa: BLE001 - preserve original action failure
             persisted_state = document_state
-        return panel_event(request, persisted_state, ok=False)
+        return panel_event(request, persisted_state, ok=False, error=str(error))
 
 
 def _require(value, message):

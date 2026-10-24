@@ -37,6 +37,35 @@ namespace RhinoCodePlatform.Rhino3D.Projects.Plugin
       return PluginDocumentData.SetJson(documentSerialNumber, json);
     }
 
+    public static string ChooseOpenCamOperationsJson()
+    {
+      var dialog = new Eto.Forms.OpenFileDialog();
+      dialog.Title = "Import OpenCAM operations";
+      dialog.Filters.Add(new FileFilter("Rhino files", ".3dm"));
+      if (dialog.ShowDialog(RhinoEtoApp.MainWindow) != DialogResult.Ok
+        || string.IsNullOrWhiteSpace(dialog.FileName))
+        return null;
+
+      using (var file = File3dm.Read(dialog.FileName))
+      {
+        if (file == null)
+          throw new InvalidOperationException("Could not read selected Rhino file.");
+        foreach (var plugInData in file.PlugInData)
+        {
+          if (plugInData.PlugInId != Instance.Id)
+            continue;
+          string json = null;
+          if (file.PlugInData.TryRead(plugInData, (_file, archive) =>
+              {
+                json = archive.ReadString();
+                return true;
+              }))
+            return json;
+        }
+      }
+      return "{}";
+    }
+
     protected override LoadReturnCode OnLoad(ref string errorMessage)
     {
       Panels.RegisterPanel(this, typeof(OpenCamWebPanel), "OpenCAM", null,

@@ -21,6 +21,12 @@ namespace OpenCam
         .SetDocumentDataJson(documentSerialNumber, json);
     }
 
+    public static string ChooseOpenCamOperationsJson()
+    {
+      return RhinoCodePlatform.Rhino3D.Projects.Plugin.ProjectPlugin
+        .ChooseOpenCamOperationsJson();
+    }
+
     public static string ShowOperationDialog(uint documentSerialNumber,
       string initialJson)
     {

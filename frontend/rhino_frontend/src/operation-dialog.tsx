@@ -92,8 +92,10 @@ function objectValue(value: DraftValue | undefined): DraftObject {
   return value && typeof value === "object" && !Array.isArray(value) ? value as DraftObject : {};
 }
 
-function toLegacyDraft(source: LegacyDraft, draft: DraftObject): LegacyDraft {
-  const parsed = parseDraftValue(operationSchema(source.type), draft, operationSchema(source.type), "Operation") as DraftObject;
+function toLegacyDraft(source: LegacyDraft, draft: DraftObject, validate = true): LegacyDraft {
+  const parsed = (validate
+    ? parseDraftValue(operationSchema(source.type), draft, operationSchema(source.type), "Operation")
+    : draft) as DraftObject;
   const tool = objectValue(parsed.tool);
   const feeds = objectValue(parsed.feedsAndSpeeds);
   const clearance = objectValue(parsed.clearance);
@@ -163,6 +165,10 @@ function RhinoOperationDialog({ initial }: { initial: InitialValue }) {
   const validationMessage = (() => {
     try {
       parseDraftValue(schema, draft, schema, "Operation");
+      if (source.type === "parallel_finishing" && !initial.has_part)
+        return "Select a part before generating this operation.";
+      if (source.type !== "parallel_finishing" && toLegacyDraft(source, draft).regions.length === 0)
+        return "Select drive geometry before generating this operation.";
       return null;
     } catch (error) {
       return error instanceof Error ? error.message : "Operation is invalid.";
@@ -177,7 +183,7 @@ function RhinoOperationDialog({ initial }: { initial: InitialValue }) {
         rootSchema={schema}
         loadTools={loadTools}
         onDraftChange={setDraft}
-        onStartGeometrySelection={() => send({ action: "select_region", draft: toLegacyDraft(source, draft) })}
+        onStartGeometrySelection={() => send({ action: "select_region", draft: toLegacyDraft(source, draft, false) })}
       />
       <footer style={{ display: "flex", justifyContent: "flex-end", gap: "0.5rem" }}>
         <Button type="button" variant="outline" onClick={() => send({ action: "cancel" })}>Cancel</Button>
